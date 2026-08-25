@@ -46,22 +46,26 @@ class AnimationAnalysisTests(unittest.TestCase):
             result["keyframes"],
         )
 
-    def test_foot_contact_changes_prioritise_short_lived_states(self):
-        roots = np.zeros((10, 3), dtype=np.float32)
-        quats = np.zeros((10, 1, 4), dtype=np.float32)
+    def test_foot_contact_changes_debounce_short_reversals(self):
+        roots = np.zeros((18, 3), dtype=np.float32)
+        quats = np.zeros((18, 1, 4), dtype=np.float32)
         quats[..., 3] = 1.0
-        contacts = np.zeros((10, 4), dtype=np.float32)
-        contacts[2:7, :2] = 1.0
-        contacts[4:5, 2:] = 1.0
+        contacts = np.zeros((18, 4), dtype=np.float32)
+        contacts[2:14, :2] = 1.0
+        contacts[8:10, :2] = 0.0
+        contacts[6:8, 2:] = 1.0
         result = build_clip_constraint_analysis(
             [{"root_positions": roots, "local_rot_quats": quats, "foot_contacts": contacts, "fps": 20.0}],
             {"analysis_only": True, "keyframe_count": 2},
         )
         changes = result["foot_contact_changes"]
-        self.assertEqual("right", changes[0]["foot"])
-        self.assertEqual(1, changes[0]["duration_frames"])
-        self.assertEqual(4, changes[0]["frame"])
-        self.assertEqual([1, 3, 5, 5], [item["duration_frames"] for item in changes])
+        self.assertEqual(
+            [
+                {"clip_index": 0, "foot": "left", "frame": 14, "contact": False, "transition": "contact_end", "duration_frames": 4},
+                {"clip_index": 0, "foot": "left", "frame": 2, "contact": True, "transition": "contact_start", "duration_frames": 12},
+            ],
+            changes,
+        )
         expanded_contacts = np.concatenate((contacts[:, :2], contacts[:, 1:2], contacts[:, 2:], contacts[:, 3:4]), axis=1)
         expanded = build_clip_constraint_analysis(
             [{"root_positions": roots, "local_rot_quats": quats, "foot_contacts": expanded_contacts, "fps": 20.0}],

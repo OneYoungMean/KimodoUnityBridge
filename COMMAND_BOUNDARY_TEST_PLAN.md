@@ -39,7 +39,7 @@ Use a temporary Unity scene and always close the created session in teardown.
 `animation_analyze`:
 
 - `clips` missing, empty, three items, scalar item, missing character/clip, duplicate roles, invalid role, one implicit source role, two explicit source/target roles.
-- `level`: omitted/default, `low`, `middle`, `high`, `-test`, case/whitespace, unknown value.
+- `level`: omitted/default, `low`, `middle`, `high`, case/whitespace, unknown value (including removed `-test`).
 - `resolution`: omitted (512), exactly 64/4096, 63/4097, zero, negative, float, string, null.
 - Verify completed clips are unchanged, cache reuse is stable, and mesh-only output omits humanoid contact claims.
 

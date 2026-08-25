@@ -11,8 +11,10 @@ using KimodoUnityBridge;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 namespace KimodoUnityBridge.Command
 {
@@ -22,7 +24,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "28-depth-tested-original-material";
+        private const string TestAnalysisPictureRenderVersion = "32-left-foot-transition-priority";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
@@ -33,8 +35,13 @@ namespace KimodoUnityBridge.Command
         private const float TestCameraFitScale = 1f;
         private const float TestGhostAlphaMin = .1f;
         private const float TestGhostAlphaMax = .5f;
+        private const float StationaryTrajectoryRange = .25f;
+        private const int StationaryTrajectoryMinFrames = 10;
+        private const float StationaryTrajectoryAlphaBoost = .1f;
+        private const float MaxPromotedGhostAlpha = .75f;
         private static readonly Color TestStartFrameTint = new Color(57f / 255f, 197f / 255f, 187f / 255f, 1f);
         private static readonly Color TestEndFrameTint = new Color(217f / 255f, 58f / 255f, 73f / 255f, 1f);
+        private static Scene analysisPreviewScene;
 
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
@@ -57,7 +64,7 @@ namespace KimodoUnityBridge.Command
             }
 
             var data = subjects.Select(subject => BuildSubjectPictureData(session, subject)).ToList();
-            TrajectoryScale trajectoryScale = BuildTrajectoryScale(data, level == "-test");
+            TrajectoryScale trajectoryScale = BuildTrajectoryScale(data, true);
             var tiles = new List<PictureTile>();
             foreach (SubjectPictureData subject in data)
             {
@@ -78,15 +85,27 @@ namespace KimodoUnityBridge.Command
             int imageHeight;
             bool cached = false;
             Directory.CreateDirectory(EvidenceFolder(session));
-            Texture2D canvas = RenderPictureCanvas(
-                data,
-                tiles,
-                layout,
-                trajectoryScale,
-                tileWidth,
-                tileHeight,
-                PictureSupersample,
-                out imageRects);
+            Scene previousPreviewScene = analysisPreviewScene;
+            Scene previewScene = EditorSceneManager.NewPreviewScene();
+            Texture2D canvas;
+            try
+            {
+                analysisPreviewScene = previewScene;
+                canvas = RenderPictureCanvas(
+                    data,
+                    tiles,
+                    layout,
+                    trajectoryScale,
+                    tileWidth,
+                    tileHeight,
+                    PictureSupersample,
+                    out imageRects);
+            }
+            finally
+            {
+                analysisPreviewScene = previousPreviewScene;
+                if (previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
+            }
             try
             {
                 imageWidth = canvas.width;
@@ -321,7 +340,8 @@ namespace KimodoUnityBridge.Command
             string level,
             int requestedResolution)
         {
-            string renderVersion = level == "-test" ? TestAnalysisPictureRenderVersion : AnalysisPictureRenderVersion;
+            // All humanoid picture levels now use the depth-tested test renderer.
+            string renderVersion = TestAnalysisPictureRenderVersion;
             string source = renderVersion + "|" + level + "|" + requestedResolution + "|" + PictureSupersample + "|" +
                 string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
             using (SHA256 hash = SHA256.Create())
@@ -419,8 +439,8 @@ namespace KimodoUnityBridge.Command
                 }
             }
 
-            // Keep the legacy bounds for low/middle/high.  The complete pose
-            // bounds are exposed separately and consumed only by -test.
+            // Keep the legacy bounds for non-test mesh evidence. The complete
+            // pose bounds are exposed separately for the test renderer.
             Bounds bounds = firstBounds;
             foreach (Vector3 point in pelvis) bounds.Encapsulate(point);
             bounds.Encapsulate(lastBounds);
@@ -538,7 +558,7 @@ namespace KimodoUnityBridge.Command
                     .ToList();
             }
 
-            if (level == "-test" || level == "low" || level == "middle" || level == "high")
+            if (level == "low" || level == "middle" || level == "high")
             {
                 var result = new List<PictureTile>
                 {
@@ -548,7 +568,7 @@ namespace KimodoUnityBridge.Command
 
                 if (level == "middle" || level == "high")
                 {
-                    foreach (int frame in SelectKeyFrames(subject, AnalysisKeyframeCount))
+                    foreach (int frame in SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame))
                     {
                         result.Add(PictureTile.TestPose(subject, frame, "keyframe", new Vector3(1f, .75f, -1f)));
                     }
@@ -556,10 +576,17 @@ namespace KimodoUnityBridge.Command
 
                 if (level == "high")
                 {
-                    foreach (int frame in FootTransitionFrames(subject))
+                    foreach (int frame in FootTransitionFrames(subject).OrderBy(frame => frame))
                     {
                         result.Add(PictureTile.TestPose(subject, frame, "foot_transition", new Vector3(1f, .75f, -1f)));
                     }
+                }
+
+                if (level == "middle" || level == "high")
+                {
+                    int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+                    result.Add(PictureTile.TestPose(subject, 0, "start", new Vector3(1f, .75f, -1f)));
+                    result.Add(PictureTile.TestPose(subject, lastFrame, "end", new Vector3(1f, .75f, -1f)));
                 }
 
                 return result;
@@ -608,6 +635,10 @@ namespace KimodoUnityBridge.Command
                         images[index],
                         (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
                         (localIndex + 1).ToString(CultureInfo.InvariantCulture));
+                    if (tiles[index].Presentation == "test_pose")
+                    {
+                        DrawFrameNumber(images[index], tiles[index].Frame);
+                    }
                 }
 
                 imageRects = new List<RectInt>(tiles.Count);
@@ -696,12 +727,16 @@ namespace KimodoUnityBridge.Command
                 Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
                 if (tile.Presentation == "ghost")
                 {
-                    List<int> frames = BuildGhostFrames(tile.Subject);
+                    List<int> frames = BuildGhostFrames(tile.Subject, out HashSet<int> promotedFrames);
                     bool separated = !tile.Subject.FirstBounds.Intersects(tile.Subject.LastBounds);
                     for (int index = 0; index < frames.Count; index++)
                     {
                         int frame = frames[index];
                         float alpha = GhostAlpha(index, frames.Count, separated);
+                        if (promotedFrames.Contains(frame))
+                        {
+                            alpha = Mathf.Min(MaxPromotedGhostAlpha, alpha + StationaryTrajectoryAlphaBoost);
+                        }
                         RenderPoseOnto(result, camera, environment, tile.Subject, frame, ResolveGhostPoseTint(tile.Subject, frame), alpha);
                     }
                 }
@@ -837,6 +872,10 @@ namespace KimodoUnityBridge.Command
                             TestGhostAlphaMax);
                         if (keyframe) alpha += .3f;
                         if (footTransition) alpha += .2f;
+                        if (tile.StationaryBoostFrames.Contains(frame))
+                        {
+                            alpha = Mathf.Min(MaxPromotedGhostAlpha, alpha + StationaryTrajectoryAlphaBoost);
+                        }
                         alpha = Mathf.Clamp01(alpha);
                         virtualPoses.Add(CreateTestVirtualPose(
                             posePlan.Get(frame), tint, alpha));
@@ -1057,6 +1096,21 @@ namespace KimodoUnityBridge.Command
 
                 result.SetPixels(resultPixels);
                 result.Apply(false, false);
+                SetEvidenceVisualsEnabled(environment, false);
+                foreach (GameObject item in environment)
+                {
+                    if (item == null) continue;
+                    foreach (LineRenderer line in item.GetComponentsInChildren<LineRenderer>(true)) line.enabled = true;
+                }
+                Texture2D trajectoryLayer = RenderCamera(camera, width, height, Color.clear);
+                try
+                {
+                    Composite(result, trajectoryLayer, 1f);
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(trajectoryLayer);
+                }
                 return result;
             }
             finally
@@ -1190,7 +1244,7 @@ namespace KimodoUnityBridge.Command
             Color tint,
             float alpha)
         {
-            GameObject preview = UnityEngine.Object.Instantiate(snapshot.SourcePrefab);
+            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(snapshot.SourcePrefab));
             preview.name = "Kimodo Test Virtual Pose";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Animator animator in preview.GetComponentsInChildren<Animator>(true))
@@ -1257,7 +1311,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException("Mesh-only analysis has no scene object to preview.");
             }
-            GameObject preview = UnityEngine.Object.Instantiate(subject.Character.Root);
+            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(subject.Character.Root));
             preview.name = "Kimodo Mesh Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
@@ -1290,7 +1344,7 @@ namespace KimodoUnityBridge.Command
 
         private static GameObject CreateCanonicalPosePreview(TimelineCharacterRecord character)
         {
-            GameObject preview = UnityEngine.Object.Instantiate(character.Root);
+            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(character.Root));
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
@@ -1352,7 +1406,7 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static List<int> BuildGhostFrames(SubjectPictureData subject)
+        private static List<int> BuildGhostFrames(SubjectPictureData subject, out HashSet<int> promotedFrames)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             var keyFrames = new HashSet<int>(subject.KeyFrameSet);
@@ -1403,13 +1457,15 @@ namespace KimodoUnityBridge.Command
                 }
                 result.Add(to);
             }
-            return result.Distinct().OrderBy(frame => frame).ToList();
+            var protectedFrames = new HashSet<int>(events);
+            return FilterStationaryBlankFrames(subject, result, protectedFrames, out promotedFrames);
         }
 
         private static List<int> BuildTestSampleFrames(
             SubjectPictureData subject,
             IEnumerable<int> primaryFrames,
-            bool preserveAllPrimaryFrames)
+            bool preserveAllPrimaryFrames,
+            out HashSet<int> promotedFrames)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             var events = (primaryFrames ?? Enumerable.Empty<int>())
@@ -1456,7 +1512,64 @@ namespace KimodoUnityBridge.Command
                 }
                 result.Add(to);
             }
-            return result.Distinct().OrderBy(frame => frame).ToList();
+            var protectedFrames = new HashSet<int>((primaryFrames ?? Enumerable.Empty<int>())
+                .Select(frame => Mathf.Clamp(frame, 0, lastFrame)))
+            {
+                0,
+                lastFrame
+            };
+            return FilterStationaryBlankFrames(subject, result, protectedFrames, out promotedFrames);
+        }
+
+        private static List<int> FilterStationaryBlankFrames(
+            SubjectPictureData subject,
+            IReadOnlyList<int> frames,
+            ISet<int> protectedFrames,
+            out HashSet<int> promotedFrames)
+        {
+            var ordered = (frames ?? Array.Empty<int>())
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+            var removed = new HashSet<int>();
+            promotedFrames = new HashSet<int>();
+            for (int index = 1; index < ordered.Count - 1;)
+            {
+                int frame = ordered[index];
+                if (protectedFrames.Contains(frame))
+                {
+                    index++;
+                    continue;
+                }
+
+                int anchorFrame = ordered[index - 1];
+                int runEnd = index;
+                while (runEnd < ordered.Count - 1 &&
+                       !protectedFrames.Contains(ordered[runEnd]) &&
+                       Vector3.Distance(subject.Pelvis[anchorFrame], subject.Pelvis[ordered[runEnd]]) <= StationaryTrajectoryRange)
+                {
+                    runEnd++;
+                }
+
+                if (runEnd > index && ordered[runEnd - 1] - anchorFrame >= StationaryTrajectoryMinFrames)
+                {
+                    for (int removeIndex = index; removeIndex < runEnd; removeIndex++)
+                    {
+                        removed.Add(ordered[removeIndex]);
+                    }
+                    if (runEnd < ordered.Count - 1)
+                    {
+                        promotedFrames.Add(ordered[runEnd]);
+                    }
+                    index = runEnd;
+                }
+                else
+                {
+                    index++;
+                }
+            }
+
+            return ordered.Where(frame => !removed.Contains(frame)).ToList();
         }
 
         private static float GhostAlpha(int index, int count, bool separated)
@@ -1470,9 +1583,7 @@ namespace KimodoUnityBridge.Command
 
         private static Color FootTint(SubjectPictureData subject, int frame)
         {
-            bool left = subject.LeftContacts[Mathf.Clamp(frame, 0, subject.LeftContacts.Length - 1)];
-            bool right = subject.RightContacts[Mathf.Clamp(frame, 0, subject.RightContacts.Length - 1)];
-            return left == right ? Color.gray : left ? new Color(.2f, .45f, 1f) : new Color(1f, .2f, .2f);
+            return TryGetFootTransitionTint(subject, frame, out Color tint) ? tint : Color.white;
         }
 
         private static IReadOnlyList<int> FootTransitionFrames(SubjectPictureData subject)
@@ -1497,13 +1608,13 @@ namespace KimodoUnityBridge.Command
                 left |= foot.IndexOf("left", StringComparison.OrdinalIgnoreCase) >= 0;
                 right |= foot.IndexOf("right", StringComparison.OrdinalIgnoreCase) >= 0;
             }
-            if (left == right)
+            if (left)
             {
-                tint = Color.gray;
-                return left || right;
+                tint = new Color(.2f, .45f, 1f);
+                return true;
             }
-            tint = left ? new Color(.2f, .45f, 1f) : new Color(1f, .2f, .2f);
-            return true;
+            tint = right ? new Color(1f, .2f, .2f) : Color.white;
+            return right;
         }
 
         private static bool IsKeyframe(SubjectPictureData subject, int frame)
@@ -1555,7 +1666,7 @@ namespace KimodoUnityBridge.Command
         {
             const int captureLayer = 31;
             float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            GameObject floor = MoveToAnalysisPreviewScene(GameObject.CreatePrimitive(PrimitiveType.Plane));
             floor.hideFlags = HideFlags.HideAndDontSave;
             floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
             floor.transform.localScale = Vector3.one * (size / 10f);
@@ -1650,7 +1761,8 @@ namespace KimodoUnityBridge.Command
             mesh.triangles = triangles;
             mesh.RecalculateNormals();
 
-            GameObject floor = new GameObject("Kimodo Test UV Grid") { hideFlags = HideFlags.HideAndDontSave };
+            GameObject floor = MoveToAnalysisPreviewScene(
+                new GameObject("Kimodo Test UV Grid") { hideFlags = HideFlags.HideAndDontSave });
             floor.transform.position = center;
             floor.layer = captureLayer;
             MeshFilter filter = floor.AddComponent<MeshFilter>();
@@ -1670,8 +1782,7 @@ namespace KimodoUnityBridge.Command
 
         private static Camera CreateAnalysisPictureCamera(Bounds bounds, Vector3 direction, bool orthographic)
         {
-            GameObject cameraObject = new GameObject("Kimodo Analysis Picture Camera") { hideFlags = HideFlags.HideAndDontSave };
-            Camera camera = cameraObject.AddComponent<Camera>();
+            Camera camera = CreateAnalysisPictureCamera("Kimodo Analysis Picture Camera");
             camera.cullingMask = 1 << 31;
             camera.orthographic = orthographic;
             camera.nearClipPlane = .01f;
@@ -1691,8 +1802,7 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            GameObject cameraObject = new GameObject("Kimodo Test Analysis Picture Camera") { hideFlags = HideFlags.HideAndDontSave };
-            Camera camera = cameraObject.AddComponent<Camera>();
+            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Analysis Picture Camera");
             camera.cullingMask = 1 << 31;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.1f, aspect);
@@ -1727,8 +1837,7 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            GameObject cameraObject = new GameObject("Kimodo Test Pose Camera") { hideFlags = HideFlags.HideAndDontSave };
-            Camera camera = cameraObject.AddComponent<Camera>();
+            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
             camera.cullingMask = 1 << 31;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.1f, aspect);
@@ -1763,8 +1872,7 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            GameObject cameraObject = new GameObject("Kimodo Test Pose Camera") { hideFlags = HideFlags.HideAndDontSave };
-            Camera camera = cameraObject.AddComponent<Camera>();
+            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
             camera.cullingMask = 1 << 31;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.0001f, aspect);
@@ -1779,6 +1887,45 @@ namespace KimodoUnityBridge.Command
             camera.orthographicSize = Mathf.Max(.0001f, vertical);
             camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
             return camera;
+        }
+
+        private static Camera CreateAnalysisPictureCamera(string name)
+        {
+            GameObject cameraObject = MoveToAnalysisPreviewScene(
+                new GameObject(name) { hideFlags = HideFlags.HideAndDontSave });
+            Camera camera = cameraObject.AddComponent<Camera>();
+            if (analysisPreviewScene.IsValid()) camera.scene = analysisPreviewScene;
+            ConfigureRenderPipelineAnalysisCamera(camera);
+            return camera;
+        }
+
+        private static void ConfigureRenderPipelineAnalysisCamera(Camera camera)
+        {
+            if (camera == null || GraphicsSettings.currentRenderPipeline == null) return;
+
+            string pipelineName = GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
+            string cameraDataTypeName = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData"
+                    : pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0
+                        ? "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData"
+                        : null;
+            if (cameraDataTypeName == null) return;
+
+            Type additionalCameraDataType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType(cameraDataTypeName, false))
+                .FirstOrDefault(type => type != null);
+            if (additionalCameraDataType == null) return;
+
+            Component additionalCameraData = camera.GetComponent(additionalCameraDataType) ??
+                camera.gameObject.AddComponent(additionalCameraDataType);
+            var volumeLayerMask = additionalCameraDataType.GetField("volumeLayerMask");
+            if (volumeLayerMask != null)
+            {
+                volumeLayerMask.SetValue(additionalCameraData, (LayerMask)0);
+                return;
+            }
+            additionalCameraDataType.GetProperty("volumeLayerMask")?.SetValue(additionalCameraData, (LayerMask)0);
         }
 
         private static TrajectoryScale BuildTrajectoryScale(IReadOnlyList<SubjectPictureData> subjects, bool includeEndEffectors = false)
@@ -1834,7 +1981,8 @@ namespace KimodoUnityBridge.Command
             float lineWidth)
         {
             if (points == null || points.Length < 2) return;
-            GameObject lineObject = new GameObject("Kimodo Test Body Trajectory") { hideFlags = HideFlags.HideAndDontSave };
+            GameObject lineObject = MoveToAnalysisPreviewScene(
+                new GameObject("Kimodo Test Body Trajectory") { hideFlags = HideFlags.HideAndDontSave });
             SetLayerRecursively(lineObject, 31);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = points.Length;
@@ -1911,6 +2059,24 @@ namespace KimodoUnityBridge.Command
                     DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
                     x += size * 5;
                 }
+            }
+            texture.Apply(false, false);
+        }
+
+        private static void DrawFrameNumber(Texture2D texture, int frame)
+        {
+            string text = Math.Max(0, frame).ToString(CultureInfo.InvariantCulture);
+            int size = texture.width >= 256 ? 4 : 2;
+            int width = 0;
+            foreach (char character in text) width += size * 5;
+            width = Math.Max(1, width - size);
+            int x = size * 2;
+            int y = size * 2;
+            FillRect(texture, 0, 0, width + size * 4, size * 8, new Color(0f, 0f, 0f, .65f));
+            foreach (char digit in text)
+            {
+                DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
+                x += size * 5;
             }
             texture.Apply(false, false);
         }
@@ -2012,7 +2178,7 @@ namespace KimodoUnityBridge.Command
             bool root2DOnly)
         {
             const int captureLayer = 31;
-            GameObject preview = UnityEngine.Object.Instantiate(character.Root);
+            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(character.Root));
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
@@ -2075,7 +2241,8 @@ namespace KimodoUnityBridge.Command
                 (position: new Vector3(0f, 5f, 5f), intensity: .35f)
             })
             {
-                GameObject lightObject = new GameObject("Kimodo Evidence Light") { hideFlags = HideFlags.HideAndDontSave };
+                GameObject lightObject = MoveToAnalysisPreviewScene(
+                    new GameObject("Kimodo Evidence Light") { hideFlags = HideFlags.HideAndDontSave });
                 Light light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
                 light.intensity = setup.intensity;
@@ -2087,7 +2254,8 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color, bool unlit = false)
         {
-            GameObject lineObject = new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave };
+            GameObject lineObject = MoveToAnalysisPreviewScene(
+                new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave });
             SetLayerRecursively(lineObject, 31);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = 2;
@@ -2119,6 +2287,15 @@ namespace KimodoUnityBridge.Command
         private static void SetLayerRecursively(GameObject root, int layer)
         {
             foreach (Transform transform in root.GetComponentsInChildren<Transform>(true)) transform.gameObject.layer = layer;
+        }
+
+        private static GameObject MoveToAnalysisPreviewScene(GameObject gameObject)
+        {
+            if (gameObject != null && analysisPreviewScene.IsValid())
+            {
+                SceneManager.MoveGameObjectToScene(gameObject, analysisPreviewScene);
+            }
+            return gameObject;
         }
 
         private static Texture2D RenderCamera(Camera camera, int size, Color background)
@@ -2486,6 +2663,7 @@ namespace KimodoUnityBridge.Command
             public string PoseKind { get; private set; }
             public List<int> TrajectoryFrames { get; private set; } = new List<int>();
             public HashSet<int> PrimaryFrames { get; private set; } = new HashSet<int>();
+            public HashSet<int> StationaryBoostFrames { get; private set; } = new HashSet<int>();
             public bool ShowTestTrajectories { get; private set; }
 
             public static PictureTile Ghost(SubjectPictureData subject, string view, Vector3 direction, bool orthographic)
@@ -2562,7 +2740,8 @@ namespace KimodoUnityBridge.Command
                 List<int> frames = BuildTestSampleFrames(
                     subject,
                     primary,
-                    presentation == "test_foot_transitions");
+                    presentation == "test_foot_transitions",
+                    out HashSet<int> stationaryBoostFrames);
                 primary.IntersectWith(frames);
                 return new PictureTile(subject, presentation, new JObject
                 {
@@ -2576,6 +2755,7 @@ namespace KimodoUnityBridge.Command
                     Orthographic = true,
                     TrajectoryFrames = frames,
                     PrimaryFrames = primary,
+                    StationaryBoostFrames = stationaryBoostFrames,
                     ShowTestTrajectories = showTrajectories
                 };
             }

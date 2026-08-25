@@ -768,10 +768,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             sorted((item["clip_index"], item["frame"]) for item in response["analysis"]["keyframes"]),
         )
         self.assertTrue(all("saliency" in item for item in response["analysis"]["keyframes"]))
-        self.assertEqual(
-            [1, 1, 1, 1],
-            [item["duration_frames"] for item in response["analysis"]["foot_contact_changes"]],
-        )
+        self.assertEqual([], response["analysis"]["foot_contact_changes"])
         for item in response["kmb_attachments"]:
             clip_payload = payload[item["offset"] : item["offset"] + item["byte_length"]]
             dense = parse_kmb1_payload(clip_payload)

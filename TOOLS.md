@@ -30,7 +30,7 @@ Use the live command schema for exact parameters. This document defines only the
 ### 4. Analysis and visual evidence
 
 - `animation_analyze` accepts one or two explicit `{character,clip,role?}` references from the current Session. `role` is `source` or `target`; defaults follow item order.
-- Choose `level` deliberately and inspect the actual `pictures.images` list. For Humanoid targets, each supported level includes grouped keyframe and foot-transition panels; `middle` and `high` add individual key-pose panels, and `high` adds more individual foot-transition poses. `-test` is for renderer validation. Mesh-only targets return Mesh pose panels rather than Humanoid contact panels. `resolution` controls final tile size, accepts 64–4096 pixels, and defaults to 512.
+- Choose `level` deliberately and inspect the actual `pictures.images` list. For Humanoid targets, `low` contains the grouped test panels, `middle` adds time-ordered keyframe poses plus explicit start/end poses, and `high` additionally adds time-ordered foot-transition poses. Individual pose tiles are labeled with their source frame in the lower-left corner. Mesh-only targets return Mesh pose panels rather than Humanoid contact panels. `resolution` controls final tile size, accepts 64–4096 pixels, and defaults to 512.
 - The result contains analysis data and a composite PNG at `pictures.image_path`, plus a self-describing `pictures.images` tile list. Open the PNG; filenames, IDs, and numbers alone are not visual proof.
 - Humanoid analysis internally samples HumanBodyBones and returns keyframe/foot-contact data plus pictures. Non-Humanoid renderable Mesh analysis is Mesh-only pose evidence and must not be reported as Humanoid contact evidence.
 - Compare action, phase, direction/path, silhouette, balance, root trajectory, pelvis, contacts, and ending state with the request. Check object contact only when an external fixture or visible scene evidence supplies it. `animation_compare` is a Humanoid-only numeric boundary check: it reports root/yaw, mean-muscle, and end-effector deltas, but currently has no compatible foot-contact comparison. It does not replace semantic visual judgment.
@@ -92,7 +92,7 @@ Use only these visual statuses: `passed`, `needs_revision`, or `not_verified`. `
 ### 4. 分析与视觉证据
 
 - `animation_analyze` 接收当前 Session 中一个或两个显式 `{character,clip,role?}`；`role` 为 `source` 或 `target`，省略时按项目顺序推断。
-- 按目的选择 `level`，并以实际返回的 `pictures.images` 列表为准。Humanoid 目标的各级别都会包含分组关键帧和脚切换面板；`middle` 和 `high` 增加单独的关键姿势面板，`high` 再增加更多单独的脚切换姿势；`-test` 用于渲染器验证。Mesh-only 目标返回 Mesh 姿态面板，不返回 Humanoid 接触面板。`resolution` 控制最终 tile 尺寸，可取 64–4096 像素，默认 512。
+- 按目的选择 `level`，并以实际返回的 `pictures.images` 列表为准。Humanoid 目标中，`low` 仅包含当前测试分组面板，`middle` 增加按时间排序的关键帧姿势及明确的首尾帧，`high` 再增加按时间排序的脚切换姿势。单帧图片左下角会标记来源帧数。Mesh-only 目标返回 Mesh 姿态面板，不返回 Humanoid 接触面板。`resolution` 控制最终 tile 尺寸，可取 64–4096 像素，默认 512。
 - 结果返回分析数据、`pictures.image_path` 组合 PNG 和自描述的 `pictures.images` tile 列表。必须实际打开 PNG；文件名、ID 和数字本身不是视觉证明。
 - Humanoid 分析内部采样 HumanBodyBones，并返回关键帧/脚接触数据和图片；非 Humanoid 可渲染 Mesh 只提供 Mesh-only 姿态证据，不能声称有 Humanoid 接触证据。
 - 将动作、阶段、方向/路径、剪影、平衡、Root 轨迹、骨盆、接触和结束状态与要求对照。只有外部 fixture 或可见场景证据提供物体接触时，才检查物体接触。`animation_compare` 是 Humanoid-only 的数值边界检查：它返回 Root/yaw、平均 muscle 和末端差异，但当前没有兼容的脚接触比较；它不能替代语义视觉判断。

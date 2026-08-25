@@ -1029,9 +1029,9 @@ namespace KimodoUnityBridge.Command
         private static string NormalizeAnalysisPictureLevel(string level)
         {
             string normalized = (level ?? "middle").Trim().ToLowerInvariant();
-            if (normalized != "low" && normalized != "middle" && normalized != "high" && normalized != "-test")
+            if (normalized != "low" && normalized != "middle" && normalized != "high")
             {
-                throw new InvalidOperationException("level must be low, middle, high, or -test.");
+                throw new InvalidOperationException("level must be low, middle, or high.");
             }
             return normalized;
         }
@@ -1081,6 +1081,7 @@ namespace KimodoUnityBridge.Command
                     ["foot"] = contact.Value<string>("foot") ?? string.Empty,
                     ["frame"] = contact.Value<int?>("frame") ?? 0,
                     ["contact"] = contact.Value<bool?>("contact") ?? false,
+                    ["transition"] = contact.Value<string>("transition") ?? string.Empty,
                     ["duration_frames"] = contact.Value<int?>("duration_frames") ?? 0
                 });
             }

@@ -123,7 +123,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyze["properties"]["resolution"]["maximum"]?.Value<int>(), Is.EqualTo(4096));
             Assert.That(analyze["properties"]["resolution"]?.Value<string>("type"), Is.EqualTo("integer"));
             Assert.That(analyze["properties"]["level"]["enum"]?.Values<string>(),
-                Is.EquivalentTo(new[] { "low", "middle", "high", "-test" }));
+                Is.EquivalentTo(new[] { "low", "middle", "high" }));
 
             JObject generate = (JObject)Tool("kimodo_generate_animation")["inputSchema"];
             Assert.That(generate["properties"]["output_mode"]["enum"]?.Values<string>(),
@@ -187,6 +187,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(method.Invoke(null, new object[] { "  HIGH " }), Is.EqualTo("high"));
             Assert.That(method.Invoke(null, new object[] { null }), Is.EqualTo("middle"));
             AssertPrivateFailure(method, "ultra", "level must be");
+            AssertPrivateFailure(method, "-test", "level must be");
         }
 
         [Test]

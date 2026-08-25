@@ -8,6 +8,7 @@ import numpy as np
 
 
 _DEFAULT_KEYFRAME_COUNT = 8
+_MIN_CONTACT_STATE_FRAMES = 4
 
 
 def build_generation_analysis(request: dict[str, Any], model: Any, output: dict[str, Any]) -> dict[str, Any] | None:
@@ -149,7 +150,7 @@ def _select_curve_keyframes(values: np.ndarray, count: int) -> list[dict[str, in
 
 
 def _foot_contact_changes(contacts: Any) -> list[dict[str, int | bool | str]]:
-    """Return left/right contact state changes, prioritising short-lived states."""
+    """Return debounced left/right contact state changes."""
     values = np.asarray(contacts) if contacts is not None else np.empty((0, 0))
     if values.ndim != 2 or values.shape[0] < 2:
         return []
@@ -162,16 +163,41 @@ def _foot_contact_changes(contacts: Any) -> list[dict[str, int | bool | str]]:
 
     changes: list[dict[str, int | bool | str]] = []
     for foot, channels in feet:
-        states = np.any(channels >= 0.5, axis=1)
+        states = _debounce_contact_states(np.any(channels >= 0.5, axis=1))
         switch_frames = np.flatnonzero(states[1:] != states[:-1]) + 1
         boundaries = np.append(switch_frames[1:], len(states))
         for index, frame in enumerate(switch_frames):
+            contact = bool(states[frame])
             changes.append(
                 {
                     "foot": foot,
                     "frame": int(frame),
-                    "contact": bool(states[frame]),
+                    "contact": contact,
+                    "transition": "contact_start" if contact else "contact_end",
                     "duration_frames": int(boundaries[index] - frame),
                 }
             )
     return sorted(changes, key=lambda item: (int(item["duration_frames"]), str(item["foot"]), int(item["frame"])))
+
+
+def _debounce_contact_states(states: np.ndarray) -> np.ndarray:
+    """Confirm a reversed contact state only after it persists for four frames."""
+    filtered = np.asarray(states, dtype=bool).copy()
+    if len(filtered) < 2:
+        return filtered
+
+    stable = bool(filtered[0])
+    candidate_start = -1
+    filtered[:] = stable
+    for frame in range(1, len(states)):
+        value = bool(states[frame])
+        if value == stable:
+            candidate_start = -1
+        elif candidate_start < 0:
+            candidate_start = frame
+        elif frame - candidate_start + 1 >= _MIN_CONTACT_STATE_FRAMES:
+            stable = value
+            filtered[candidate_start : frame + 1] = stable
+            candidate_start = -1
+        filtered[frame] = stable
+    return filtered

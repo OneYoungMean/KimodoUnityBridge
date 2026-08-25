@@ -98,7 +98,7 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
-                             OptionalEnumWithDefault("level", "middle", "low", "middle", "high", "-test"),
+                             OptionalEnumWithDefault("level", "middle", "low", "middle", "high"),
                             new PropertyDefinition("resolution", new JObject
                             {
                                 ["type"] = "integer",

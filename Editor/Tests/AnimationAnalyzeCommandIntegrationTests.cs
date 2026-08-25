@@ -4,6 +4,7 @@ using KimodoBridge;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 
 namespace KimodoUnityBridge.Command.Tests
@@ -44,14 +45,17 @@ namespace KimodoUnityBridge.Command.Tests
                 {
                     ["kind"] = "clip", ["character"] = addedCharacter.Value<string>("name"), ["clip"] = ArcWalkPath
                 })["animation"] as JObject;
+                int previewSceneCount = EditorSceneManager.previewSceneCount;
                 JObject analysis = Require("animation_analyze", new JObject
                 {
                     ["clips"] = new JArray(new JObject
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = addedClip.Value<string>("name")
                     }),
-                    ["level"] = "-test", ["resolution"] = 512
+                    ["level"] = "low", ["resolution"] = 512
                 });
+                Assert.That(EditorSceneManager.previewSceneCount, Is.EqualTo(previewSceneCount),
+                    "animation_analyze leaked its isolated preview Scene.");
 
                 string relativePng = analysis["pictures"]?.Value<string>("image_path");
                 string absolutePng = string.IsNullOrWhiteSpace(relativePng)
