@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,6 +39,7 @@ namespace KimodoUnityBridge.Command
         public const string PoseSetMuscleCommand = "pose_set_muscle";
         public const string GetGenerationCommand = "kimodo_get_generation";
         public const string CancelGenerationCommand = "kimodo_cancel_generation";
+        internal const string HelpAssetPath = "Packages/com.unity.kimodo_unity_motion_tools/Command/help.json";
 
         private const int MaxRememberedJobs = 128;
         private static readonly Dictionary<Guid, JobRecord> Jobs = new Dictionary<Guid, JobRecord>();
@@ -46,10 +48,22 @@ namespace KimodoUnityBridge.Command
 
         public static string GetCommandDefinitionsJson()
         {
-            return Commands.Value.ToJson();
+            TextAsset help = AssetDatabase.LoadAssetAtPath<TextAsset>(HelpAssetPath);
+            if (help != null)
+            {
+                try
+                {
+                    return JObject.Parse(help.text).ToString(Formatting.None);
+                }
+                catch (JsonException)
+                {
+                    // The code-built schema keeps command discovery available while an edited help file is invalid.
+                }
+            }
+            return BuildCommandDefinitionsJson();
         }
 
-        private static string BuildCommandDocumentJson()
+        private static string BuildCommandDefinitionsJson()
         {
             return new JObject
             {
@@ -1280,6 +1294,14 @@ namespace KimodoUnityBridge.Command
 
         private static AnimationClip ResolveAnimationClip(string name)
         {
+            string reference = name?.Trim();
+            if (!string.IsNullOrWhiteSpace(reference) &&
+                (reference.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                 reference.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase)))
+            {
+                AnimationClip direct = AssetDatabase.LoadAssetAtPath<AnimationClip>(reference);
+                if (direct != null) return direct;
+            }
             AnimationClip[] matches = AssetDatabase.FindAssets($"t:AnimationClip {name}", new[] { "Assets" })
                 .SelectMany(guid => AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GUIDToAssetPath(guid)).OfType<AnimationClip>())
                 .Where(clip => string.Equals(clip.name, name, StringComparison.OrdinalIgnoreCase))
@@ -1288,7 +1310,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException(matches.Length == 0
                     ? $"AnimationClip '{name}' was not found under Assets."
-                    : $"AnimationClip name '{name}' is ambiguous; use a unique project clip name.");
+                    : $"AnimationClip name '{name}' is ambiguous; use a unique project clip name or an Assets/ or Packages/ path.");
             }
             return matches[0];
         }
@@ -1711,7 +1733,7 @@ namespace KimodoUnityBridge.Command
 
         private static CommandCatalog BuildCommandCatalog()
         {
-            JObject document = JObject.Parse(BuildCommandDocumentJson());
+            JObject document = JObject.Parse(GetCommandDefinitionsJson());
             var handlers = new Dictionary<string, Func<string, string>>(StringComparer.Ordinal)
             {
                 [HelpCommand] = GetCommandHelp,
@@ -1749,6 +1771,22 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException("Command definitions and handlers are out of sync.");
             }
             return new CommandCatalog(registrations);
+        }
+
+        [MenuItem("Kimodo/Command/Export Help JSON")]
+        public static void ExportCommandDefinitionsJson()
+        {
+            UnityEditor.PackageManager.PackageInfo package =
+                UnityEditor.PackageManager.PackageInfo.FindForAssetPath(HelpAssetPath);
+            if (package == null || string.IsNullOrWhiteSpace(package.resolvedPath))
+            {
+                throw new InvalidOperationException($"Kimodo package was not found for '{HelpAssetPath}'.");
+            }
+
+            File.WriteAllText(
+                Path.Combine(package.resolvedPath, "Command", "help.json"),
+                JObject.Parse(BuildCommandDefinitionsJson()).ToString(Formatting.Indented));
+            AssetDatabase.Refresh();
         }
 
         private static JObject CommandDefinition(string name, string description, JObject inputSchema)

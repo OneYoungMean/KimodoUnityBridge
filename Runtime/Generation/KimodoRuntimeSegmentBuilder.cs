@@ -41,7 +41,7 @@ namespace KimodoBridge
             }
 
             KimodoConstraintInternalData terminalConstraint = null;
-            if (!isArdy && !KimodoRawMotionUtility.TryBuildConstraintInternalData(
+            if (!isArdy && !KimodoRawMotionConstraintBuilder.TryBuildFullBodyFrame(
                     metadata.Motion,
                     modelName,
                     effectiveLastFrameIndex,

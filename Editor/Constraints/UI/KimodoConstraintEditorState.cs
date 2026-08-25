@@ -74,6 +74,7 @@ namespace KimodoBridge.Editor
             SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.rootPosition");
             SerializedProperty positionValid = so.FindProperty("sampleData.validMask.rootPosition");
             SerializedProperty headingValid = so.FindProperty("sampleData.validMask.rootHeading");
+            SerializedProperty rootOverrideAfterEffectors = so.FindProperty("sampleData.rootOverrideAfterEffectors");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 if (DrawTransform(
@@ -97,6 +98,14 @@ namespace KimodoBridge.Editor
                         if (positionValid != null) positionValid.boolValue = true;
                         if (headingValid != null) headingValid.boolValue = true;
                     }
+                }
+                if (rootOverrideAfterEffectors != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        rootOverrideAfterEffectors,
+                        new GUIContent(
+                            "Root Override After Effectors",
+                            "Apply Root2D after local effector IK. The final root target wins, so effectors move with it."));
                 }
             }
             EditorGUILayout.EndVertical();

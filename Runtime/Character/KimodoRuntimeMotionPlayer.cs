@@ -180,7 +180,7 @@ namespace KimodoBridge
                 predictedTimeSeconds,
                 currentSegment.Motion.FrameRate);
             frameIndex = Mathf.Clamp(frameIndex, 0, currentSegment.EffectiveLastFrameIndex - 1);
-            if (!KimodoRawMotionUtility.TryBuildConstraintInternalData(
+            if (!KimodoRawMotionConstraintBuilder.TryBuildFullBodyFrame(
                     currentSegment.Motion,
                     modelName,
                     frameIndex,

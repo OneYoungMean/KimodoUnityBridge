@@ -910,50 +910,8 @@ namespace KimodoBridge.Editor
                     $"expected={firstRequest.TargetFrameCount}, frameRate={motion.FrameRate}.");
             }
 
-            int tailFrameIndex = motion.FrameCount - 1;
-            if (!KimodoRawMotionUtility.TryExtractMarkerSample(
-                    motion,
-                    modelName,
-                    0,
-                    out KimodoMarkerSampleResult firstFrame,
-                    out string firstError,
-                    "fullbody",
-                    sampleTime: 0.0) ||
-                firstFrame == null)
-            {
-                throw new InvalidOperationException($"Loop pass 1 raw first-frame sampling failed: {firstError}");
-            }
-            if (!KimodoRawMotionUtility.TryExtractMarkerSample(
-                    motion,
-                    modelName,
-                    tailFrameIndex,
-                    out KimodoMarkerSampleResult tailFrame,
-                    out string tailError,
-                    "root2d",
-                    sampleTime: tailFrameIndex / (double)motion.FrameRate) ||
-                tailFrame == null)
-            {
-                throw new InvalidOperationException($"Loop pass 1 raw tail-frame sampling failed: {tailError}");
-            }
-
-            if (firstFrame.sampleData == null || tailFrame.sampleData == null ||
-                !firstFrame.sampleData.IsValid || !tailFrame.sampleData.IsValid)
-            {
-                throw new InvalidOperationException("Loop pass 1 sampleData is invalid.");
-            }
-            firstFrame.sampleData.GetRoot(out Vector3 firstPosition, out Quaternion _);
-            tailFrame.sampleData.GetRoot(out Vector3 tailPosition, out Quaternion tailRotation);
-            float tailRotationY = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
-                tailRotation).eulerAngles.y;
-            KimodoPlayableClipGenerationSettings.DebugLog(
-                $"[Kimodo][GenerateLoop] raw pass-1 root: " +
-                $"firstPosXZ=({firstPosition.x:F4}, {firstPosition.z:F4}), " +
-                $"tailPosXZ=({tailPosition.x:F4}, {tailPosition.z:F4}), " +
-                $"tailRotationY={tailRotationY:F3}°.");
-
-            return KimodoClipConstraintBakeUtility.BuildLoopConstraintJson(
-                firstFrame,
-                tailFrame,
+            return KimodoRawMotionConstraintBuilder.BuildLoopConstraintJson(
+                motion,
                 modelName,
                 finalRequest.RuntimeTrimStartFrame,
                 finalRequest.TargetFrameCount,
@@ -1075,7 +1033,7 @@ namespace KimodoBridge.Editor
                     analysis,
                     merged.FrameCount,
                     merged.FrameRate);
-                string fullBodyJson = KimodoClipConstraintBakeUtility.BuildFullBodyConstraintsJson(
+                string fullBodyJson = KimodoRawMotionConstraintBuilder.BuildFullBodyConstraintsJson(
                     merged,
                     modelName,
                     keyframes,

@@ -84,6 +84,7 @@ namespace KimodoBridge
                     if (rootPosition.rootOverride == null)
                         throw new InvalidOperationException("Root2D position is valid but its payload is missing.");
                     result.rootOverride = rootPosition.rootOverride.Clone();
+                    result.rootOverrideAfterEffectors = rootPosition.rootOverrideAfterEffectors;
                     result.enableMask.rootPosition = rootPosition.enableMask?.rootPosition == true;
                     result.validMask.rootPosition = KimodoConstraintMask.FromSample(rootPosition).rootPosition;
                 }

@@ -106,6 +106,40 @@ def _merge_fullbody_constraint(
     if not constraint_lst:
         return []
 
+    # InOut emits a one-frame ClipConstraint with a full-body mask as the
+    # boundary anchor.  The generation postprocess already has the correct
+    # semantics for that payload through FullBodyConstraintSet; promote only
+    # this exact case and leave partial/multi-frame ClipConstraints explicit.
+    # ponytail: add masked/multi-frame merge when that protocol path is needed.
+    promoted = []
+    for constraint in constraint_lst:
+        if (
+            isinstance(constraint, ClipConstraintSet)
+            and len(constraint.frame_indices) == 1
+            and bool(constraint.root_position_axes.all())
+            and bool(
+                torch.cat(
+                    (
+                        constraint.position_axis_mask[: constraint.skeleton.root_idx],
+                        constraint.position_axis_mask[constraint.skeleton.root_idx + 1 :],
+                    )
+                ).all()
+            )
+            and set(constraint.rot_indices.detach().cpu().tolist()) == set(range(skeleton.nbjoints))
+        ):
+            promoted.append(
+                FullBodyConstraintSet(
+                    constraint.skeleton,
+                    constraint.frame_indices,
+                    constraint.global_joints_positions,
+                    constraint.global_joints_rots,
+                    constraint.smooth_root_2d,
+                )
+            )
+        else:
+            promoted.append(constraint)
+    constraint_lst = promoted
+
     fullbody_frames = sorted(
         {
             int(frame)

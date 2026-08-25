@@ -88,12 +88,19 @@ namespace KimodoBridge
                 return false;
             }
 
-            if (!TryApplyRootOverride(pipelineSample, cache, out error))
+            if (!pipelineSample.rootOverrideAfterEffectors &&
+                !TryApplyRootOverride(pipelineSample, cache, out error))
             {
                 return false;
             }
 
             if (!KimodoConstraintIkSolver.TryApply(pipelineSample, frameRate, cache, out error))
+            {
+                return false;
+            }
+
+            if (pipelineSample.rootOverrideAfterEffectors &&
+                !TryApplyRootOverride(pipelineSample, cache, out error))
             {
                 return false;
             }

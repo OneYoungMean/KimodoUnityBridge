@@ -55,5 +55,30 @@ namespace KimodoBridge.Editor.Tests
             constraints.CompleteGeneration(isArdy: false, consumedRevision: revision);
             Assert.That(constraints.BuildRootGoalLossForGeneration(isArdy: false), Is.Null);
         }
+
+        [Test]
+        public void ComposeSameFrame_PreservesRootOverrideAfterEffectors()
+        {
+            var root = new KimodoMarkerSampleResult
+            {
+                sampleTime = 0.0,
+                rootOverrideAfterEffectors = true,
+                rootOverride = new KimodoRigidTransform { t = Vector3.right, q = Quaternion.identity },
+                enableMask = new KimodoConstraintMask { rootPosition = true },
+                validMask = new KimodoConstraintMask { rootPosition = true }
+            };
+            var effector = new KimodoMarkerSampleResult
+            {
+                sampleTime = 0.0,
+                enableMask = new KimodoConstraintMask { leftHand = true },
+                validMask = new KimodoConstraintMask { leftHand = true }
+            };
+
+            List<KimodoMarkerSampleResult> composed = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
+                new[] { root, effector }, 30.0);
+
+            Assert.That(composed, Has.Count.EqualTo(1));
+            Assert.That(composed[0].rootOverrideAfterEffectors, Is.True);
+        }
     }
 }

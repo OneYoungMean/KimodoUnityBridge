@@ -250,6 +250,11 @@ namespace KimodoBridge
         [UnityEngine.Serialization.FormerlySerializedAs("root2DOverride")]
         public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
 
+        // Local pose-pipeline option. It is intentionally not a bridge
+        // protocol field: after IK, reapply this root target as the final
+        // skeleton placement.
+        public bool rootOverrideAfterEffectors;
+
         // Source compatibility for older editor/test callers. This alias is
         // not a second serialized value.
         public KimodoRigidTransform root2DOverride
@@ -271,6 +276,7 @@ namespace KimodoBridge
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             rootOverride = rootOverride?.Clone() ?? KimodoRigidTransform.Identity,
+            rootOverrideAfterEffectors = rootOverrideAfterEffectors,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

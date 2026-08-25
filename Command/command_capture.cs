@@ -12,6 +12,7 @@ using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace KimodoUnityBridge.Command
 {
@@ -21,7 +22,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "23-depth-occlusion";
+        private const string TestAnalysisPictureRenderVersion = "28-depth-tested-original-material";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
@@ -1013,55 +1014,108 @@ namespace KimodoUnityBridge.Command
             int height,
             Color background)
         {
-            RenderTexture accumulation = RenderTexture.GetTemporary(
-                width,
-                height,
-                24,
-                RenderTextureFormat.ARGB32);
-            RenderTexture layer = RenderTexture.GetTemporary(
-                width,
-                height,
-                24,
-                RenderTextureFormat.ARGB32);
-            Material compositor = CreateTestPoseCompositeMaterial();
+            Shader depthShader = Shader.Find("Hidden/Kimodo/PoseDepthEncode")
+                ?? throw new InvalidOperationException("Pose depth encoder shader is unavailable.");
             try
             {
-                // Clear the accumulation target directly. Tuanjie URP's
-                // ScriptableRenderContext path is unstable for the temporary
-                // grid/LineRenderer environment used by this evidence pass;
-                // the character layers below remain fully rendered.
-                RenderTexture previousTarget = RenderTexture.active;
-                RenderTexture.active = accumulation;
-                GL.Clear(true, true, background);
-                RenderTexture.active = previousTarget;
+                // The floor and trajectories are a stable, opaque base layer.
+                SetEvidenceVisualsEnabled(environment, true);
+                Texture2D result = RenderCamera(camera, width, height, background);
+                Color[] resultPixels = result.GetPixels();
+                var nearestPoseDepth = new float[resultPixels.Length];
+                var hasPoseDepth = new bool[resultPixels.Length];
 
                 SetEvidenceVisualsEnabled(environment, false);
                 foreach (TestVirtualPose pose in poses)
                 {
                     SetPreviewRenderersEnabled(pose.Preview, true);
-                    camera.clearFlags = CameraClearFlags.SolidColor;
-                    camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
-                    camera.targetTexture = layer;
-                    camera.Render();
-
-                    SetPreviewRenderersEnabled(pose.Preview, false);
-
-                    compositor.SetColor(
-                        "_Color",
-                        new Color(1f, 1f, 1f, Mathf.Clamp01(pose.Alpha)));
-                    Graphics.Blit(layer, accumulation, compositor);
+                    try
+                    {
+                        Texture2D color = RenderCamera(camera, width, height, Color.clear);
+                        Texture2D depth = RenderCameraDepth(camera, depthShader, width, height);
+                        try
+                        {
+                            CompositeNearestPose(
+                                resultPixels,
+                                nearestPoseDepth,
+                                hasPoseDepth,
+                                color.GetPixels(),
+                                depth.GetPixels(),
+                                pose.Alpha);
+                        }
+                        finally
+                        {
+                            UnityEngine.Object.DestroyImmediate(color);
+                            UnityEngine.Object.DestroyImmediate(depth);
+                        }
+                    }
+                    finally
+                    {
+                        SetPreviewRenderersEnabled(pose.Preview, false);
+                    }
                 }
 
-                camera.targetTexture = null;
-                return ReadRenderTexture(accumulation, width, height);
+                result.SetPixels(resultPixels);
+                result.Apply(false, false);
+                return result;
             }
             finally
             {
                 camera.targetTexture = null;
                 SetEvidenceVisualsEnabled(environment, true);
-                if (compositor != null) UnityEngine.Object.DestroyImmediate(compositor);
-                RenderTexture.ReleaseTemporary(layer);
-                RenderTexture.ReleaseTemporary(accumulation);
+            }
+        }
+
+        private static Texture2D RenderCameraDepth(Camera camera, Shader depthShader, int width, int height)
+        {
+            RenderTexture renderTexture = RenderTexture.GetTemporary(
+                width,
+                height,
+                24,
+                RenderTextureFormat.ARGBFloat);
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.clear;
+                camera.targetTexture = renderTexture;
+                camera.RenderWithShader(depthShader, "RenderType");
+                RenderTexture.active = renderTexture;
+                var image = new Texture2D(width, height, TextureFormat.RGBAFloat, false);
+                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                image.Apply(false, false);
+                return image;
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                camera.targetTexture = null;
+                RenderTexture.ReleaseTemporary(renderTexture);
+            }
+        }
+
+        private static void CompositeNearestPose(
+            Color[] destination,
+            float[] nearestDepth,
+            bool[] hasDepth,
+            Color[] color,
+            Color[] depth,
+            float poseAlpha)
+        {
+            bool reversedZ = SystemInfo.usesReversedZBuffer;
+            for (int index = 0; index < destination.Length; index++)
+            {
+                Color source = color[index];
+                if (source.a <= .01f) continue;
+                float sourceDepth = depth[index].r;
+                bool isNearer = !hasDepth[index] ||
+                    (reversedZ ? sourceDepth > nearestDepth[index] : sourceDepth < nearestDepth[index]);
+                if (!isNearer) continue;
+
+                float alpha = Mathf.Clamp01(poseAlpha * source.a);
+                destination[index] = Color.Lerp(destination[index], source, alpha);
+                nearestDepth[index] = sourceDepth;
+                hasDepth[index] = true;
             }
         }
 
@@ -1603,7 +1657,13 @@ namespace KimodoUnityBridge.Command
             filter.sharedMesh = mesh;
             MeshRenderer renderer = floor.AddComponent<MeshRenderer>();
             Material material = MakeMaterial(Color.white);
-            if (gridTexture != null && material.HasProperty("_MainTex")) material.mainTexture = gridTexture;
+            if (gridTexture != null)
+            {
+                if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", gridTexture);
+                if (material.HasProperty("_BaseColorMap")) material.SetTexture("_BaseColorMap", gridTexture);
+                if (material.HasProperty("_UnlitColorMap")) material.SetTexture("_UnlitColorMap", gridTexture);
+                if (material.HasProperty("_MainTex")) material.mainTexture = gridTexture;
+            }
             renderer.sharedMaterial = material;
             return floor;
         }
@@ -2042,15 +2102,18 @@ namespace KimodoUnityBridge.Command
         private static Material MakeMaterial(Color color)
         {
             Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ??
+                Shader.Find("HDRP/Unlit") ??
                 Shader.Find("Sprites/Default") ??
                 Shader.Find("Standard");
-            return new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
+            var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", color);
+            return material;
         }
 
         private static Material MakeUnlitMaterial(Color color)
         {
-            Shader shader = Shader.Find("Sprites/Default") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Standard");
-            return new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
+            return MakeMaterial(color);
         }
 
         private static void SetLayerRecursively(GameObject root, int layer)
@@ -2139,12 +2202,19 @@ namespace KimodoUnityBridge.Command
             destination.Apply(false, false);
         }
 
-        private static void SetEvidenceVisualsEnabled(IReadOnlyList<GameObject> objects, bool enabled)
+        private static void SetEvidenceVisualsEnabled(
+            IReadOnlyList<GameObject> objects,
+            bool enabled,
+            bool preserveLineRenderers = false)
         {
             foreach (GameObject item in objects)
             {
                 if (item == null) continue;
-                foreach (Renderer renderer in item.GetComponentsInChildren<Renderer>(true)) renderer.enabled = enabled;
+                foreach (Renderer renderer in item.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (preserveLineRenderers && renderer is LineRenderer) continue;
+                    renderer.enabled = enabled;
+                }
             }
         }
 
@@ -2532,52 +2602,105 @@ namespace KimodoUnityBridge.Command
 
         private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)
         {
-            Shader poseShader = Shader.Find("Universal Render Pipeline/Lit") ??
-                Shader.Find("Universal Render Pipeline/Unlit") ??
-                Shader.Find("Standard");
-            if (poseShader == null)
-            {
-                throw new InvalidOperationException("No compatible pose shader is available.");
-            }
             Color flatTint = new Color(tint.r, tint.g, tint.b, 1f);
+            Shader fallbackShader = null;
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
-                Material[] sourceMaterials = renderer.sharedMaterials;
-                if (sourceMaterials == null || sourceMaterials.Length == 0)
+                Material[] materials = renderer.materials;
+                if (materials == null || materials.Length == 0)
                 {
-                    sourceMaterials = new[] { (Material)null };
+                    materials = new[] { (Material)null };
                 }
-                var replacements = new Material[sourceMaterials.Length];
-                for (int index = 0; index < sourceMaterials.Length; index++)
+                for (int index = 0; index < materials.Length; index++)
                 {
-                    Material source = sourceMaterials[index];
-                    Material material;
-                    material = new Material(poseShader);
-                    material.hideFlags = HideFlags.HideAndDontSave;
-                    SetMaterialTint(material, flatTint);
-                    if (source != null)
+                    Material material = materials[index];
+                    if (IsUsablePoseMaterial(material))
                     {
-                        material.mainTexture = source.mainTexture;
-                        material.mainTextureScale = source.mainTextureScale;
-                        material.mainTextureOffset = source.mainTextureOffset;
+                        SetMaterialTint(material, flatTint);
+                        continue;
                     }
-                    if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", 0f);
-                    if (material.HasProperty("_Glossiness")) material.SetFloat("_Glossiness", .35f);
-                    if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .35f);
-                    replacements[index] = material;
-                    transientMaterials?.Add(material);
+
+                    fallbackShader ??= FindPoseFallbackShader();
+                    if (fallbackShader == null)
+                    {
+                        throw new InvalidOperationException("No compatible pose fallback shader is available.");
+                    }
+
+                    Material replacement = new Material(fallbackShader) { hideFlags = HideFlags.HideAndDontSave };
+                    SetMaterialTint(replacement, flatTint);
+                    materials[index] = replacement;
+                    transientMaterials?.Add(replacement);
                 }
-                renderer.sharedMaterials = replacements;
+                renderer.materials = materials;
             }
+        }
+
+        private static bool IsUsablePoseMaterial(Material material)
+        {
+            if (material == null) return false;
+            Shader shader = material.shader;
+            if (shader == null || string.Equals(shader.name, "Hidden/InternalErrorShader", StringComparison.Ordinal))
+            {
+                return false;
+            }
+            if (!shader.isSupported) return false;
+            return !ShaderUtil.ShaderHasError(shader);
+        }
+
+        private static Shader FindPoseFallbackShader()
+        {
+            string pipelineName = GraphicsSettings.currentRenderPipeline == null
+                ? string.Empty
+                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
+            bool isHdrp = pipelineName.IndexOf("HDRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isUrp = pipelineName.IndexOf("UniversalRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("Universal RP", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            string[] preferred = isHdrp
+                ? new[] { "HDRP/Lit" }
+                : isUrp
+                    ? new[] { "Universal Render Pipeline/Lit" }
+                    : new[] { "Standard" };
+            foreach (string shaderName in preferred)
+            {
+                Shader shader = Shader.Find(shaderName);
+                if (IsUsablePoseShader(shader)) return shader;
+            }
+
+            // Unlit is retained only as the final compatibility path for a
+            // missing pipeline Lit/Standard shader, never for a valid source.
+            string[] lastResort = isHdrp
+                ? new[] { "HDRP/Unlit", "Sprites/Default" }
+                : isUrp
+                    ? new[] { "Universal Render Pipeline/Unlit", "Sprites/Default" }
+                    : new[] { "Sprites/Default", "Unlit/Color" };
+            foreach (string shaderName in lastResort)
+            {
+                Shader shader = Shader.Find(shaderName);
+                if (IsUsablePoseShader(shader)) return shader;
+            }
+            return null;
+        }
+
+        private static bool IsUsablePoseShader(Shader shader)
+        {
+            if (shader == null || string.Equals(shader.name, "Hidden/InternalErrorShader", StringComparison.Ordinal))
+            {
+                return false;
+            }
+            return shader.isSupported && !ShaderUtil.ShaderHasError(shader);
         }
 
         private static void SetMaterialTint(Material material, Color tint)
         {
             if (material == null) return;
             // Unity has no universal `mainColor` field. These are shader
-            // property names: URP Lit uses _BaseColor, Built-in uses _Color,
-            // and custom materials may expose either (or both).
+            // property names: URP/HDRP Lit uses _BaseColor, HDRP Unlit uses
+            // _UnlitColor, and Built-in uses _Color.
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", tint);
+            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", tint);
             if (material.HasProperty("_Color")) material.SetColor("_Color", tint);
         }
 

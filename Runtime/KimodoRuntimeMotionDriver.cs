@@ -809,7 +809,7 @@ namespace KimodoBridge
             JArray combined = string.IsNullOrWhiteSpace(futureConstraints)
                 ? new JArray()
                 : JArray.Parse(futureConstraints);
-            JArray internalConstraints = KimodoConstraintInternalJsonExporter.ToJsonArray(
+            JArray internalConstraints = KimodoRawMotionConstraintBuilder.BuildFullBodyConstraints(
                 new[] { terminal },
                 isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate,
                 generationDuration);

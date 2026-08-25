@@ -4,7 +4,13 @@ import math
 
 import torch
 
-from kimodo.constraints import FullBodyConstraintSet, LeftHandConstraintSet, Root2DConstraintSet, normalize_constraints_to_anchor
+from kimodo.constraints import (
+    ClipConstraintSet,
+    FullBodyConstraintSet,
+    LeftHandConstraintSet,
+    Root2DConstraintSet,
+    normalize_constraints_to_anchor,
+)
 from kimodo.motion_rep.conditioning import build_condition_dicts, get_unique_index_and_data
 from kimodo.postprocess import _merge_fullbody_constraint, extract_input_motion_from_constraints
 from kimodo.skeleton import SOMASkeleton77
@@ -36,6 +42,36 @@ class EndEffectorTargetPositionTests(unittest.TestCase):
 
 
 class ConstraintAnchorNormalizationTests(unittest.TestCase):
+    def test_single_frame_full_body_clip_promotes_for_postprocess(self):
+        skeleton = SOMASkeleton77(load=False)
+        positions = torch.zeros(1, skeleton.nbjoints, 3)
+        positions[0, skeleton.root_idx] = torch.tensor([1.0, 2.0, 3.0])
+        rotations = torch.eye(3).repeat(1, skeleton.nbjoints, 1, 1)
+        position_mask = torch.ones(skeleton.nbjoints, 3, dtype=torch.bool)
+        position_mask[skeleton.root_idx] = False
+        clip = ClipConstraintSet(
+            skeleton,
+            torch.tensor([0]),
+            positions,
+            rotations,
+            position_mask,
+            torch.arange(skeleton.nbjoints),
+            root_position_axes=torch.ones(3, dtype=torch.bool),
+            root_heading=True,
+        )
+
+        resolved = _merge_fullbody_constraint(
+            [clip], skeleton, rotations, positions, num_frames=1
+        )
+
+        self.assertEqual(len(resolved), 1)
+        self.assertIsInstance(resolved[0], FullBodyConstraintSet)
+        self.assertTrue(torch.allclose(resolved[0].global_joints_positions, positions))
+        hips, _ = extract_input_motion_from_constraints(
+            resolved, skeleton, num_frames=1, num_joints=skeleton.nbjoints
+        )
+        self.assertTrue(torch.allclose(hips[0], positions[0, skeleton.root_idx]))
+
     def test_root2d_anchor_moves_anchor_to_zero_and_preserves_ordered_delta(self):
         anchor = Root2DConstraintSet(
             None,
