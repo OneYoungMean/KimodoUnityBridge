@@ -239,68 +239,6 @@ namespace KimodoBridge
             return rotation;
         }
 
-        internal static bool TryCreateRootGoal(
-            KimodoRuntimeMotionPlayer player,
-            string modelName,
-            Vector3 targetWorldPosition,
-            Quaternion targetWorldRotation,
-            Vector3 currentWorldPosition,
-            Quaternion modelToWorldRotation,
-            float targetHumanScale,
-            float sampleTime,
-            out KimodoMarkerSampleResult sample,
-            out KimodoRigidTransform root2DLoss,
-            out string error)
-        {
-            root2DLoss = null;
-            if (!IsFinite(targetWorldPosition) || !IsFinite(targetWorldRotation) ||
-                targetWorldRotation.x * targetWorldRotation.x +
-                targetWorldRotation.y * targetWorldRotation.y +
-                targetWorldRotation.z * targetWorldRotation.z +
-                targetWorldRotation.w * targetWorldRotation.w <= 1e-8f)
-            {
-                sample = null;
-                error = "RootGoal position and rotation must be finite, and rotation must be non-zero.";
-                return false;
-            }
-
-            targetWorldRotation.Normalize();
-            Vector3 forward = Vector3.ProjectOnPlane(
-                targetWorldRotation * Vector3.forward,
-                Vector3.up);
-            Quaternion planarRotation = forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-            Vector3 planarPosition = new Vector3(
-                targetWorldPosition.x,
-                currentWorldPosition.y,
-                targetWorldPosition.z);
-            Vector3 planarForward = planarRotation * Vector3.forward;
-            if (!TryCreateRoot2D(
-                    player,
-                    modelName,
-                    new Vector2(planarPosition.x, planarPosition.z),
-                    new Vector2(planarForward.x, planarForward.z),
-                    currentWorldPosition,
-                    modelToWorldRotation,
-                    targetHumanScale,
-                    sampleTime,
-                    out sample,
-                    out error))
-            {
-                return false;
-            }
-
-            Quaternion lossRotation =
-                (targetWorldRotation * Quaternion.Inverse(planarRotation)).normalized;
-            root2DLoss = new KimodoRigidTransform
-            {
-                q = lossRotation,
-                t = targetWorldPosition - lossRotation * planarPosition
-            };
-            return true;
-        }
-
         private static bool TryCapture(
             KimodoRuntimeMotionPlayer player,
             string modelName,
