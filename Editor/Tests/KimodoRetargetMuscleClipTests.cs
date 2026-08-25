@@ -109,6 +109,8 @@ namespace KimodoBridge.Editor.Tests
             try
             {
                 MuscleSample sample = CreateRootRotationSample(Quaternion.identity);
+                Quaternion expectedLeftFootRotation = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f).normalized;
+                Quaternion expectedRightFootRotation = new Quaternion(0.4f, 0.5f, 0.6f, 0.7f).normalized;
                 sample.SetLeftFoot(
                     new Vector3(1f, 2f, 3f),
                     new Quaternion(0.1f, 0.2f, 0.3f, 0.9f));
@@ -122,9 +124,9 @@ namespace KimodoBridge.Editor.Tests
                     error);
 
                 Assert.That(ReadAnimatorKey(clip, "LeftFootT.x"), Is.EqualTo(1f).Within(1e-5f));
-                Assert.That(ReadAnimatorKey(clip, "LeftFootQ.w"), Is.EqualTo(0.9f).Within(1e-5f));
+                Assert.That(ReadAnimatorKey(clip, "LeftFootQ.w"), Is.EqualTo(expectedLeftFootRotation.w).Within(1e-5f));
                 Assert.That(ReadAnimatorKey(clip, "RightFootT.z"), Is.EqualTo(6f).Within(1e-5f));
-                Assert.That(ReadAnimatorKey(clip, "RightFootQ.y"), Is.EqualTo(0.5f).Within(1e-5f));
+                Assert.That(ReadAnimatorKey(clip, "RightFootQ.y"), Is.EqualTo(expectedRightFootRotation.y).Within(1e-5f));
             }
             finally
             {
