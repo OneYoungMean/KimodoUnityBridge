@@ -945,7 +945,7 @@ namespace KimodoBridge
             }
             if (context != null)
             {
-                context.Post(_ => Debug.Log(message), null);
+                context.Post(_ => Debug.Log(message), null); 
                 return;
             }
             Debug.Log(message);

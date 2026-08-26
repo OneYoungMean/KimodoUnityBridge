@@ -605,7 +605,7 @@ def _load_constraints(
 
     parsed = parse_constraints(text)
     if any(isinstance(item, dict) and item.get("type") == "root2d_target" for item in parsed):
-        raise ValueError("root2d_target was removed; use root2d frame_indices and positions.")
+        raise ValueError("root2d_target is an automatic ARDY-only navigation constraint.")
     plain = [item for item in parsed if not (isinstance(item, dict) and item.get("type") == "clip")]
     clips = [item for item in parsed if isinstance(item, dict) and item.get("type") == "clip"]
     constraints = load_constraints_lst(plain, model.skeleton, device=getattr(model, "device", None))

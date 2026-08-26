@@ -30,9 +30,11 @@ namespace KimodoBridge
         public string models_root;
         public bool force_hf_download;
         public double? ardy_history_weight;
+        public double? ardy_playback_reserve_seconds;
+        // Retained for Editor request compatibility; Runtime no longer serializes
+        // these removed global protocol fields.
         public double? ardy_max_speed;
         public double? ardy_max_acceleration;
-        public double? ardy_playback_reserve_seconds;
         public string output_format = "kmb_v1";
     }
 

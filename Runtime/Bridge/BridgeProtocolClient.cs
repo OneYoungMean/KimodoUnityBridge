@@ -291,8 +291,6 @@ namespace KimodoBridge
             if (!request.ardy_session_update_only)
             {
                 AddOptional(payload, "ardy_history_weight", request.ardy_history_weight);
-                AddOptional(payload, "ardy_max_speed", request.ardy_max_speed);
-                AddOptional(payload, "ardy_max_acceleration", request.ardy_max_acceleration);
                 AddOptional(payload, "ardy_playback_reserve_seconds", request.ardy_playback_reserve_seconds);
             }
 

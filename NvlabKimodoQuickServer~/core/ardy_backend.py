@@ -271,11 +271,14 @@ class ArdySettings:
     adaptive_playback_reserve: bool
     auto_history: bool = False
     history_weight: float | None = None
-    max_speed: float = 1.25
-    max_acceleration: float = 1.5
-
     @classmethod
     def from_request(cls, request: dict[str, Any], profile: Any) -> "ArdySettings":
+        obsolete = ("ardy_max_speed", "ardy_max_acceleration")
+        if any(key in request for key in obsolete):
+            raise ArdyBackendError(
+                "ardy_max_speed and ardy_max_acceleration were removed; set max_speed and "
+                "max_acceleration on root2d_target."
+            )
         fps = float(profile.source_fps)
         patch = int(profile.frames_per_token)
         crop_max = int(profile.max_context_frames) - int(profile.horizon_frames)
@@ -306,12 +309,6 @@ class ArdySettings:
             minimum_reserve = max(1, seconds_to_frame_count(0.2, fps))
             playback_reserve = max(minimum_reserve, playback_reserve)
             playback_reserve = int(math.ceil(playback_reserve / patch) * patch)
-        max_speed = float(request.get("ardy_max_speed", 1.25))
-        max_acceleration = float(request.get("ardy_max_acceleration", 1.5))
-        if not math.isfinite(max_speed) or max_speed <= 0.0:
-            raise ArdyBackendError("ardy_max_speed must be a finite positive number.")
-        if not math.isfinite(max_acceleration) or max_acceleration <= 0.0:
-            raise ArdyBackendError("ardy_max_acceleration must be a finite positive number.")
         return cls(
             history_crop_frames=history,
             future_crop_frames=future,
@@ -319,15 +316,11 @@ class ArdySettings:
             adaptive_playback_reserve=history_weight is None,
             auto_history=auto_history,
             history_weight=history_weight,
-            max_speed=max_speed,
-            max_acceleration=max_acceleration,
         )
 
     def request_fields(self, fps: float) -> dict[str, Any]:
         fields = {
             "ardy_playback_reserve_seconds": self.playback_reserve_frames / fps,
-            "ardy_max_speed": self.max_speed,
-            "ardy_max_acceleration": self.max_acceleration,
         }
         if self.history_weight is not None:
             fields["ardy_history_weight"] = self.history_weight
@@ -427,8 +420,8 @@ def _parse_root_2d_targets(
         targets.append(
             Root2DTarget(
                 position=point,
-                max_speed=settings.max_speed,
-                max_acceleration=settings.max_acceleration,
+                max_speed=1.25,
+                max_acceleration=1.5,
                 arrival_threshold=0.0,
                 include_heading=heading is not None,
                 heading=heading,
@@ -437,6 +430,61 @@ def _parse_root_2d_targets(
         )
         previous = arrival_frame
     return targets
+
+
+def _parse_root_2d_target(
+    item: dict[str, Any], settings: ArdySettings | None = None
+) -> Root2DTarget:
+    if "frame_indices" in item or "target_frame" in item or "arrival_frame" in item:
+        raise ArdyBackendError("root2d_target does not accept frame indices; the backend chooses timing.")
+    if "max_speed" not in item or "max_acceleration" not in item:
+        raise ArdyBackendError(
+            "root2d_target requires max_speed and max_acceleration; global ardy settings are not supported."
+        )
+    position = item.get("target_root_2d")
+    if not isinstance(position, (list, tuple)) or len(position) != 2:
+        raise ArdyBackendError("root2d_target target_root_2d must contain exactly two coordinates.")
+    try:
+        point = (float(position[0]), float(position[1]))
+        max_speed = float(item["max_speed"])
+        max_acceleration = float(item["max_acceleration"])
+        arrival_threshold = float(item.get("arrival_threshold", 0.1))
+    except (TypeError, ValueError) as exc:
+        raise ArdyBackendError("root2d_target values must be numeric.") from exc
+    values = (*point, max_speed, max_acceleration, arrival_threshold)
+    if not all(math.isfinite(value) for value in values):
+        raise ArdyBackendError("root2d_target values must be finite.")
+    if max_speed <= 0.0 or max_acceleration <= 0.0:
+        raise ArdyBackendError("root2d_target speed and acceleration must be positive.")
+    if arrival_threshold < 0.0:
+        raise ArdyBackendError("root2d_target arrival_threshold must be non-negative.")
+    include_heading = item.get("include_heading", True)
+    if not isinstance(include_heading, bool):
+        raise ArdyBackendError("root2d_target include_heading must be a boolean.")
+    heading_value = item.get(
+        "heading",
+        item.get("target_heading", item.get("global_root_heading")),
+    )
+    heading = None
+    if heading_value is not None:
+        try:
+            heading = (
+                math.atan2(float(heading_value[1]), float(heading_value[0]))
+                if isinstance(heading_value, (list, tuple)) and len(heading_value) == 2
+                else float(heading_value)
+            )
+        except (TypeError, ValueError, IndexError) as exc:
+            raise ArdyBackendError("root2d_target heading must be a scalar or two coordinates.") from exc
+        if not math.isfinite(heading):
+            raise ArdyBackendError("root2d_target heading must be finite.")
+    return Root2DTarget(
+        position=point,
+        max_speed=max_speed,
+        max_acceleration=max_acceleration,
+        arrival_threshold=arrival_threshold,
+        include_heading=include_heading,
+        heading=heading if include_heading else None,
+    )
 
 
 def _plan_root_2d_target(
@@ -943,10 +991,19 @@ class ArdySession:
             anchor_root_2d = (float(anchor[0]), float(anchor[2]))
         for item in parse_constraints(value, ArdyBackendError):
             if item.get("type") == "root2d":
-                root_2d_targets.extend(_parse_root_2d_targets(item, self.settings, apply_from))
+                copied = dict(item)
+                _normalize_root_heading(copied)
+                indices = copied.get("frame_indices", [])
+                if not isinstance(indices, list):
+                    raise ArdyBackendError("root2d frame_indices must be an array.")
+                if any(isinstance(index, bool) or not isinstance(index, int) or index < 0 for index in indices):
+                    raise ArdyBackendError("root2d frame indices must be non-negative integers.")
+                copied["frame_indices"] = [index + apply_from for index in indices]
+                plain.extend(_expand_dense_root_constraint(copied, apply_from - 1, anchor_root_2d))
                 continue
             if item.get("type") == "root2d_target":
-                raise ArdyBackendError("root2d_target was removed; use type 'root2d' with frame_indices and positions.")
+                root_2d_targets.append(_parse_root_2d_target(item, self.settings))
+                continue
             if item.get("type") != "clip":
                 copied = dict(item)
                 _normalize_root_heading(copied)
@@ -1037,30 +1094,76 @@ class ArdySession:
 
         plain = list(self.constraint_items)
         root_2d, velocity_2d = self._root_state_at_boundary(boundary_frame)
-        previous_frame = boundary_frame - 1
-        for target in self.root_2d_targets:
-            if target.arrival_frame is None or target.arrival_frame <= previous_frame:
-                continue
+        horizon = max(1, int(self.profile.horizon_frames))
+        # The terminal stop is placed at the horizon boundary (the exclusive
+        # end, e.g. 200 for a 160..200 horizon) so the next horizon inherits it.
+        horizon_end = boundary_frame + horizon
+        remaining: list[Root2DTarget] = []
+        if self.root_2d_targets and (boundary_frame > 0 or self.initial_history_root_2d is not None):
+            fps = float(self.profile.source_fps)
+            seam_root_2d = np.asarray(root_2d) + np.asarray(velocity_2d) / fps
+            plain.append(
+                {
+                    "type": "root2d",
+                    "frame_indices": [boundary_frame],
+                    "smooth_root_2d": [seam_root_2d.tolist()],
+                }
+            )
+        for target_index, target in enumerate(self.root_2d_targets):
             target_constraint = _plan_root_2d_target(
                 target,
                 root_2d,
                 velocity_2d,
-                previous_frame,
+                boundary_frame - 1,
                 float(self.profile.source_fps),
+                future_horizon_frames=horizon,
+                extend_prediction_to_horizon=True,
             )
-            if target_constraint is not None:
+            if target_constraint is None:
+                reached_item: dict[str, Any] = {
+                    "type": "root2d",
+                    "frame_indices": [horizon_end],
+                    "smooth_root_2d": [[float(target.position[0]), float(target.position[1])]],
+                }
+                if target.include_heading and target.heading is not None:
+                    reached_item["global_root_heading"] = [float(target.heading)]
+                plain.append(reached_item)
+                remaining = self.root_2d_targets[target_index + 1 :]
+                break
+            indices = target_constraint.get("frame_indices", [])
+            positions = target_constraint.get("smooth_root_2d", [])
+            reached = any(
+                math.dist(position, target.position) <= target.arrival_threshold
+                for position in positions
+            )
+            if reached:
+                if indices and indices[-1] != horizon_end:
+                    indices.append(horizon_end)
+                    positions.append([float(target.position[0]), float(target.position[1])])
+                    if target.include_heading:
+                        headings = target_constraint.setdefault("global_root_heading", [])
+                        headings.append(
+                            float(target.heading)
+                            if target.heading is not None
+                            else (float(headings[-1]) if headings else 0.0)
+                        )
+                elif indices:
+                    positions[-1] = [float(target.position[0]), float(target.position[1])]
+                    if target.include_heading and target.heading is not None:
+                        target_constraint.setdefault("global_root_heading", [])[-1] = float(target.heading)
                 plain.append(target_constraint)
-            root_2d = target.position
-            velocity_2d = (0.0, 0.0)
-            previous_frame = target.arrival_frame
+                remaining = self.root_2d_targets[target_index + 1 :]
+                break
+            plain.append(target_constraint)
+            remaining = self.root_2d_targets[target_index:]
+            break
+        self.root_2d_targets = remaining
         self.constraints = load_constraints_lst(plain, model.motion_rep.skeleton) if plain else []
 
     def _apply_settings(self, request: dict[str, Any]) -> bool:
         settings_keys = {
             "ardy_history_weight",
             "ardy_playback_reserve_seconds",
-            "ardy_max_speed",
-            "ardy_max_acceleration",
         }
         if not any(key in request for key in settings_keys):
             return False

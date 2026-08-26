@@ -66,8 +66,7 @@ def _build_protocol_help(kimodo_root: str = "") -> dict[str, Any]:
                 "fields": [
                     "prompt", "model", "text_encoder_mode", "duration", "constraints_json",
                     "kmb_attachments", "attachment_byte_length", "analysis_option",
-                    "timeline_segments", "ardy_history_weight", "ardy_max_speed",
-                    "ardy_max_acceleration", "ardy_playback_reserve_seconds",
+                    "timeline_segments", "ardy_history_weight", "ardy_playback_reserve_seconds",
                 ],
             },
             {

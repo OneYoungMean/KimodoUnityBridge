@@ -325,15 +325,39 @@ namespace KimodoBridge
             float maxAcceleration = Mathf.Max(0.01f, maxAccelerationMetersPerSecond2);
             ardyMaxSpeed = maxSpeed;
             ardyMaxAcceleration = maxAcceleration;
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
+            if (isArdy)
+            {
+                if (!TryCreateRuntimeRoot2DTarget(
+                        new Vector2(worldX, worldZ),
+                        includeHeading && worldHeading.HasValue
+                            ? KimodoRoot2DPlanner.NormalizeHeading(worldHeading.Value)
+                            : (Vector2?)null,
+                        includeHeading,
+                        maxSpeed,
+                        maxAcceleration,
+                        Mathf.Max(0f, arrivalThresholdMeters),
+                        out KimodoRuntimeRoot2DTarget target,
+                        out string targetError))
+                {
+                    UpdateStatus(targetError);
+                    return;
+                }
+
+                constraints.StageRoot2DTarget(target);
+                UpdateStatus($"Root2D target staged at ({worldX:0.###}, {worldZ:0.###}).");
+                return;
+            }
+
             Vector3 current = GetCurrentPositionInternal();
-            var target = new Vector2(worldX, worldZ);
-            if (KimodoRoot2DPlanner.HasArrived(current, target, arrivalThresholdMeters))
+            var targetPosition = new Vector2(worldX, worldZ);
+            if (KimodoRoot2DPlanner.HasArrived(current, targetPosition, arrivalThresholdMeters))
             {
                 UpdateStatus($"Root2D target already within {Mathf.Max(0f, arrivalThresholdMeters):0.###} m.");
                 return;
             }
 
-            float distance = Vector2.Distance(new Vector2(current.x, current.z), target);
+            float distance = Vector2.Distance(new Vector2(current.x, current.z), targetPosition);
             float duration = KimodoRoot2DPlanner.EstimateDuration(
                 distance,
                 maxSpeed,
@@ -359,6 +383,29 @@ namespace KimodoBridge
             if (!string.IsNullOrWhiteSpace(prompt))
             {
                 promptDraft = prompt.Trim();
+            }
+
+            if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _))
+            {
+                if (!TryCreateRuntimeRoot2DTarget(
+                        new Vector2(worldX, worldZ),
+                        null,
+                        false,
+                        Mathf.Max(0.01f, ardyMaxSpeed),
+                        Mathf.Max(0.01f, ardyMaxAcceleration),
+                        0.1f,
+                        out KimodoRuntimeRoot2DTarget target,
+                        out string targetError))
+                {
+                    UpdateStatus(targetError);
+                    return targetError;
+                }
+
+                constraints.StageRoot2DTarget(target);
+                ApplyStagedConstraints();
+                string targetResult = $"Root2D target staged at ({worldX:0.###}, {worldZ:0.###}).";
+                UpdateStatus(targetResult);
+                return targetResult;
             }
 
             string stageResult = StageRoot2DWorldConstraintInternal(
@@ -590,8 +637,6 @@ namespace KimodoBridge
                             request.ardy_history_weight = Mathf.Clamp01(ardyHistoryWeight);
                         }
                         request.ardy_playback_reserve_seconds = Mathf.Max(0.2f, ardyPlaybackReserveSeconds);
-                        request.ardy_max_speed = Mathf.Max(0.01f, ardyMaxSpeed);
-                        request.ardy_max_acceleration = Mathf.Max(0.01f, ardyMaxAcceleration);
                     }
                 }
 
@@ -730,7 +775,7 @@ namespace KimodoBridge
             float generationDuration,
             KimodoConstraintInternalData firstFrameOverride)
         {
-            List<KimodoMarkerSampleResult> activeConstraints = constraints.BuildForGeneration(
+            List<KimodoRuntimeRoot2DConstraint> activeConstraints = constraints.BuildRoot2DForGeneration(
                 isArdy,
                 isArdy ? motionPlayer.PlaybackTimeAsDouble : 0.0,
                 generationDuration);
@@ -739,22 +784,22 @@ namespace KimodoBridge
             // tail pose for ordinary first-frame continuity.
             KimodoConstraintInternalData terminal = firstFrameOverride ??
                 constraints.BuildTerminalForGeneration(isArdy);
-            if (activeConstraints.Count == 0 && terminal == null)
+            List<KimodoRuntimeRoot2DTarget> activeTargets = constraints.BuildRoot2DTargetsForGeneration(isArdy);
+            if (activeConstraints.Count == 0 && activeTargets.Count == 0 && terminal == null)
             {
                 return string.Empty;
             }
 
-            string futureConstraints = activeConstraints.Count == 0
-                ? string.Empty
-                : KimodoConstraintJsonExporter.ToConstraintsJson(
-                    activeConstraints,
-                    new KimodoConstraintExportContext
-                    {
-                        projectedPoseProjector = KimodoRuntimeConstraintExportProjector.Create(modelName)
-                    },
-                    0.0,
-                    generationDuration,
-                    isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate);
+            float exportFps = isArdy ? ardyProfile.SourceFps : KimodoMotionModelProfiles.DefaultFrameRate;
+            string futureConstraints = BuildRuntimeRoot2DConstraintsJson(
+                activeConstraints,
+                generationDuration,
+                exportFps);
+            string targetConstraints = BuildRuntimeRoot2DTargetsJson(activeTargets);
+            if (!string.IsNullOrWhiteSpace(targetConstraints))
+            {
+                futureConstraints = targetConstraints;
+            }
             if (terminal == null)
             {
                 return futureConstraints;
@@ -772,6 +817,100 @@ namespace KimodoBridge
                 combined.Add(constraint);
             }
             return combined.ToString(Formatting.Indented);
+        }
+
+        private static string BuildRuntimeRoot2DTargetsJson(
+            IReadOnlyList<KimodoRuntimeRoot2DTarget> targets)
+        {
+            if (targets == null || targets.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var result = new JArray();
+            for (int i = 0; i < targets.Count; i++)
+            {
+                KimodoRuntimeRoot2DTarget target = targets[i];
+                if (target == null)
+                {
+                    continue;
+                }
+
+                var item = new JObject
+                {
+                    ["type"] = KimodoRuntimeConstraints.Root2DTargetType,
+                    ["target_root_2d"] = new JArray(target.protocolRoot.x, target.protocolRoot.y),
+                    ["max_speed"] = target.maxSpeed,
+                    ["max_acceleration"] = target.maxAcceleration,
+                    ["arrival_threshold"] = target.arrivalThreshold,
+                    ["include_heading"] = target.includeHeading
+                };
+                if (target.includeHeading && target.hasHeading)
+                {
+                    item["heading"] = new JArray(target.protocolHeading.x, target.protocolHeading.y);
+                }
+                result.Add(item);
+            }
+            return result.Count == 0 ? string.Empty : result.ToString(Formatting.Indented);
+        }
+
+        private static string BuildRuntimeRoot2DConstraintsJson(
+            IReadOnlyList<KimodoRuntimeRoot2DConstraint> constraints,
+            float durationSeconds,
+            float exportFps)
+        {
+            if (constraints == null || constraints.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var frameIndices = new JArray();
+            var roots = new JArray();
+            var headings = new JArray();
+            bool hasCompleteHeading = true;
+            float fps = exportFps > 0f ? exportFps : KimodoMotionModelProfiles.DefaultFrameRate;
+            int maxFrame = Mathf.Max(0, KimodoFrameTimeUtility.SecondsToFrameCount(durationSeconds, fps) - 1);
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                KimodoRuntimeRoot2DConstraint constraint = constraints[i];
+                if (constraint == null)
+                {
+                    continue;
+                }
+
+                int frame = Mathf.Clamp(
+                    KimodoFrameTimeUtility.SecondsToFrameIndex(constraint.sampleTime, fps),
+                    0,
+                    maxFrame);
+                frameIndices.Add(frame);
+                roots.Add(new JArray(constraint.protocolRoot.x, constraint.protocolRoot.y));
+                if (constraint.hasHeading)
+                {
+                    headings.Add(new JArray(constraint.protocolHeading.x, constraint.protocolHeading.y));
+                }
+                else
+                {
+                    hasCompleteHeading = false;
+                }
+            }
+
+            if (frameIndices.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var root2d = new JObject
+            {
+                ["type"] = KimodoRuntimeConstraints.Root2DType,
+                ["frame_indices"] = frameIndices,
+                ["smooth_root_2d"] = roots
+            };
+            if (hasCompleteHeading)
+            {
+                root2d["global_root_heading"] = headings;
+            }
+
+            return new JArray(root2d).ToString(Formatting.Indented);
         }
 
         private async Task RefreshUpcomingGenerationAsync(
@@ -942,25 +1081,7 @@ namespace KimodoBridge
             float z,
             float durationSeconds)
         {
-            if (!KimodoRuntimeConstraintSampler.TryCreateEndEffector(
-                    motionPlayer,
-                    modelName,
-                    constraintType,
-                    jointName,
-                    new Vector3(x, y, z),
-                    GetCurrentPositionInternal(),
-                    ResolveModelToWorldRotation(),
-                    ResolveTargetHumanScale(),
-                    ClampConstraintTime(durationSeconds),
-                    out KimodoMarkerSampleResult sample,
-                    out string error))
-            {
-                UpdateStatus(error);
-                return error;
-            }
-
-            StageConstraintSample(sample);
-            string result = $"{label} staged at {FormatVector3(new Vector3(x, y, z))}.";
+            string result = "Runtime hand/feet effectors are disabled; use KMB FullBody sampling.";
             UpdateStatus(result);
             return result;
         }
@@ -971,23 +1092,22 @@ namespace KimodoBridge
             float durationSeconds,
             Vector2? worldHeading)
         {
-            if (!KimodoRuntimeConstraintSampler.TryCreateRoot2D(
-                    motionPlayer,
-                    modelName,
+            if (!TryCreateRuntimeRoot2DConstraint(
                     new Vector2(worldX, worldZ),
                     worldHeading,
-                    GetCurrentPositionInternal(),
-                    ResolveModelToWorldRotation(),
-                    ResolveTargetHumanScale(),
                     ClampConstraintTime(durationSeconds),
-                    out KimodoMarkerSampleResult sample,
+                    out KimodoRuntimeRoot2DConstraint sample,
                     out string error))
             {
                 UpdateStatus(error);
                 return error;
             }
 
-            StageConstraintSample(sample);
+            constraints.StageRoot2D(
+                sample,
+                KimodoMotionModelProfiles.TryGetArdy(modelName, out _)
+                    ? motionPlayer.PlaybackTimeAsDouble
+                    : 0.0);
             string result = $"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).";
             UpdateStatus(result);
             return result;
@@ -1010,18 +1130,146 @@ namespace KimodoBridge
             _ = RefreshUpcomingGenerationAsync(inactiveStatus, waitingStatus, generatingStatus);
         }
 
-        private void StageConstraintSample(KimodoMarkerSampleResult sample)
+        private bool TryCreateRuntimeRoot2DConstraint(
+            Vector2 targetWorldPosition,
+            Vector2? worldHeading,
+            float sampleTime,
+            out KimodoRuntimeRoot2DConstraint constraint,
+            out string error)
         {
-            if (sample == null)
+            constraint = null;
+            error = string.Empty;
+            if (motionPlayer == null ||
+                !motionPlayer.EnsureConstraintSkeletonReady(modelName, out error) ||
+                motionPlayer.ConstraintRetargetSkeleton == null)
             {
-                return;
+                return false;
             }
 
-            constraints.Stage(
-                sample,
-                KimodoMotionModelProfiles.TryGetArdy(modelName, out _)
-                    ? motionPlayer.PlaybackTimeAsDouble
-                    : 0.0);
+            RetargetSkeleton sourceSkeleton = motionPlayer.ConstraintRetargetSkeleton;
+            if (!sourceSkeleton.GetBonePose(
+                    HumanBodyBones.Hips,
+                    out Vector3 sourceRoot,
+                    out Quaternion sourceRotation))
+            {
+                error = "Runtime Root2D requires a sampled KMB hips pose.";
+                return false;
+            }
+
+            Vector3 currentWorldPosition = GetCurrentPositionInternal();
+            Quaternion modelToWorldRotation = ResolveModelToWorldRotation();
+            float scale = Mathf.Max(1e-6f, sourceSkeleton.humanScale) /
+                Mathf.Max(1e-6f, ResolveTargetHumanScale());
+            Vector2 localDelta = KimodoRoot2DPlanner.ToModelOffset(
+                currentWorldPosition,
+                modelToWorldRotation,
+                new Vector3(targetWorldPosition.x, currentWorldPosition.y, targetWorldPosition.y));
+            Vector3 neutralRoot = sourceRoot + new Vector3(localDelta.x * scale, 0f, localDelta.y * scale);
+            constraint = new KimodoRuntimeRoot2DConstraint
+            {
+                sampleTime = sampleTime,
+                protocolRoot = new Vector2(-neutralRoot.x, neutralRoot.z),
+                hasHeading = worldHeading.HasValue
+            };
+
+            if (worldHeading.HasValue)
+            {
+                Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
+                    modelToWorldRotation,
+                    worldHeading.Value);
+                Vector3 currentForward = sourceRotation * Vector3.forward;
+                currentForward.y = 0f;
+                if (currentForward.sqrMagnitude < 1e-6f)
+                {
+                    currentForward = Vector3.forward;
+                }
+
+                Quaternion currentYaw = Quaternion.LookRotation(currentForward.normalized, Vector3.up);
+                Quaternion desiredYaw = Quaternion.LookRotation(
+                    new Vector3(modelHeading.x, 0f, modelHeading.y),
+                    Vector3.up);
+                Quaternion desiredRotation =
+                    (desiredYaw * Quaternion.Inverse(currentYaw) * sourceRotation).normalized;
+                Vector3 forward = desiredRotation * Vector3.forward;
+                forward.y = 0f;
+                if (forward.sqrMagnitude < 1e-6f)
+                {
+                    forward = Vector3.forward;
+                }
+                forward.Normalize();
+                constraint.protocolHeading = new Vector2(forward.z, -forward.x);
+            }
+
+            return true;
+        }
+
+        private bool TryCreateRuntimeRoot2DTarget(
+            Vector2 targetWorldPosition,
+            Vector2? worldHeading,
+            bool includeHeading,
+            float maxSpeed,
+            float maxAcceleration,
+            float arrivalThreshold,
+            out KimodoRuntimeRoot2DTarget target,
+            out string error)
+        {
+            target = null;
+            error = string.Empty;
+            if (motionPlayer == null ||
+                !motionPlayer.EnsureConstraintSkeletonReady(modelName, out error) ||
+                motionPlayer.ConstraintRetargetSkeleton == null)
+            {
+                return false;
+            }
+
+            RetargetSkeleton sourceSkeleton = motionPlayer.ConstraintRetargetSkeleton;
+            if (!sourceSkeleton.GetBonePose(HumanBodyBones.Hips, out Vector3 sourceRoot, out Quaternion sourceRotation))
+            {
+                error = "Runtime Root2D requires a sampled KMB hips pose.";
+                return false;
+            }
+
+            Vector3 currentWorldPosition = GetCurrentPositionInternal();
+            Quaternion modelToWorldRotation = ResolveModelToWorldRotation();
+            float scale = Mathf.Max(1e-6f, sourceSkeleton.humanScale) /
+                Mathf.Max(1e-6f, ResolveTargetHumanScale());
+            Vector2 localDelta = KimodoRoot2DPlanner.ToModelOffset(
+                currentWorldPosition,
+                modelToWorldRotation,
+                new Vector3(targetWorldPosition.x, currentWorldPosition.y, targetWorldPosition.y));
+            Vector3 neutralRoot = sourceRoot + new Vector3(localDelta.x * scale, 0f, localDelta.y * scale);
+            target = new KimodoRuntimeRoot2DTarget
+            {
+                protocolRoot = new Vector2(-neutralRoot.x, neutralRoot.z),
+                maxSpeed = maxSpeed,
+                maxAcceleration = maxAcceleration,
+                arrivalThreshold = arrivalThreshold,
+                includeHeading = includeHeading,
+                hasHeading = worldHeading.HasValue
+            };
+
+            if (worldHeading.HasValue)
+            {
+                Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(modelToWorldRotation, worldHeading.Value);
+                Vector3 currentForward = sourceRotation * Vector3.forward;
+                currentForward.y = 0f;
+                if (currentForward.sqrMagnitude < 1e-6f)
+                {
+                    currentForward = Vector3.forward;
+                }
+                Quaternion currentYaw = Quaternion.LookRotation(currentForward.normalized, Vector3.up);
+                Quaternion desiredYaw = Quaternion.LookRotation(new Vector3(modelHeading.x, 0f, modelHeading.y), Vector3.up);
+                Quaternion desiredRotation = (desiredYaw * Quaternion.Inverse(currentYaw) * sourceRotation).normalized;
+                Vector3 forward = desiredRotation * Vector3.forward;
+                forward.y = 0f;
+                if (forward.sqrMagnitude < 1e-6f)
+                {
+                    forward = Vector3.forward;
+                }
+                forward.Normalize();
+                target.protocolHeading = new Vector2(forward.z, -forward.x);
+            }
+            return true;
         }
 
         private string GetCurrentPromptInternal(out bool isIdle)

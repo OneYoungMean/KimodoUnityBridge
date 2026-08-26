@@ -87,7 +87,7 @@ goto parse_args
 if defined EXPLICIT_VENV (
   set "SETUP_ARGS=%SETUP_ARGS% --venv ""%EXPLICIT_VENV%"""
 )
-"%UV_BIN%" run --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
+"%UV_BIN%" run --isolated --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
 if errorlevel 1 goto cleanup_fail
 
 call :resolve_venv_python
