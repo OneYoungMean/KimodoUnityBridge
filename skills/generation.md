@@ -29,6 +29,12 @@ jog_arc_cw_loop
 5. Start `kimodo_generate_animation`, preserve `request_id`, and poll `kimodo_get_generation` to a terminal state. Record model, encoder, output mode, seed, warnings, and generated safe name.
 6. Hand the completed Clip to [Optimization](optimization.md): analyze it, open the PNG, and append a revised Clip when evidence fails.
 
+## Intent decisions
+
+- `loop:true` is the generation mechanism for a requested loop. Do not use `kimodo_record_range`, Timeline insertion, or a second recorded pass to create, repeat, or extend the loop. When the request is accepted without a fallback warning, the generator owns loop unification and no additional seam check is required.
+- Use `kimodo_record_range` only when the intent preflight explicitly says crop, splice, or extract a specified Session range. If the range is missing or the only reason is to make a generated loop usable, ask the user or report the public output boundary; do not guess or substitute a recording call.
+- `animation_analyze` keyframes are analysis evidence, not generation constraints. When the intent preflight says pose/keyframe constraints are needed, call `pose_get` before generation and pass the returned Pose references as sparse constraints.
+
 ## Constraint rules
 
 - Each point-constraint item has a non-negative generated-clip `frame` and at least one of `fullbody`, `root2d`, `left_hand`, `right_hand`, `left_foot`, or `right_foot`; multiple fields may coexist in one item.
@@ -41,7 +47,7 @@ jog_arc_cw_loop
 - All current generation modes require the selected Session character to be a valid scene Humanoid Animator with a valid Avatar.
 - `model_bone` changes the output representation; it does not make Mesh-only generation available.
 - Registered `model` and `text_encoder_model` values come from `kimodo_help({"section":"models"})`.
-- `loop:true` is a bounded request. When `duration_frames` exceeds 300, current implementation falls back to normal generation and returns a warning; report the warning.
+- `loop:true` is a bounded request. When `duration_frames` exceeds 300, current implementation falls back to normal generation and returns a warning; report the warning instead of claiming the loop contract.
 - A failed or canceled request is not a generated Clip. Report the terminal status and error, and do not claim visual acceptance.
 
 ## 中文
@@ -60,6 +66,12 @@ jog_arc_cw_loop
 4. 只准备请求所需的稀疏约束：`fullbody` 为完整 Pose，`root2d` 为平面 Root 位置/朝向，手脚字段为单独接触；用 `pose_create_path` 创建可复用 Root 轨迹，并将返回 `{track,index}` 作为 `root_path.path`。
 5. 调用 `kimodo_generate_animation`，保存 `request_id`，轮询 `kimodo_get_generation` 到终态，并记录模型、编码器、输出模式、seed、警告和生成的安全名称。
 6. 将完成的 Clip 交给 [优化](optimization.md)：分析、打开 PNG，证据失败时追加修正版。
+
+### 意图决策
+
+- 请求循环时，`loop:true` 是生成机制。不要用 `kimodo_record_range`、Timeline 插入或再次 Record 来创建、重复或延长循环；请求无回退警告并被接受时，由生成器负责循环统一，不再额外做接缝检查。
+- 只有意图预判明确为裁剪、拼接或提取指定 Session 区间时才用 `kimodo_record_range`。若缺少区间，或只是想让生成循环可用，应询问用户或报告公开输出边界，不能猜测或替代调用 Record。
+- `animation_analyze` 的 keyframes 是分析证据，不是生成约束。意图预判需要姿势/关键帧约束时，应在生成前调用 `pose_get`，并把返回的 Pose 引用作为稀疏约束。
 
 ### 约束规则
 

@@ -19,6 +19,19 @@ The live schema, `kimodo_help`, returned IDs/names/paths, and error envelopes ar
 - [Generation](skills/generation.md): turn motion semantics into a new appended Session Clip.
 - [Optimization](skills/optimization.md): diagnose an existing Clip and append a corrected variant.
 
+## Intent preflight
+
+Before selecting commands, answer these fixed questions for the request:
+
+- Does the requested animation need to loop?
+- Does it need retargeting to another character?
+- Does it need cropping or splicing?
+- Does it need pose/keyframe constraints?
+
+Record each answer as `yes`, `no`, or `unspecified`, with one short reason. If one or two answers are ambiguous and would change the output, ask the user before taking that branch. For a large batch with many ambiguities, use and report these safe defaults: no loop unless the request explicitly says loop/continuous cycle; no retargeting; no cropping or splicing; and no pose constraints unless the request specifies contacts, endpoints, or a concrete pose requirement. Never silently invent a range, target character, or keyframe.
+
+Map positive answers to commands: `loop=yes` means `kimodo_generate_animation(loop:true)`; `retarget=yes` means `kimodo_retarget_animation`; and `crop_or_splice=yes` means `kimodo_record_range` with an explicit half-open range. `kimodo_record_range` is not a looping, repetition, or generic post-generation export mechanism. If `loop:true` is accepted without a fallback warning, rely on the generator's loop contract and do not add a separate seam-check or recording pass. If the request needs a generated result materialized but the public schema has no distinct materialization command, report that boundary instead of using `record_range` as a workaround.
+
 Non-negotiable guardrails:
 
 1. After Unity finishes compiling/importing, install or refresh the QuickServer once with `kimodo_install_server({})` before runtime-dependent commands.
@@ -34,7 +47,7 @@ When recognition or pairwise quality selection is requested, convert the text re
 - Analyze both candidates in one `animation_analyze` call and preserve their original order. Verify the returned clip/analysis handles before mapping evidence back to A/B.
 - Judge semantics before generic quality: first confirm the requested action and phase, then direction/root trajectory, contacts/timing, seam continuity, and style. Saliency, keyframe count, displacement magnitude, or contact count alone are not semantic proof.
 - Interpret direction relative to the character's forward axis and observed pose/root motion. Never infer quality from filenames, `_a`/`_b` suffixes, candidate order, or world-axis assumptions.
-- For loops inspect first/last pose and root velocity; for starts/stops inspect motion ramp and settling; for turns inspect heading change and path curvature. Use the opened composite PNG together with structured metrics.
+- For generated loops accepted with `loop:true`, rely on the generator's loop contract rather than adding a separate first/last-pose seam check. For existing or imported loops without that contract, inspect first/last pose and root velocity; for starts/stops inspect motion ramp and settling; for turns inspect heading change and path curvature. Use the opened composite PNG together with structured metrics.
 - Record a concise per-candidate comparison and return `match`, `not_match`, or `insufficient_evidence`. If the requested attribute cannot be established from the returned structured data and inspected image, report insufficient evidence rather than guessing.
 
 Humanoid workflows provide body/contact semantics. Renderable Mesh objects are also analyzable through the Mesh-only path, but do not provide Humanoid foot/contact evidence. Completed Session Clips are immutable; corrections and derived outputs append new Clips. If a public command cannot perform a requested edit, report the boundary instead of claiming completion.
