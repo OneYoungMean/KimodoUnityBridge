@@ -32,6 +32,16 @@ Record each answer as `yes`, `no`, or `unspecified`, with one short reason. If o
 
 Map positive answers to commands: `loop=yes` means `kimodo_generate_animation(loop:true)`; `retarget=yes` means `kimodo_retarget_animation`; and `crop_or_splice=yes` means `kimodo_record_range` with an explicit half-open range. `kimodo_record_range` is not a looping, repetition, or generic post-generation export mechanism. If `loop:true` is accepted without a fallback warning, rely on the generator's loop contract and do not add a separate seam-check or recording pass. If the request needs a generated result materialized but the public schema has no distinct materialization command, report that boundary instead of using `record_range` as a workaround.
 
+## Closed-loop generation workflow
+
+For generation or correction tasks, use this sequence after intent preflight:
+
+1. If a source Clip or current candidate exists, analyze it with `animation_analyze` before generating or editing. For pure text-to-motion with no source or candidate, state that the initial analysis is unavailable; do not invent one.
+2. Use the intent answers and analysis to decide whether Pose/keyframe constraints are needed. When `pose_constraints=yes`, call `pose_get` on relevant local frames before generation and pass the returned Pose references as sparse constraints. Analyzer keyframes are evidence, not constraints.
+3. Generate with `kimodo_generate_animation`; use `loop:true` when `loop=yes`.
+4. Analyze the generated output with `animation_analyze`. For an accepted `loop:true` request, this checks the requested motion and output identity, not a separate loop-seam contract.
+5. If a requested property fails and the public workflow can express a correction, return to step 2 and append a new Clip. Do not add a recording pass unless `crop_or_splice=yes`.
+
 Non-negotiable guardrails:
 
 1. After Unity finishes compiling/importing, install or refresh the QuickServer once with `kimodo_install_server({})` before runtime-dependent commands.
@@ -52,4 +62,4 @@ When recognition or pairwise quality selection is requested, convert the text re
 
 Humanoid workflows provide body/contact semantics. Renderable Mesh objects are also analyzable through the Mesh-only path, but do not provide Humanoid foot/contact evidence. Completed Session Clips are immutable; corrections and derived outputs append new Clips. If a public command cannot perform a requested edit, report the boundary instead of claiming completion.
 
-The Chinese entry point is [SKILL-zh.md](SKILL-zh.md).
+Chinese guidance is included in the bilingual generation and optimization references; no separate `SKILL-zh.md` file is currently shipped.

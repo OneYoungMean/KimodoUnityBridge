@@ -44,7 +44,7 @@ Use the live command schema for exact parameters. This document defines only the
 - Generation point constraints are sparse per-frame objects. Each item requires a non-negative `frame` and at least one of `fullbody`, `root2d`, `left_hand`, `right_hand`, `left_foot`, or `right_foot`; multiple fields may coexist in one item. Each value uses a Pose reference, while `root2d` may use `pose` or direct `position` plus `heading`.
 - A `root_path` item contains the path reference and may set its first `frame` (default 0); it cannot be combined with point-constraint fields or overlap another root-path frame range. It expands over the remaining generated clip. At the same frame, `fullbody` is the base, `root2d` overrides Root2D, effector fields override matching channels, and explicit `root2d` wins over `root_path`.
 
-### 6. Quality gate and loop seam
+### 6. Quality gate and loop handling
 
 After every completed generation, correction, record, or retarget:
 
@@ -53,7 +53,7 @@ After every completed generation, correction, record, or retarget:
 3. Check requested action, phase, direction/path, silhouette, balance, root trajectory, contacts, and ending state.
 4. Append another Clip when evidence fails; retain the evidence and state what changed.
 
-For Humanoid loops, use `pose_get` at the first/last local frames and compare the corresponding analysis tiles. Check root position/heading, contact phase, and velocity continuity. In-place loops should return to the initial root/pose; locomotion loops may retain cycle displacement. For Mesh-only loops, use only the available Mesh analysis panels and do not invent Pose/contact evidence. Static images do not prove timing, sliding, popping, or acceleration; without playback/dense samples report those qualities as `not_verified`.
+For a generated loop accepted with `loop:true` and no fallback warning, rely on the generator's loop contract; do not add a separate first/last-pose seam check or recording pass. For an existing or imported loop without that contract, use `pose_get` at the available boundary frames and compare the corresponding analysis tiles. Check root position/heading, contact phase, and velocity continuity. In-place loops should return to the initial root/pose; locomotion loops may retain cycle displacement. For Mesh-only loops, use only the available Mesh analysis panels and do not invent Pose/contact evidence. Static images do not prove timing, sliding, popping, or acceleration; without playback/dense samples report those qualities as `not_verified`.
 
 Use only these visual statuses: `passed`, `needs_revision`, or `not_verified`. `passed` requires actually opening the returned PNG.
 
@@ -106,7 +106,7 @@ Use only these visual statuses: `passed`, `needs_revision`, or `not_verified`. `
 - 生成点约束是按帧稀疏对象。每项必须有非负 `frame`，并且至少含 `fullbody`、`root2d`、`left_hand`、`right_hand`、`left_foot`、`right_foot` 之一；同一项可以组合多个字段。值使用 Pose 引用，`root2d` 也可用直接 `position` 加 `heading`。
 - `root_path` 项包含 Path 引用，可指定首帧（默认 0），不能和点约束字段混用，也不能和另一个 root-path 帧区间重叠；它会扩展到生成 Clip 剩余部分。同帧优先级为：`fullbody` 作为基础，`root2d` 覆盖 Root2D，手脚字段覆盖对应通道，显式 `root2d` 优先于 `root_path`。
 
-### 6. 质量门与循环接缝
+### 6. 质量门与循环处理
 
 每次生成、修正、Record 或 Retarget 完成后：
 
@@ -115,7 +115,7 @@ Use only these visual statuses: `passed`, `needs_revision`, or `not_verified`. `
 3. 检查动作、阶段、方向/路径、剪影、平衡、Root 轨迹、接触和结束状态。
 4. 证据失败时追加另一个 Clip；保留证据并说明变化。
 
-Humanoid 循环要用 `pose_get` 检查首尾局部帧，并对照分析 tile 检查 Root 位置/朝向、接触相位和速度连续性。原地循环应回到初始 Root/姿势；位移循环可以保留周期位移。Mesh-only 循环只能使用现有的 Mesh 分析面板，不能虚构 Pose/接触证据。静态图片不能证明时序、滑步、跳变或加速度；没有播放/密集采样时报告 `not_verified`。
+已接受且无回退警告的生成循环（`loop:true`）依赖生成器的循环契约，不再额外用首尾 Pose 检查接缝，也不增加 Record pass。没有该契约的已有或导入循环，才用 `pose_get` 检查实际存在的边界帧，并对照分析 tile 检查 Root 位置/朝向、接触相位和速度连续性。原地循环应回到初始 Root/姿势；位移循环可以保留周期位移。Mesh-only 循环只能使用现有的 Mesh 分析面板，不能虚构 Pose/接触证据。静态图片不能证明时序、滑步、跳变或加速度；没有播放/密集采样时报告 `not_verified`。
 
 视觉状态只使用 `passed`、`needs_revision`、`not_verified`；实际打开 PNG 才能报告 `passed`。
 

@@ -35,6 +35,18 @@ jog_arc_cw_loop
 - Use `kimodo_record_range` only when the intent preflight explicitly says crop, splice, or extract a specified Session range. If the range is missing or the only reason is to make a generated loop usable, ask the user or report the public output boundary; do not guess or substitute a recording call.
 - `animation_analyze` keyframes are analysis evidence, not generation constraints. When the intent preflight says pose/keyframe constraints are needed, call `pose_get` before generation and pass the returned Pose references as sparse constraints.
 
+## Analysis–on-demand sampling–generation–analysis loop
+
+For generation or correction tasks with a source Clip or current candidate, follow this loop:
+
+1. Analyze the source or candidate with `animation_analyze` before generating or editing.
+2. Combine the analysis with intent preflight. If pose/keyframe constraints are needed, use `pose_get` on relevant local frames and pass the returned Pose references as sparse constraints. Do not treat analyzer-selected keyframes as constraints.
+3. Generate with `kimodo_generate_animation`; set `loop:true` when the intent says the result must loop.
+4. Analyze the generated output. For an accepted `loop:true` request, rely on the generator for seam unification; use this analysis for the requested motion semantics and output identity, not for an additional seam check.
+5. If the requested result is not met and the public commands support a correction, return to step 2 and append a new Clip. Never insert `kimodo_record_range` between generation and analysis unless crop/splice/extract was explicitly selected in intent preflight.
+
+For pure text-to-motion with no source Clip or candidate, record that the initial analysis is unavailable and continue with intent decisions. Do not invent a source, Pose, or range.
+
 ## Constraint rules
 
 - Each point-constraint item has a non-negative generated-clip `frame` and at least one of `fullbody`, `root2d`, `left_hand`, `right_hand`, `left_foot`, or `right_foot`; multiple fields may coexist in one item.
@@ -72,6 +84,18 @@ jog_arc_cw_loop
 - 请求循环时，`loop:true` 是生成机制。不要用 `kimodo_record_range`、Timeline 插入或再次 Record 来创建、重复或延长循环；请求无回退警告并被接受时，由生成器负责循环统一，不再额外做接缝检查。
 - 只有意图预判明确为裁剪、拼接或提取指定 Session 区间时才用 `kimodo_record_range`。若缺少区间，或只是想让生成循环可用，应询问用户或报告公开输出边界，不能猜测或替代调用 Record。
 - `animation_analyze` 的 keyframes 是分析证据，不是生成约束。意图预判需要姿势/关键帧约束时，应在生成前调用 `pose_get`，并把返回的 Pose 引用作为稀疏约束。
+
+### 分析—按需采样—生成—分析闭环
+
+生成或修正任务存在源 Clip 或当前候选时，按以下闭环执行：
+
+1. 生成或编辑前，先用 `animation_analyze` 分析源 Clip 或当前候选。
+2. 结合分析和意图预判；需要姿势/关键帧约束时，对相关局部帧调用 `pose_get`，并把返回的 Pose 引用作为稀疏约束。分析器选择的 keyframes 不是生成约束。
+3. 调用 `kimodo_generate_animation`；意图要求循环时设置 `loop:true`。
+4. 分析生成结果。已接受的 `loop:true` 请求由生成器负责接缝统一；此处只检查请求的动作语义和结果身份，不额外检查循环接缝。
+5. 如果未满足要求且公开命令支持修正，回到第 2 步并追加新的 Clip。除非意图预判明确选择裁剪/拼接/提取，否则不得在生成与分析之间插入 `kimodo_record_range`。
+
+纯文本生成且没有源 Clip 或候选时，应记录“初始分析不可用”，然后依据意图继续；不能臆造源动画、Pose 或区间。
 
 ### 约束规则
 
