@@ -1138,8 +1138,16 @@ namespace KimodoUnityBridge.Command
             var environment = new List<GameObject>();
             CreatePictureEnvironment(environment, IncludeGroundInBounds(bounds));
             CreateWorldLine(environment, groundPoints, new Color(.1f, .85f, .25f, .95f), .06f);
-            IReadOnlyList<int> keyframes = SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame).ToArray();
-            foreach (int frame in keyframes)
+            var keyframes = new HashSet<int>(tile.PrimaryFrames);
+            foreach (int frame in tile.TrajectoryFrames.Where(frame => !keyframes.Contains(frame)))
+            {
+                int clamped = Mathf.Clamp(frame, 0, Math.Max(0, groundPoints.Length - 1));
+                Vector3 origin = groundPoints.Length > 0 ? groundPoints[clamped] : Vector3.zero;
+                CreateGroundMarker(environment, origin, .08f, Color.gray, "Kimodo Root2D Sample", .025f);
+            }
+
+            IReadOnlyList<int> orderedKeyframes = keyframes.OrderBy(frame => frame).ToArray();
+            foreach (int frame in orderedKeyframes)
             {
                 int clamped = Mathf.Clamp(frame, 0, Math.Max(0, groundPoints.Length - 1));
                 Vector3 origin = groundPoints.Length > 0 ? groundPoints[clamped] : Vector3.zero;
@@ -1181,13 +1189,19 @@ namespace KimodoUnityBridge.Command
             objects.Add(lineObject);
         }
 
-        private static void CreateGroundMarker(List<GameObject> objects, Vector3 position, float radius, Color color)
+        private static void CreateGroundMarker(
+            List<GameObject> objects,
+            Vector3 position,
+            float radius,
+            Color color,
+            string name = "Kimodo Root2D Keyframe",
+            float height = .045f)
         {
             GameObject marker = MoveToAnalysisPreviewScene(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
-            marker.name = "Kimodo Root2D Keyframe";
+            marker.name = name;
             marker.hideFlags = HideFlags.HideAndDontSave;
             SetLayerRecursively(marker, 31);
-            marker.transform.position = position + Vector3.up * .045f;
+            marker.transform.position = position + Vector3.up * height;
             marker.transform.localScale = new Vector3(radius, .04f, radius);
             marker.GetComponent<Renderer>().sharedMaterial = MakeUnlitMaterial(color);
             objects.Add(marker);
@@ -2786,16 +2800,28 @@ namespace KimodoUnityBridge.Command
 
             public static PictureTile TestRoot2D(SubjectPictureData subject, Vector3 direction)
             {
+                var keyframes = new HashSet<int>(SelectKeyFrames(subject, AnalysisKeyframeCount));
+                List<int> frames = BuildTestSampleFrames(
+                    subject,
+                    keyframes,
+                    false,
+                    out HashSet<int> stationaryBoostFrames);
                 return new PictureTile(subject, "test_root2d", new JObject
                 {
                     ["presentation"] = "root2d_pelvis_projection",
-                    ["keyframes"] = new JArray(SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame)),
+                    ["keyframes"] = new JArray(keyframes.OrderBy(frame => frame)),
+                    ["primary_frames"] = new JArray(keyframes.OrderBy(frame => frame)),
+                    ["frames"] = new JArray(frames),
+                    ["sample_frames"] = new JArray(frames.Where(frame => !keyframes.Contains(frame))),
                     ["pelvis_only"] = true,
                     ["heading_arrows"] = true
                 })
                 {
                     Direction = direction,
-                    Orthographic = true
+                    Orthographic = true,
+                    TrajectoryFrames = frames,
+                    PrimaryFrames = keyframes,
+                    StationaryBoostFrames = stationaryBoostFrames
                 };
             }
 

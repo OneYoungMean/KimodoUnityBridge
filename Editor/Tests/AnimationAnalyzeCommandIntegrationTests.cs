@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -66,6 +67,20 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(relativePng, Is.Not.Null.And.EndsWith(".png"));
                 Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
                 Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
+
+                JObject root2D = analysis["pictures"]?["images"]?
+                    .Children<JObject>()
+                    .Select(item => item["description"] as JObject)
+                    .SingleOrDefault(description => description?.Value<string>("presentation") == "root2d_pelvis_projection");
+                Assert.That(root2D, Is.Not.Null, "Middle analysis did not describe its Root2D tile.");
+                int[] frames = root2D["frames"]?.Values<int>().ToArray();
+                int[] primaryFrames = root2D["primary_frames"]?.Values<int>().ToArray();
+                int[] sampleFrames = root2D["sample_frames"]?.Values<int>().ToArray();
+                Assert.That(frames, Is.Not.Null.And.Not.Empty, "Root2D tile did not expose its sampled frames.");
+                Assert.That(primaryFrames, Is.Not.Null.And.Not.Empty, "Root2D tile did not expose its primary frames.");
+                Assert.That(sampleFrames, Is.Not.Null, "Root2D tile did not expose its gray sample frames.");
+                Assert.That(sampleFrames.All(frame => frames.Contains(frame) && !primaryFrames.Contains(frame)), Is.True,
+                    "Root2D gray samples must come from the shared sample set and exclude colored keyframes.");
             }
             finally
             {
