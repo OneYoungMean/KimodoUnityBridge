@@ -27,6 +27,16 @@ Non-negotiable guardrails:
 4. Poll asynchronous generation to `completed`, `failed`, or `canceled`.
 5. Open `pictures.image_path` from `animation_analyze` before reporting visual `passed`.
 
+## Semantic recognition and candidate selection
+
+When recognition or pairwise quality selection is requested, convert the text request into observable acceptance criteria before judging a clip: action, phase (loop/start/stop/transition), direction or turn, root displacement, contacts, timing/seam, and style qualifiers.
+
+- Analyze both candidates in one `animation_analyze` call and preserve their original order. Verify the returned clip/analysis handles before mapping evidence back to A/B.
+- Judge semantics before generic quality: first confirm the requested action and phase, then direction/root trajectory, contacts/timing, seam continuity, and style. Saliency, keyframe count, displacement magnitude, or contact count alone are not semantic proof.
+- Interpret direction relative to the character's forward axis and observed pose/root motion. Never infer quality from filenames, `_a`/`_b` suffixes, candidate order, or world-axis assumptions.
+- For loops inspect first/last pose and root velocity; for starts/stops inspect motion ramp and settling; for turns inspect heading change and path curvature. Use the opened composite PNG together with structured metrics.
+- Record a concise per-candidate comparison and return `match`, `not_match`, or `insufficient_evidence`. If the requested attribute cannot be established from the returned structured data and inspected image, report insufficient evidence rather than guessing.
+
 Humanoid workflows provide body/contact semantics. Renderable Mesh objects are also analyzable through the Mesh-only path, but do not provide Humanoid foot/contact evidence. Completed Session Clips are immutable; corrections and derived outputs append new Clips. If a public command cannot perform a requested edit, report the boundary instead of claiming completion.
 
 The Chinese entry point is [SKILL-zh.md](SKILL-zh.md).

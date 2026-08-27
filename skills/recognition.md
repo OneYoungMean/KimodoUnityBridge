@@ -9,6 +9,15 @@ Use this skill when judging whether rendered animation evidence expresses a text
 3. Read `pictures.images` in temporal order. Use only the presentations returned by that result: Humanoid output currently provides grouped keyframe/foot-transition panels and, at higher levels, individual pose panels; Mesh-only output provides Mesh pose panels.
 4. Return `match`, `not_match`, or `insufficient_evidence` for each candidate and cite visible pose/path/contact evidence.
 
+## Semantic decision checklist
+
+Before selecting a candidate, translate the request into observable criteria: action, phase, direction/turn, root motion, contact pattern, timing/seam, and style. Compare the candidates against those criteria in the original order.
+
+- Confirm the action and phase before ranking visual polish. A clip that is more dynamic, has larger displacement, or has more keyframes is not automatically the requested clip.
+- Resolve direction from the character's forward axis plus root/pose trajectory; do not use the filename suffix, candidate order, or assumed world axis as a proxy.
+- For loop requests compare the first and last poses and root velocity. For start/stop requests check acceleration into motion and settling at the boundary. For turns check heading change and curvature.
+- Use structured metrics only to support what is visible in the opened PNG. If a criterion is not observable or candidate order cannot be mapped confidently, return `insufficient_evidence` instead of guessing.
+
 Humanoid analysis can support keyframe and foot-contact reasoning. Mesh-only analysis can support visible pose/path evidence but cannot establish Humanoid bone or foot-contact semantics. `animation_compare` is a Humanoid-only numeric boundary check and does not replace semantic visual judgment.
 
 ## 中文

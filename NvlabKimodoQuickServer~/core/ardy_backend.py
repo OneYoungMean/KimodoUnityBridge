@@ -55,7 +55,7 @@ class _ArdyBatchRequest:
 
 
 class _ArdyInferenceBatcher:
-    def __init__(self, max_batch_size: int = ARDY_BATCH_SIZE, wait_seconds: float = 0.005):
+    def __init__(self, max_batch_size: int = ARDY_BATCH_SIZE, wait_seconds: float = 0.032):
         self.max_batch_size = max(1, int(max_batch_size))
         self.current_batch_size = 1
         self.wait_seconds = max(0.0, float(wait_seconds))
@@ -69,8 +69,7 @@ class _ArdyInferenceBatcher:
         with self._condition:
             while self.current_batch_size < self.max_batch_size and count > self.current_batch_size:
                 self.current_batch_size = min(self.max_batch_size, self.current_batch_size * 2)
-            while self.current_batch_size > 1 and count < self.current_batch_size / 2:
-                self.current_batch_size = max(1, self.current_batch_size // 2)
+            # ponytail: keep capacity monotonic until the future clean API resets it.
             self._condition.notify_all()
             return self.current_batch_size
 
