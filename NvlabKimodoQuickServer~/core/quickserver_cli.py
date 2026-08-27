@@ -383,6 +383,14 @@ def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None
     )
 
 
+def _release_bootstrap_lock(root_dir: str) -> None:
+    """Release the launcher lock after publishing the supervisor endpoint."""
+    try:
+        (Path(root_dir).resolve() / ".bootstrap.lock").unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _read_quickserver_version(root_dir: str) -> str:
     try:
         package_path = Path(root_dir).resolve() / "package.json"
@@ -1133,6 +1141,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
     _write_serverport(serverport_path, host, int(port), "boot")
     logger.log(f"[INFO] Kimodo QuickServer version: {_read_quickserver_version(kimodo_root)}")
     logger.log(f"[INFO] quickserver_cli listening on {host}:{port}")
+    _release_bootstrap_lock(kimodo_root)
+    logger.log("[INFO] Bootstrap lock released after QuickServer became ready.")
     logger.log(f"[INFO] ARDY cross-Session batch size: {ardy_backend.ARDY_BATCH_SIZE}")
 
     default_config = {

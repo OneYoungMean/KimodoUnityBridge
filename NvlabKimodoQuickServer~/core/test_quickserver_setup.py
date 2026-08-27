@@ -97,6 +97,23 @@ class QuickServerSetupTests(unittest.TestCase):
             self.assertIn("uv detail: file is locked", log)
             self.assertIn("[ERROR] Command failed", log)
 
+    def test_missing_uv_is_reported_during_setup_bootstrap(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "kimodo"
+            source.mkdir()
+            (source / "pyproject.toml").write_text("[project]\nname='test'\nversion='0'\n", encoding="utf-8")
+            paths = quickserver_setup.discover_project_paths(root)
+            messages = []
+            logger = SimpleNamespace(log=messages.append)
+            with patch.object(quickserver_setup.shutil, "which", return_value=None), patch.object(
+                quickserver_setup.subprocess, "run", side_effect=OSError("missing")
+            ):
+                with self.assertRaisesRegex(quickserver_setup.SetupError, "uv not found"):
+                    quickserver_setup._find_uv_bin(paths, logger)
+
+            self.assertIn("[ERROR] No working uv executable found during setup bootstrap.", messages)
+
 
 if __name__ == "__main__":
     unittest.main()

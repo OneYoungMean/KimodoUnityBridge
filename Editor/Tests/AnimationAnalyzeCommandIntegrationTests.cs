@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using KimodoBridge;
 using Newtonsoft.Json.Linq;
@@ -6,6 +7,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace KimodoUnityBridge.Command.Tests
 {
@@ -52,7 +54,7 @@ namespace KimodoUnityBridge.Command.Tests
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = addedClip.Value<string>("name")
                     }),
-                    ["level"] = "low", ["resolution"] = 512
+                    ["level"] = "middle", ["resolution"] = 512
                 });
                 Assert.That(EditorSceneManager.previewSceneCount, Is.EqualTo(previewSceneCount),
                     "animation_analyze leaked its isolated preview Scene.");
@@ -64,6 +66,85 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(relativePng, Is.Not.Null.And.EndsWith(".png"));
                 Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
                 Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
+            }
+            finally
+            {
+                command_dispatcher.Invoke("session_close", "{}");
+                UnityEngine.Object.DestroyImmediate(character);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AnimationGenerate_TPoseWalkForward_WritesCompositePng()
+        {
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(YBotPath);
+            Assert.That(source, Is.Not.Null, "Missing YBot T-pose fixture.");
+
+            GameObject character = UnityEngine.Object.Instantiate(source);
+            character.name = "KimodoTest_YBot";
+            try
+            {
+                Animator animator = character.GetComponentInChildren<Animator>(true);
+                Assert.That(animator, Is.Not.Null, "YBot fixture requires an Animator.");
+                Assert.That(animator.avatar, Is.Not.Null.And.Property("isHuman").True, "YBot fixture requires a Humanoid Avatar.");
+                animator.runtimeAnimatorController = null;
+                animator.Rebind();
+
+                JObject session = Require("session_get_or_create", new JObject
+                {
+                    ["name"] = "AnimationGenerate_TPoseWalkForward_" + Guid.NewGuid().ToString("N")
+                });
+                JObject addedCharacter = Require("session_add", new JObject
+                {
+                    ["kind"] = "character", ["character"] = character.name, ["session_id"] = session.Value<string>("session_id")
+                })["character"] as JObject;
+                JObject started = Require("kimodo_generate_animation", new JObject
+                {
+                    ["character"] = addedCharacter.Value<string>("name"),
+                    ["prompt"] = "walk forward in a straight line at a natural relaxed pace",
+                    ["duration_frames"] = 120,
+                    ["name"] = "Tpose_WalkForward",
+                    ["analysis_option"] = new JObject
+                    {
+                        ["keyframes"] = new JObject { ["enabled"] = true },
+                        ["keyframe_count"] = 8
+                    }
+                });
+
+                string requestId = started.Value<string>("request_id");
+                Assert.That(requestId, Is.Not.Null.And.Not.Empty);
+                JObject generation = started;
+                double deadline = EditorApplication.timeSinceStartup + 600d;
+                string status;
+                do
+                {
+                    Assert.That(EditorApplication.timeSinceStartup, Is.LessThan(deadline), "Timed out waiting for T-pose walk-forward generation.");
+                    yield return null;
+                    generation = Require("kimodo_get_generation", new JObject { ["request_id"] = requestId });
+                    status = generation.Value<string>("status");
+                }
+                while (status != "completed" && status != "failed" && status != "canceled");
+
+                Assert.That(status, Is.EqualTo("completed"), "T-pose walk-forward generation did not complete: " + generation.Value<string>("error"));
+                string animationName = generation.Value<string>("animation") ?? started.Value<string>("animation");
+                Assert.That(animationName, Is.Not.Null.And.Not.Empty);
+
+                JObject analysis = Require("animation_analyze", new JObject
+                {
+                    ["clips"] = new JArray(new JObject
+                    {
+                        ["character"] = addedCharacter.Value<string>("name"), ["clip"] = animationName
+                    }),
+                    ["level"] = "middle", ["resolution"] = 512
+                });
+                string relativePng = analysis["pictures"]?.Value<string>("image_path");
+                string absolutePng = string.IsNullOrWhiteSpace(relativePng)
+                    ? string.Empty
+                    : Path.GetFullPath(Path.Combine(Application.dataPath, "..", relativePng));
+                Assert.That(relativePng, Is.Not.Null.And.EndsWith(".png"));
+                Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
+                Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
+                Debug.Log("[Kimodo][Test] Generated T-pose walk-forward analysis screenshot: " + absolutePng);
             }
             finally
             {

@@ -5,8 +5,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 ROOT_DIR="${SCRIPT_DIR}"
 LOG_DIR="${ROOT_DIR}/log"
 LAUNCHER_LOG="${LOG_DIR}/launcher.log"
+BOOTSTRAP_LOG="${LOG_DIR}/bootstrap.log"
 mkdir -p "${LOG_DIR}"
 exec > >(tee -a "${LAUNCHER_LOG}") 2>&1
+bootstrap_log() {
+  local message="$1"
+  printf '[%s] %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "${message}" >> "${BOOTSTRAP_LOG}"
+  printf '%s\n' "${message}"
+}
+bootstrap_log "[INFO] QuickServer bootstrap started. pid=$$ root=${ROOT_DIR}"
 printf '[INFO] Kimodo QuickServer launcher started at %s (pid=%s)\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$$"
 SOURCE_ROOT="${ROOT_DIR}/kimodo"
 if [[ ! -f "${SOURCE_ROOT}/pyproject.toml" ]]; then
@@ -53,10 +60,10 @@ acquire_bootstrap_lock() {
       if [[ "${BOOTSTRAP_WAIT_LOGGED}" != "1" ]]; then
         mkdir -p "${ROOT_DIR}/log"
         if [[ -n "${owner_pid}" ]]; then
-          echo "[INFO] Bootstrap wait: lock is held by pid ${owner_pid}, waiting for setup to finish..."
+          bootstrap_log "[INFO] Bootstrap wait: lock is held by pid ${owner_pid}, waiting for setup to finish..."
           printf '[INFO] pid=%s waiting_on=%s at=%s\n' "$$" "${owner_pid}" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${BOOTSTRAP_WAIT_LOG}"
         else
-          echo "[INFO] Bootstrap wait: lock exists, waiting for setup to finish..."
+          bootstrap_log "[INFO] Bootstrap wait: lock exists, waiting for setup to finish..."
           printf '[INFO] pid=%s waiting_on=%s at=%s\n' "$$" "unknown" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "${BOOTSTRAP_WAIT_LOG}"
         fi
         BOOTSTRAP_WAIT_LOGGED=1
@@ -70,6 +77,7 @@ acquire_bootstrap_lock() {
     now="$(date +%s)"
     if ( set -o noclobber; printf 'owner_pid=%s\nstarted_epoch=%s\n' "$$" "${now}" > "${BOOTSTRAP_LOCK}" ) 2>/dev/null; then
       LOCK_HELD=1
+      bootstrap_log "[INFO] Bootstrap lock acquired."
       return 0
     fi
 
@@ -79,6 +87,7 @@ acquire_bootstrap_lock() {
 
 release_bootstrap_lock() {
   cleanup_lock
+  bootstrap_log "[INFO] Bootstrap lock released."
   LOCK_HELD=0
 }
 
@@ -111,7 +120,7 @@ install_uv_locally() {
   UV_SELECTED_URL=""
   UV_SELECTED_MS=""
   if ! command -v curl >/dev/null 2>&1; then
-    echo "[ERROR] Could not auto-install uv: curl is required."
+    bootstrap_log "[ERROR] Could not auto-install uv: curl is required."
     return 1
   fi
   artifact="$(resolve_uv_artifact)" || return 1
@@ -123,9 +132,9 @@ install_uv_locally() {
     UV_SELECTED_NAME="ustc"
     UV_SELECTED_URL="${ustc_url}"
     UV_SELECTED_MS=""
-    echo "[WARN] uv probe failed for every source, falling back to direct download from: ${UV_SELECTED_NAME}"
+    bootstrap_log "[WARN] uv probe failed for every source, falling back to direct download from: ${UV_SELECTED_NAME}"
   else
-    echo "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
+    bootstrap_log "[INFO] Selected uv source: ${UV_SELECTED_NAME}"
   fi
   fallback_name="github"
   fallback_url="${github_url}"
@@ -162,13 +171,13 @@ install_uv_locally() {
     chmod +x "${uv_dir}/uvw"
   fi
   if [[ ! -x "${uv_dir}/uv" ]] || ! "${uv_dir}/uv" --version >/dev/null 2>&1; then
-    echo "[ERROR] Downloaded uv archive did not produce a working executable: ${uv_dir}/uv"
+    bootstrap_log "[ERROR] Downloaded uv archive did not produce a working executable: ${uv_dir}/uv"
     rm -f "${uv_dir}/uv" "${uv_dir}/uvx" "${uv_dir}/uvw"
     return 1
   fi
   trap - RETURN
   rm -rf "${tmp_dir}"
-  echo "[INFO] Download and install uv complete."
+  bootstrap_log "[INFO] Download and install uv complete."
 }
 
 resolve_uv_artifact() {
@@ -219,13 +228,13 @@ run_with_timeout() {
   kill -TERM "${timeout_guard_pid}" >/dev/null 2>&1 || true
   wait "${timeout_guard_pid}" 2>/dev/null || true
   if [[ "${rc}" -eq 143 || "${rc}" -eq 137 ]]; then
-    echo "[ERROR] uv automatic installation timed out after ${timeout_sec} seconds."
-    echo "[ERROR] Please install uv manually, or place uv under: ${ROOT_DIR}/program/exe/uv"
+    bootstrap_log "[ERROR] uv automatic installation timed out after ${timeout_sec} seconds."
+    bootstrap_log "[ERROR] Please install uv manually, or place uv under: ${ROOT_DIR}/program/exe/uv"
     return 1
   fi
   if [[ "${rc}" -ne 0 ]]; then
-    echo "[ERROR] uv automatic installation failed."
-    echo "[ERROR] Please install uv manually, or place uv under: ${ROOT_DIR}/program/exe/uv"
+    bootstrap_log "[ERROR] uv automatic installation failed."
+    bootstrap_log "[ERROR] Please install uv manually, or place uv under: ${ROOT_DIR}/program/exe/uv"
     return "${rc}"
   fi
   return 0
@@ -255,34 +264,6 @@ probe_uv_candidate() {
   fi
 }
 
-prompt_install_missing_tools() {
-  local missing=("$@")
-  local answer=""
-  echo "[ERROR] Missing required command-line tool(s): ${missing[*]}"
-  if [[ -n "${KIMODO_AUTO_INSTALL_UV:-}" ]]; then
-    echo "[INFO] KIMODO_AUTO_INSTALL_UV is set; installing missing tools without prompting."
-    answer="yes"
-  elif ! read -r -p "Would you like Kimodo QuickServer to try installing them now? [Y/N] " answer; then
-    echo "[ERROR] Cannot read an install response. Set KIMODO_AUTO_INSTALL_UV=1 for non-interactive startup."
-    return 1
-  fi
-  case "${answer}" in
-    Y|y|Yes|YES|yes)
-      for tool in "${missing[@]}"; do
-        case "${tool}" in
-          uv)
-            install_uv_locally || return 1
-            ;;
-        esac
-      done
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
-
 resolve_python_from_venv() {
   local venv_input="$1"
   if [[ -z "${venv_input}" ]]; then
@@ -298,41 +279,45 @@ resolve_python_from_venv() {
 acquire_bootstrap_lock
 
 if [[ -n "${BOOTSTRAP_HOLD_SEC}" ]]; then
-  echo "[INFO] Bootstrap hold: sleeping for ${BOOTSTRAP_HOLD_SEC}s before setup..."
+  bootstrap_log "[INFO] Bootstrap hold: sleeping for ${BOOTSTRAP_HOLD_SEC}s before setup..."
   sleep "${BOOTSTRAP_HOLD_SEC}"
 fi
 
 UV_BIN="$(resolve_uv_bin)"
+if [[ -n "${UV_BIN}" && -x "${UV_BIN}" ]]; then
+  bootstrap_log "[INFO] Found uv before install: ${UV_BIN}"
+else
+  bootstrap_log "[INFO] uv was not found before install attempt."
+fi
 
 if [[ -n "${KIMODO_TEST_VENV_PATH:-}" ]]; then
-  echo "[ERROR] KIMODO_TEST_VENV_PATH has been removed. Use KIMODO_VENV_PATH."
+  bootstrap_log "[ERROR] KIMODO_TEST_VENV_PATH has been removed. Use KIMODO_VENV_PATH."
   exit 1
 fi
 if [[ -n "${KIMODO_TEST_SETUP_DEVICE:-}" ]]; then
-  echo "[ERROR] KIMODO_TEST_SETUP_DEVICE has been removed. Use KIMODO_SETUP_DEVICE."
+  bootstrap_log "[ERROR] KIMODO_TEST_SETUP_DEVICE has been removed. Use KIMODO_SETUP_DEVICE."
   exit 1
 fi
 if [[ -n "${KIMODO_CPU_TEXT_ENCODER:-}" ]]; then
-  echo "[ERROR] KIMODO_CPU_TEXT_ENCODER has been removed. QuickServer now auto-selects the local INT8 text encoder route."
+  bootstrap_log "[ERROR] KIMODO_CPU_TEXT_ENCODER has been removed. QuickServer now auto-selects the local INT8 text encoder route."
   exit 1
 fi
 if [[ -n "${CHECKPOINT_DIR:-}" ]]; then
-  echo "[ERROR] CHECKPOINT_DIR has been removed. Use KIMODO_MODELS_ROOT."
+  bootstrap_log "[ERROR] CHECKPOINT_DIR has been removed. Use KIMODO_MODELS_ROOT."
   exit 1
 fi
 
-MISSING_TOOLS=()
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
-  MISSING_TOOLS+=("uv")
-fi
-
-if [[ "${#MISSING_TOOLS[@]}" -gt 0 ]]; then
-  prompt_install_missing_tools "${MISSING_TOOLS[@]}" || exit 1
+  bootstrap_log "[INFO] uv is missing; installing it automatically."
+  if ! install_uv_locally; then
+    bootstrap_log "[ERROR] uv auto-install failed."
+    exit 1
+  fi
   UV_BIN="${ROOT_DIR}/program/exe/uv/uv"
 fi
 
 if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
-  echo "[ERROR] uv is still unavailable after installation attempt."
+  bootstrap_log "[ERROR] uv is still unavailable after installation attempt."
   exit 1
 fi
 
@@ -366,7 +351,16 @@ if [[ -n "${KIMODO_VENV_PATH:-}" && "${HAS_VENV_ARG}" -eq 0 ]]; then
   SETUP_ARGS+=("--venv" "${KIMODO_VENV_PATH}")
 fi
 
-"${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"
+bootstrap_log "[INFO] Starting Python setup via uv."
+if "${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"; then
+  setup_rc=0
+else
+  setup_rc=$?
+fi
+bootstrap_log "[INFO] Python setup exited with code ${setup_rc}."
+if [[ "${setup_rc}" -ne 0 ]]; then
+  exit "${setup_rc}"
+fi
 
 if [[ -n "${EXPLICIT_VENV}" ]]; then
   VENV_PYTHON="$(resolve_python_from_venv "${EXPLICIT_VENV}")"
@@ -378,15 +372,23 @@ else
 fi
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then
-  echo "[ERROR] Failed to resolve QuickServer venv python: ${VENV_PYTHON}"
+  bootstrap_log "[ERROR] Failed to resolve QuickServer venv python: ${VENV_PYTHON}"
   exit 1
 fi
+bootstrap_log "[INFO] Resolved QuickServer venv python: ${VENV_PYTHON}"
 
-release_bootstrap_lock
+bootstrap_log "[INFO] Bootstrap setup complete; waiting for QuickServer CLI to release the bootstrap lock."
 ARDY_SOURCE_ROOT="${ROOT_DIR}/ardy"
 if [[ ! -f "${ARDY_SOURCE_ROOT}/ardy/__init__.py" ]]; then
-  echo "[ERROR] Bundled ARDY package is missing: ${ARDY_SOURCE_ROOT}/ardy/__init__.py" >&2
+  bootstrap_log "[ERROR] Bundled ARDY package is missing: ${ARDY_SOURCE_ROOT}/ardy/__init__.py"
   exit 1
 fi
 export PYTHONPATH="${ROOT_DIR}:${SOURCE_ROOT}:${ARDY_SOURCE_ROOT}"
-exec "${VENV_PYTHON}" -m core.quickserver_cli run --output file "${ARGS[@]}"
+if "${VENV_PYTHON}" -m core.quickserver_cli run --output file "${ARGS[@]}"; then
+  cli_rc=0
+else
+  cli_rc=$?
+fi
+release_bootstrap_lock
+bootstrap_log "[INFO] QuickServer CLI exited with code ${cli_rc}."
+exit "${cli_rc}"

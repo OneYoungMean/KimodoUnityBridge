@@ -24,7 +24,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "32-left-foot-transition-priority";
+        private const string TestAnalysisPictureRenderVersion = "33-root2d-pelvis-heading";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
@@ -568,6 +568,7 @@ namespace KimodoUnityBridge.Command
 
                 if (level == "middle" || level == "high")
                 {
+                    result.Insert(0, PictureTile.TestRoot2D(subject, new Vector3(0f, 1f, 0f)));
                     foreach (int frame in SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame))
                     {
                         result.Add(PictureTile.TestPose(subject, frame, "keyframe", new Vector3(1f, .75f, -1f)));
@@ -684,6 +685,10 @@ namespace KimodoUnityBridge.Command
 
         private static Texture2D RenderPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
         {
+            if (tile.Presentation == "test_root2d")
+            {
+                return RenderRoot2DPictureTile(tile, width, height);
+            }
             if (tile.Presentation == "mesh_pose")
             {
                 Bounds meshBounds = CalculatePreviewPoseBounds(tile.Subject, tile.Frame);
@@ -1117,6 +1122,100 @@ namespace KimodoUnityBridge.Command
             {
                 camera.targetTexture = null;
                 SetEvidenceVisualsEnabled(environment, true);
+            }
+        }
+
+        private static Texture2D RenderRoot2DPictureTile(PictureTile tile, int width, int height)
+        {
+            SubjectPictureData subject = tile.Subject;
+            var groundPoints = subject.Pelvis
+                .Select(point => new Vector3(point.x, 0f, point.z))
+                .ToArray();
+            Bounds bounds = new Bounds(groundPoints.Length > 0 ? groundPoints[0] : Vector3.zero, Vector3.zero);
+            foreach (Vector3 point in groundPoints) bounds.Encapsulate(point);
+            bounds.Expand(new Vector3(.8f, .2f, .8f));
+
+            var environment = new List<GameObject>();
+            CreatePictureEnvironment(environment, IncludeGroundInBounds(bounds));
+            CreateWorldLine(environment, groundPoints, new Color(.1f, .85f, .25f, .95f), .06f);
+            IReadOnlyList<int> keyframes = SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame).ToArray();
+            foreach (int frame in keyframes)
+            {
+                int clamped = Mathf.Clamp(frame, 0, Math.Max(0, groundPoints.Length - 1));
+                Vector3 origin = groundPoints.Length > 0 ? groundPoints[clamped] : Vector3.zero;
+                Color tint = clamped == 0 ? TestStartFrameTint :
+                    clamped == groundPoints.Length - 1 ? TestEndFrameTint : Color.yellow;
+                CreateGroundMarker(environment, origin, .13f, tint);
+                Vector3 forward = SampleRootForward(subject, clamped);
+                CreateHeadingArrow(environment, origin, forward, .45f, tint);
+            }
+
+            Camera camera = CreateTestAnalysisPictureCamera(bounds, tile.Direction, (float)width / Mathf.Max(1, height));
+            try
+            {
+                return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(camera.gameObject);
+                foreach (GameObject item in environment)
+                {
+                    if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                }
+            }
+        }
+
+        private static void CreateWorldLine(List<GameObject> objects, IReadOnlyList<Vector3> points, Color color, float width)
+        {
+            if (points == null || points.Count < 2) return;
+            GameObject lineObject = MoveToAnalysisPreviewScene(
+                new GameObject("Kimodo Root2D Pelvis Trajectory") { hideFlags = HideFlags.HideAndDontSave });
+            SetLayerRecursively(lineObject, 31);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.positionCount = points.Count;
+            line.SetPositions(points.Select(point => point + Vector3.up * .025f).ToArray());
+            line.startWidth = line.endWidth = width;
+            line.useWorldSpace = true;
+            line.sharedMaterial = MakeUnlitMaterial(color);
+            line.startColor = line.endColor = color;
+            objects.Add(lineObject);
+        }
+
+        private static void CreateGroundMarker(List<GameObject> objects, Vector3 position, float radius, Color color)
+        {
+            GameObject marker = MoveToAnalysisPreviewScene(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
+            marker.name = "Kimodo Root2D Keyframe";
+            marker.hideFlags = HideFlags.HideAndDontSave;
+            SetLayerRecursively(marker, 31);
+            marker.transform.position = position + Vector3.up * .045f;
+            marker.transform.localScale = new Vector3(radius, .04f, radius);
+            marker.GetComponent<Renderer>().sharedMaterial = MakeUnlitMaterial(color);
+            objects.Add(marker);
+        }
+
+        private static void CreateHeadingArrow(List<GameObject> objects, Vector3 origin, Vector3 forward, float length, Color color)
+        {
+            Vector3 flat = new Vector3(forward.x, 0f, forward.z);
+            if (flat.sqrMagnitude < .0001f) flat = Vector3.forward;
+            flat.Normalize();
+            Vector3 tip = origin + flat * length;
+            CreateWorldLine(objects, origin + Vector3.up * .07f, tip + Vector3.up * .07f, .035f, color, true);
+            Quaternion left = Quaternion.AngleAxis(150f, Vector3.up);
+            Quaternion right = Quaternion.AngleAxis(-150f, Vector3.up);
+            CreateWorldLine(objects, tip + Vector3.up * .07f, tip + left * flat * .16f + Vector3.up * .07f, .035f, color, true);
+            CreateWorldLine(objects, tip + Vector3.up * .07f, tip + right * flat * .16f + Vector3.up * .07f, .035f, color, true);
+        }
+
+        private static Vector3 SampleRootForward(SubjectPictureData subject, int frame)
+        {
+            try
+            {
+                subject.GetSample(frame).sampleData.GetRoot(out _, out Quaternion rotation);
+                return rotation * Vector3.forward;
+            }
+            catch
+            {
+                return Vector3.forward;
             }
         }
 
@@ -2683,6 +2782,21 @@ namespace KimodoUnityBridge.Command
             public static PictureTile TestKeyframes(SubjectPictureData subject, Vector3 direction)
             {
                 return TestFrameSet(subject, "test_keyframes", "keyframes", SelectKeyFrames(subject, AnalysisKeyframeCount), direction, true);
+            }
+
+            public static PictureTile TestRoot2D(SubjectPictureData subject, Vector3 direction)
+            {
+                return new PictureTile(subject, "test_root2d", new JObject
+                {
+                    ["presentation"] = "root2d_pelvis_projection",
+                    ["keyframes"] = new JArray(SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame)),
+                    ["pelvis_only"] = true,
+                    ["heading_arrows"] = true
+                })
+                {
+                    Direction = direction,
+                    Orthographic = true
+                };
             }
 
             public static PictureTile TestPose(

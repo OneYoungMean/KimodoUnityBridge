@@ -245,7 +245,7 @@ def _should_inject_once(paths: ProjectPaths, key: str, env_var: str) -> bool:
     return True
 
 
-def _find_uv_bin(paths: ProjectPaths) -> str:
+def _find_uv_bin(paths: ProjectPaths, logger: SetupLogger | None = None) -> str:
     env_override = os.environ.get("KIMODO_UV_BIN", "").strip()
     candidates: list[Path | str] = []
     if env_override:
@@ -256,8 +256,12 @@ def _find_uv_bin(paths: ProjectPaths) -> str:
     if which_uv:
         candidates.append(which_uv)
 
+    if logger is not None:
+        logger.log(f"[INFO] Resolving uv; candidates={len(candidates)}, env_override={'set' if env_override else 'unset'}")
     for candidate in candidates:
         candidate_path = str(candidate)
+        if logger is not None:
+            logger.log(f"[INFO] Checking uv candidate: {candidate_path}")
         try:
             completed = subprocess.run(
                 [candidate_path, "--version"],
@@ -265,10 +269,18 @@ def _find_uv_bin(paths: ProjectPaths) -> str:
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
-        except OSError:
+        except OSError as exc:
+            if logger is not None:
+                logger.log(f"[INFO] uv candidate unavailable: {type(exc).__name__}")
             continue
         if completed.returncode == 0:
+            if logger is not None:
+                logger.log(f"[OK] Using uv: {candidate_path}")
             return candidate_path
+        if logger is not None:
+            logger.log(f"[INFO] uv candidate rejected with exit code {completed.returncode}: {candidate_path}")
+    if logger is not None:
+        logger.log("[ERROR] No working uv executable found during setup bootstrap.")
     raise SetupError("uv not found. Set KIMODO_UV_BIN, place a local uv binary under program/exe/uv, or install uv on PATH.")
 
 
@@ -572,7 +584,7 @@ def _runtime_import_check(paths: ProjectPaths) -> None:
 
 
 def _setup_buildenv(paths: ProjectPaths, setup_mode: str, logger: SetupLogger) -> None:
-    uv_bin = _find_uv_bin(paths)
+    uv_bin = _find_uv_bin(paths, logger)
     default_index = _select_uv_default_index()
     python_spec = _python_spec()
 

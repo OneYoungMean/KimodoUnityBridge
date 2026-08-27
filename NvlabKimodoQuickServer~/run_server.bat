@@ -7,6 +7,10 @@ if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
 set "ROOT_DIR=%SCRIPT_DIR%"
 set "SOURCE_ROOT=%ROOT_DIR%\kimodo"
 if not exist "%SOURCE_ROOT%\pyproject.toml" set "SOURCE_ROOT=%ROOT_DIR%"
+set "LOG_DIR=%ROOT_DIR%\log"
+set "BOOTSTRAP_LOG=%LOG_DIR%\bootstrap.log"
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
+call :bootstrap_log "[INFO] QuickServer bootstrap started. root=%ROOT_DIR%"
 set "BOOTSTRAP_LOCK=%ROOT_DIR%\.bootstrap.lock"
 set "UV_TOOL_DIR=%ROOT_DIR%\program\exe\uv"
 set "UV_BIN="
@@ -18,8 +22,6 @@ set "UV_VERSION=0.11.25"
 set "UV_ARTIFACT=uv-x86_64-pc-windows-msvc.zip"
 set "UV_USTC_URL=https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/%UV_ARTIFACT%"
 set "UV_GITHUB_URL=https://github.com/astral-sh/uv/releases/download/%UV_VERSION%/%UV_ARTIFACT%"
-set "UV_AUTO_INSTALL="
-if defined KIMODO_AUTO_INSTALL_UV set "UV_AUTO_INSTALL=%KIMODO_AUTO_INSTALL_UV%"
 set "FORCE_DOWNLOAD_UV="
 if defined KIMODO_FORCE_DOWNLOAD_UV set "FORCE_DOWNLOAD_UV=%KIMODO_FORCE_DOWNLOAD_UV%"
 set "SETUP_ARGS=setup --output file"
@@ -31,19 +33,27 @@ if defined KIMODO_BOOTSTRAP_HOLD_SEC set "BOOTSTRAP_HOLD_SEC=%KIMODO_BOOTSTRAP_H
 set "BOOTSTRAP_WAIT_LOG=%ROOT_DIR%\log\bootstrap_wait.log"
 
 call :acquire_bootstrap_lock
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+  call :bootstrap_log "[ERROR] Failed to acquire bootstrap lock."
+  exit /b 1
+)
+call :bootstrap_log "[INFO] Bootstrap lock acquired."
 if defined BOOTSTRAP_HOLD_SEC (
-  echo [INFO] Bootstrap hold: sleeping for %BOOTSTRAP_HOLD_SEC%s before setup...
+  call :bootstrap_log "[INFO] Bootstrap hold: sleeping for %BOOTSTRAP_HOLD_SEC%s before setup..."
   timeout /t %BOOTSTRAP_HOLD_SEC% /nobreak >nul
 )
 call :resolve_uv_bin
+if defined UV_BIN (
+  call :bootstrap_log "[INFO] Found uv before install: !UV_BIN!"
+)
 if not defined UV_BIN (
-  call :prompt_install_uv
+  call :bootstrap_log "[INFO] uv is missing; installing it automatically."
+  call :install_uv
   if errorlevel 1 goto cleanup_fail
   call :resolve_uv_bin
 )
 if not defined UV_BIN (
-  echo [ERROR] uv is still unavailable after the download attempt.
+  call :bootstrap_log "[ERROR] uv is still unavailable after the download attempt."
   goto cleanup_fail
 )
 
@@ -62,7 +72,7 @@ if /I "%~1"=="--hold-cli" (
 )
 if /I "%~1"=="--watchpid" (
   if "%~2"=="" (
-    echo [ERROR] --watchpid requires a value.
+    call :bootstrap_log "[ERROR] --watchpid requires a value."
     goto cleanup_fail
   )
   set "CLI_ARGS=%CLI_ARGS% --watchpid %~2"
@@ -72,7 +82,7 @@ if /I "%~1"=="--watchpid" (
 )
 if /I "%~1"=="--venv" (
   if "%~2"=="" (
-    echo [ERROR] --venv requires a path.
+    call :bootstrap_log "[ERROR] --venv requires a path."
     goto cleanup_fail
   )
   set "EXPLICIT_VENV=%~2"
@@ -87,19 +97,23 @@ goto parse_args
 if defined EXPLICIT_VENV (
   set "SETUP_ARGS=%SETUP_ARGS% --venv ""%EXPLICIT_VENV%"""
 )
+call :bootstrap_log "[INFO] Starting Python setup via uv."
 "%UV_BIN%" run --isolated --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
-if errorlevel 1 goto cleanup_fail
+set "SETUP_RC=%ERRORLEVEL%"
+call :bootstrap_log "[INFO] Python setup exited with code !SETUP_RC!."
+if not "!SETUP_RC!"=="0" goto cleanup_fail
 
 call :resolve_venv_python
 if not defined VENV_PYTHON (
-  echo [ERROR] Failed to resolve QuickServer venv python.
+  call :bootstrap_log "[ERROR] Failed to resolve QuickServer venv python."
   goto cleanup_fail
 )
+call :bootstrap_log "[INFO] Resolved QuickServer venv python: !VENV_PYTHON!"
 
-call :release_bootstrap_lock
+call :bootstrap_log "[INFO] Bootstrap setup complete; waiting for QuickServer CLI to release the bootstrap lock."
 set "ARDY_SOURCE_ROOT=%ROOT_DIR%\ardy"
 if not exist "%ARDY_SOURCE_ROOT%\ardy\__init__.py" (
-  echo [ERROR] Bundled ARDY package is missing: %ARDY_SOURCE_ROOT%\ardy\__init__.py
+  call :bootstrap_log "[ERROR] Bundled ARDY package is missing: %ARDY_SOURCE_ROOT%\ardy\__init__.py"
   goto cleanup_fail
 )
 set "PYTHONPATH=%ROOT_DIR%;%SOURCE_ROOT%;%ARDY_SOURCE_ROOT%"
@@ -111,15 +125,24 @@ if not exist "%ROOT_DIR%\log" mkdir "%ROOT_DIR%\log" >nul 2>nul
   echo CLI_ARGS=%CLI_ARGS%
 )
 if defined HOLD_CLI (
-  echo [INFO] Holding batch until quickserver_cli exits...
+  call :bootstrap_log "[INFO] Holding batch until quickserver_cli exits..."
 )
 "%VENV_PYTHON%" -m core.quickserver_cli %CLI_ARGS%
->> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=%ERRORLEVEL%
-exit /b %ERRORLEVEL%
+set "CLI_RC=%ERRORLEVEL%"
+>> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=!CLI_RC!
+call :release_bootstrap_lock
+exit /b !CLI_RC!
 
 :cleanup_fail
+call :bootstrap_log "[ERROR] Bootstrap failed; releasing lock."
 call :release_bootstrap_lock
 exit /b 1
+
+:bootstrap_log
+if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
+>>"%BOOTSTRAP_LOG%" echo [%DATE% %TIME%] %~1
+echo %~1
+exit /b 0
 
 :acquire_bootstrap_lock
 set "BOOTSTRAP_PID="
@@ -156,7 +179,9 @@ if errorlevel 1 (
 exit /b 0
 
 :release_bootstrap_lock
-if exist "%BOOTSTRAP_LOCK%" del /f /q "%BOOTSTRAP_LOCK%" >nul 2>nul
+if exist "%BOOTSTRAP_LOCK%" (
+  del /f /q "%BOOTSTRAP_LOCK%" >nul 2>nul
+)
 exit /b 0
 
 :resolve_venv_python
@@ -206,22 +231,14 @@ if errorlevel 1 goto :eof
 set "UV_BIN=%UV_CANDIDATE%"
 goto :eof
 
-:prompt_install_uv
-set "UV_ANSWER="
-echo [ERROR] uv is required but was not found.
-echo         QuickServer can download it into: %UV_TOOL_DIR%
-if defined UV_AUTO_INSTALL goto install_uv
-set /p UV_ANSWER=Would you like QuickServer to download uv now? [Y/N] 
-if /I "%UV_ANSWER%"=="Y" goto install_uv
-if /I "%UV_ANSWER%"=="YES" goto install_uv
-if /I "%UV_ANSWER%"=="N" exit /b 1
-if /I "%UV_ANSWER%"=="NO" exit /b 1
-exit /b 1
-
 :install_uv
 if not exist "%UV_TOOL_DIR%" mkdir "%UV_TOOL_DIR%" >nul 2>nul
-echo [INFO] Probing uv download sources for this launch...
-echo [INFO] Download uv...
+call :bootstrap_log "[INFO] Probing uv download sources for this launch..."
+call :bootstrap_log "[INFO] Downloading uv..."
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$installDir='%UV_TOOL_DIR%';$artifact='%UV_ARTIFACT%';$probeTimeout=%UV_PROBE_TIMEOUT_SEC%;$downloadTimeout=%UV_INSTALL_TIMEOUT_SEC%;$candidates=@(@{Name='ustc';Url='%UV_USTC_URL%'},@{Name='github';Url='%UV_GITHUB_URL%'});function Probe([string]$name,[string]$url){$result=& curl.exe -I -L -o NUL -s -w '%%{http_code} %%{time_total}' --max-time $probeTimeout $url; if($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($result)){Write-Host ('[PROBE] uv {0}: failed, timeout={1}s, {2}' -f $name,$probeTimeout,$url); return $null}; $parts=$result.Trim().Split(' '); if($parts.Length -lt 2){Write-Host ('[PROBE] uv {0}: failed, malformed response, {1}' -f $name,$url); return $null}; $status=[int]$parts[0]; $seconds=0.0; [double]::TryParse($parts[1],[ref]$seconds) | Out-Null; $ms=[int][Math]::Round($seconds*1000); if($status -ge 200 -and $status -lt 400){Write-Host ('[PROBE] uv {0}: ok, {1} ms, {2}' -f $name,$ms,$url); return [pscustomobject]@{Name=$name;Url=$url;Ms=$ms}}; Write-Host ('[PROBE] uv {0}: failed, status={1}, {2}' -f $name,$status,$url); return $null}; function Download([string]$url,[string]$archivePath){ & curl.exe -L --fail --silent --show-error --max-time $downloadTimeout -o $archivePath $url; return $LASTEXITCODE }; $probed=@(); foreach($c in $candidates){$r=Probe $c.Name $c.Url; if($null -ne $r){$probed+=$r}}; if($probed.Count -eq 0){$selected=[pscustomobject]@{Name=$candidates[0].Name;Url=$candidates[0].Url;Ms=[int]::MaxValue}; Write-Host ('[WARN] uv probe failed for every source, falling back to direct download from: {0}' -f $selected.Name)} else {$selected=$probed | Sort-Object Ms | Select-Object -First 1; Write-Host ('[INFO] Selected uv source: {0}' -f $selected.Name)}; $fallback = $candidates | Where-Object { $_.Name -ne $selected.Name } | Select-Object -First 1; $tempRoot=Join-Path ([IO.Path]::GetTempPath()) ('kimodo-uv-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null; try { $archivePath=Join-Path $tempRoot $artifact; $rc = Download $selected.Url $archivePath; if($rc -ne 0){ if($null -ne $fallback){ Write-Host ('[WARN] uv download failed from {0}, retrying with {1}...' -f $selected.Name,$fallback.Name); if(Test-Path -LiteralPath $archivePath){ Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue }; $rc = Download $fallback.Url $archivePath } }; if($rc -ne 0){throw 'curl download failed.'}; Expand-Archive -LiteralPath $archivePath -DestinationPath $tempRoot -Force; New-Item -ItemType Directory -Force -Path $installDir | Out-Null; foreach($name in @('uv.exe','uvx.exe','uvw.exe')){ $source=Join-Path $tempRoot $name; if(Test-Path -LiteralPath $source){ Copy-Item -LiteralPath $source -Destination (Join-Path $installDir $name) -Force } }; Write-Host '[INFO] Download uv complete.' } finally { if(Test-Path -LiteralPath $tempRoot){ Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue } }"
-if errorlevel 1 exit /b 1
+if errorlevel 1 (
+  call :bootstrap_log "[ERROR] uv download/install command failed."
+  exit /b 1
+)
+call :bootstrap_log "[INFO] uv download/install command completed."
 exit /b 0
