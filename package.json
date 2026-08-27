@@ -1,7 +1,7 @@
 {
   "name": "com.unity.kimodo_unity_motion_tools",
   "displayName": "KimodoUnityBridge",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Unity character-animation commands, Timeline authoring, retargeting, and local motion generation",
   "unity": "2022.3",
   "keywords": [
