@@ -75,10 +75,10 @@ namespace KimodoUnityBridge.Command
                             Optional("command", "string", "Command name whose full manual entry should be returned."),
                             Enum("section", "commands", "models", "constraints"))),
                     CommandDefinition(InstallServerCommand,
-                        "Install or refresh the QuickServer runtime before starting the normal Command workflow. This preserves models and the Python environment, then restarts the server.",
+                        "Initialize the project-local QuickServer runtime on first use, or refresh it when installation, upgrade, or recovery is required. This preserves models and the Python environment, then restarts the server.",
                         Properties()),
                     CommandDefinition(SessionGetOrCreateCommand,
-                        "Create an empty current animation Session, or reopen an existing named Session. Add a scene humanoid before using character-scoped commands in a new Session.",
+                        "Create an empty current animation Session, or reopen an existing named Session. Add a supported scene character before using character-scoped commands in a new Session.",
                         Properties(
                             Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."))),
                     CommandDefinition(SessionCloseCommand,
@@ -262,7 +262,7 @@ namespace KimodoUnityBridge.Command
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
                         "session_get_or_create is the only command that creates Sessions. New Sessions are empty; add scene content explicitly with session_add.",
-                        "Treat names, request_id, picture paths, and pose references as opaque values returned by Kimodo.",
+                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls or cancels generation, and {track,index} identifies a Pose or Path. Picture paths are output files to inspect, not reusable handles.",
                         "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },

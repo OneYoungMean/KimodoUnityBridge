@@ -9,11 +9,11 @@
 ## Documentation ownership
 
 - `README.md`: human-facing package entry and installation overview.
-- `SKILL.md` / `SKILL-zh.md`: short AI router and non-negotiable guardrails.
-- `TOOLS.md`: bilingual AI execution contract; keep it aligned with the live schema.
-- `skills/recognition.md`: visual/semantic motion matching.
-- `skills/generation.md`: new Clip generation and constraint preparation.
-- `skills/optimization.md`: diagnosis, correction, and evidence loops for existing Clips.
+- `SKILL.md`: package installation, task routing, product boundaries, and the API-help entry.
+- `Command/help.json`: generated command and parameter schema; keep it aligned with the dispatcher.
+- `skills/recognize.md`: semantic motion recognition workflow, prompt structure, and cautions.
+- `skills/compare.md`: relative animation-quality comparison workflow, prompt structure, and cautions.
+- `skills/generate.md`: new or corrected animation workflow, prompt structure, and cautions.
 - `DEVELOPMENT.md`: temporary development snapshot; it is not an execution contract.
 - `plan.md`: documentation/validation maintenance plan; it does not override the live schema.
 - Historical rewrite notes are kept in git history, not maintained as current instructions.

@@ -101,6 +101,9 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 SampleData = normalizedSample,
                 ConstraintType = marker.ConstraintType,
                 ConstraintMode = marker.ConstraintMode,
+                PreviewSemantic = marker.ConstraintMode == KimodoConstraintMode.Root2D
+                    ? ConstraintPreviewSemantic.BindPosePreview
+                    : ConstraintPreviewSemantic.ExistingFullBodyPreview,
                 HandlesEnabled = handlesEnabled,
                 HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
                 PreviewColor = previewColor,

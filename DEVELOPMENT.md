@@ -2,13 +2,13 @@
 
 > Temporary development snapshot. This is not an AI execution contract and does not override the live schema, `kimodo_help`, or user instructions.
 >
-> 当前文件只是临时开发快照，不是 AI 执行契约，也不覆盖实时 schema、`kimodo_help` 或用户指令。日常执行以 [TOOLS.md](TOOLS.md) 为准。
+> 当前文件只是临时开发快照，不是 AI 执行契约，也不覆盖实时 schema、API Help 或用户指令。日常任务从 [SKILL.md](SKILL.md) 路由，具体命令与参数读取 [Command/help.json](Command/help.json)。
 
 ## Current command surface
 
 The maintained public commands are:
 
-- Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` runs once after Unity is ready, before runtime-dependent commands)
+- Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` initializes the project-local runtime on first use and is repeated only for installation, upgrade, or recovery)
 - Session/content: `session_get_or_create`, `session_add`, `session_close`
 - Generation jobs: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`
 - Analysis/evidence: `animation_analyze`, `animation_compare`
@@ -27,7 +27,7 @@ The maintained public commands are:
 
 ## Active documentation work
 
-- Keep `TOOLS.md` and both SKILL entry points aligned with this command surface. Remove references to retired command names instead of preserving them as examples.
+- Keep `Command/help.json` aligned with the dispatcher, and keep concrete command details out of `SKILL.md` and its three sub-skills.
 
 ## Verification items
 

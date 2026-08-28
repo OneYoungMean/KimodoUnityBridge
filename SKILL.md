@@ -1,65 +1,68 @@
 ---
 name: kimodo-unity-bridge
-description: Discover, generate, analyze, compare, and refine character animation through maintained KimodoUnityBridge commands, with Humanoid workflows and Mesh-only analysis.
+description: Install and use KimodoUnityBridge for character-animation recognition, comparison, and generation while deferring exact commands and parameters to the maintained API help.
 ---
 
 # KimodoUnityBridge
 
-Use the public Editor entry point:
+## Installation
 
-```csharp
-using KimodoUnityBridge.Command;
-string schema = command_dispatcher.GetCommandDefinitionsJson();
-string result = command_dispatcher.Invoke(commandName, argumentsJson);
-```
+- Add this package to the target Unity project and allow Unity to finish importing and compiling it.
+- On first use, initialize the project-local runtime through the installation entry documented in [Command/help.json](Command/help.json).
+- Do not repeat runtime installation after an ordinary compile, import, or Editor restart. Run it again only for installation, upgrade, or recovery.
+- Use the package diagnostics when installation or startup fails; do not claim the animation workflow is ready until the required project components are available.
 
-The live schema, `kimodo_help`, returned IDs/names/paths, and error envelopes are authoritative. Read [TOOLS.md](TOOLS.md) for the shared execution contract, then route to:
+## Workflow
 
-- [Recognition](skills/recognition.md): decide whether rendered motion evidence matches a text request.
-- [Generation](skills/generation.md): turn motion semantics into a new appended Session Clip.
-- [Optimization](skills/optimization.md): diagnose an existing Clip and append a corrected variant.
+Read only the sub-skill that matches the request:
 
-## Intent preflight
+- [Recognize](skills/recognize.md): determine whether animation evidence expresses a requested motion.
+- [Compare](skills/compare.md): compare the relative quality of two animations.
+- [Generate](skills/generate.md): create a new animation or a corrected derived result.
 
-Before selecting commands, answer these fixed questions for the request:
+When a request combines these intents, apply the relevant sub-skills in outcome order—for example, recognize or compare existing evidence before generating a correction.
 
-- Does the requested animation need to loop?
-- Does it need retargeting to another character?
-- Does it need cropping or splicing?
-- Does it need pose/keyframe constraints?
+## Boundaries
 
-Record each answer as `yes`, `no`, or `unspecified`, with one short reason. If one or two answers are ambiguous and would change the output, ask the user before taking that branch. For a large batch with many ambiguities, use and report these safe defaults: no loop unless the request explicitly says loop/continuous cycle; no retargeting; no cropping or splicing; and no pose constraints unless the request specifies contacts, endpoints, or a concrete pose requirement. Never silently invent a range, target character, or keyframe.
+- Do not infer motion meaning or quality from filenames, internal labels, candidate order, or undocumented conventions.
+- Preserve completed animation results; create a derived result when generation or correction is required.
+- Do not invent a source, target character, frame range, pose, path, or constraint that the request and project state do not establish.
+- Treat visual and structured analysis as evidence, not certainty. Static evidence alone cannot prove sliding, popping, acceleration, or velocity continuity.
+- Report unsupported operations and unverified properties explicitly instead of inventing a workflow or claiming success.
+- A visual result passes only after its returned visual evidence has actually been inspected.
 
-Map positive answers to commands: `loop=yes` means `kimodo_generate_animation(loop:true)`; `retarget=yes` means `kimodo_retarget_animation`; and `crop_or_splice=yes` means `kimodo_record_range` with an explicit half-open range. `kimodo_record_range` is not a looping, repetition, or generic post-generation export mechanism. If `loop:true` is accepted without a fallback warning, rely on the generator's loop contract and do not add a separate seam-check or recording pass. If the request needs a generated result materialized but the public schema has no distinct materialization command, report that boundary instead of using `record_range` as a workaround.
+## API help
 
-## Closed-loop generation workflow
+Before invoking an API, read [Command/help.json](Command/help.json). It defines the maintained command names, permitted fields, required fields, enums, defaults, nested schemas, and command descriptions. Current runtime results and errors outrank prose guidance when they differ.
 
-For generation or correction tasks, use this sequence after intent preflight:
+## 中文
 
-1. If a source Clip or current candidate exists, analyze it with `animation_analyze` before generating or editing. For pure text-to-motion with no source or candidate, state that the initial analysis is unavailable; do not invent one.
-2. Use the intent answers and analysis to decide whether Pose/keyframe constraints are needed. When `pose_constraints=yes`, call `pose_get` on relevant local frames before generation and pass the returned Pose references as sparse constraints. Analyzer keyframes are evidence, not constraints.
-3. Generate with `kimodo_generate_animation`; use `loop:true` when `loop=yes`.
-4. Analyze the generated output with `animation_analyze`. For an accepted `loop:true` request, this checks the requested motion and output identity, not a separate loop-seam contract.
-5. If a requested property fails and the public workflow can express a correction, return to step 2 and append a new Clip. Do not add a recording pass unless `crop_or_splice=yes`.
+### 安装
 
-Non-negotiable guardrails:
+- 将本 Package 加入目标 Unity 项目，并等待 Unity 完成导入与编译。
+- 首次使用时，按照 [Command/help.json](Command/help.json) 中的安装入口初始化项目内运行环境。
+- 普通编译、导入或 Editor 重启后不要重复安装；只有安装、升级或恢复时才再次运行。
+- 安装或启动失败时检查 Package 诊断信息；必要的项目组件未就绪前，不能声称动画工作流已经可用。
 
-1. After Unity finishes compiling/importing, install or refresh the QuickServer once with `kimodo_install_server({})` before runtime-dependent commands.
-2. Query the schema/help, create or select a Session, and add scene/project content explicitly.
-3. Preserve opaque Session, Clip, pose, path, request, and picture handles exactly as returned.
-4. Poll asynchronous generation to `completed`, `failed`, or `canceled`.
-5. Open `pictures.image_path` from `animation_analyze` before reporting visual `passed`.
+### 使用流程
 
-## Semantic recognition and candidate selection
+只读取与请求匹配的子 Skill：
 
-When recognition or pairwise quality selection is requested, convert the text request into observable acceptance criteria before judging a clip: action, phase (loop/start/stop/transition), direction or turn, root displacement, contacts, timing/seam, and style qualifiers.
+- [识别](skills/recognize.md)：判断动画证据是否表达指定动作。
+- [比较](skills/compare.md)：比较两个动画的相对质量。
+- [生成](skills/generate.md)：创建新动画或修正后的派生结果。
 
-- Analyze both candidates in one `animation_analyze` call and preserve their original order. Verify the returned clip/analysis handles before mapping evidence back to A/B.
-- Judge semantics before generic quality: first confirm the requested action and phase, then direction/root trajectory, contacts/timing, seam continuity, and style. Saliency, keyframe count, displacement magnitude, or contact count alone are not semantic proof.
-- Interpret direction relative to the character's forward axis and observed pose/root motion. Never infer quality from filenames, `_a`/`_b` suffixes, candidate order, or world-axis assumptions.
-- For generated loops accepted with `loop:true`, rely on the generator's loop contract rather than adding a separate first/last-pose seam check. For existing or imported loops without that contract, inspect first/last pose and root velocity; for starts/stops inspect motion ramp and settling; for turns inspect heading change and path curvature. Use the opened composite PNG together with structured metrics.
-- Record a concise per-candidate comparison and return `match`, `not_match`, or `insufficient_evidence`. If the requested attribute cannot be established from the returned structured data and inspected image, report insufficient evidence rather than guessing.
+请求同时包含多个意图时，按结果依赖顺序组合相关子 Skill，例如先识别或比较现有证据，再生成修正版。
 
-Humanoid workflows provide body/contact semantics. Renderable Mesh objects are also analyzable through the Mesh-only path, but do not provide Humanoid foot/contact evidence. Completed Session Clips are immutable; corrections and derived outputs append new Clips. If a public command cannot perform a requested edit, report the boundary instead of claiming completion.
+### 边界约束
 
-Chinese guidance is included in the bilingual generation and optimization references; no separate `SKILL-zh.md` file is currently shipped.
+- 不能根据文件名、内部标签、候选顺序或未记录的惯例推断动作含义或质量。
+- 保留已经完成的动画结果；生成或修正时创建派生结果。
+- 不能臆造请求和项目状态未确定的源、目标角色、帧范围、姿势、路径或约束。
+- 视觉与结构化分析只是证据，不等于确定事实；静态证据无法单独证明滑步、跳变、加速度或速度连续性。
+- 明确报告不支持的操作和无法验证的属性，不能虚构流程或声称成功。
+- 只有实际检查返回的视觉证据后，才能报告视觉通过。
+
+### API Help
+
+调用 API 前读取 [Command/help.json](Command/help.json)。它定义当前维护的命令名称、允许字段、必选字段、枚举、默认值、嵌套结构和命令说明。运行时返回和错误与文字说明不一致时，以当前运行时结果为准。

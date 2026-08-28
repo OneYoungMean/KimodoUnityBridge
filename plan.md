@@ -20,12 +20,12 @@
 |---|---|---|
 | `AGENTS.md` | 当前规则 | 保留；只规定入口、所有权、验证和边界 |
 | `README.md` | 入门说明 | 保留；不作为 API 契约 |
-| `SKILL.md` / `SKILL-zh.md` | AI 路由 | 保留；保持短小，指向 `TOOLS.md` 和三个专题 |
-| `TOOLS.md` | 当前执行契约 | 维护命令面、不可变性、证据和兼容边界 |
-| `skills/recognition.md` | 当前专题 | 维护语义/视觉判断边界 |
-| `skills/generation.md` | 当前专题 | 维护生成、输出模式和约束规则 |
-| `skills/optimization.md` | 当前专题 | 维护修正、追加 Clip 和证据循环 |
-| `DEVELOPMENT.md` | 临时快照 | 允许短期记录；不得取代 `TOOLS.md` |
+| `SKILL.md` | AI 入口 | 维护安装、任务路由、产品边界和 API Help 入口 |
+| `Command/help.json` | API Help | 维护命令、参数、必选关系和嵌套 schema |
+| `skills/recognize.md` | 当前专题 | 维护语义识别流程、提示词和注意事项 |
+| `skills/compare.md` | 当前专题 | 维护相对质量比较流程、提示词和注意事项 |
+| `skills/generate.md` | 当前专题 | 维护新建/修正动画流程、提示词和注意事项 |
+| `DEVELOPMENT.md` | 临时快照 | 允许短期记录；不得取代 `SKILL.md` 或 API Help |
 | `COMMAND_BOUNDARY_TEST_PLAN.md` | 测试计划 | 保留为命令边界回归入口，避免重复写进操作契约 |
 | `SAMPLE_RESULT_70D_REWRITE_*` | 历史 | 从根目录移除；历史版本由 git history 保留 |
 
@@ -57,7 +57,7 @@
 
 ### 冗余内容
 
-- `SKILL.md`、`SKILL-zh.md`、`TOOLS.md` 之间的详细参数重复已压缩到 `TOOLS.md`。
+- 重复的执行契约和旧专题已移除；流程由三个任务子 Skill 维护，具体 API 只由 `Command/help.json` 维护。
 - `DEVELOPMENT.md` 不再复制完整执行契约，只保留临时命令面/边界快照。
 - 70D 重构计划和 checkpoints 不再作为当前文档维护，移除后由 git history 保留。
 
@@ -79,8 +79,8 @@
 ### Phase 1 — 已完成：契约校准
 
 - 更新 `AGENTS.md` 的文档所有权和验证规则。
-- 重写 `TOOLS.md` 的启动、Session、生成、分析、Pose/Path、Animator 边界。
-- 同步 `SKILL.md` / `SKILL-zh.md` 和三个专题 skill。
+- 重写 `SKILL.md` 的安装、路由、抽象边界和 API Help 入口。
+- 将专题拆分为 recognize、compare、generate，并从中移除具体 API 结构。
 - 降级 `DEVELOPMENT.md`，明确它不是契约。
 
 ### Phase 2 — 当前：历史与孤立文件清理

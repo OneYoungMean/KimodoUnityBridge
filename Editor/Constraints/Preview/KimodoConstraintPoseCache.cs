@@ -9,6 +9,13 @@ using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
+    internal enum ConstraintPreviewSemantic
+    {
+        ExistingFullBodyPreview,
+        InOutPosePreview,
+        BindPosePreview
+    }
+
     internal readonly struct PoseCacheRenderContext
     {
         public readonly int ClipId;
@@ -46,6 +53,7 @@ namespace KimodoBridge.Editor
         public KimodoMarkerSampleResult SampleData;
         public string ConstraintType;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
+        public ConstraintPreviewSemantic PreviewSemantic = ConstraintPreviewSemantic.ExistingFullBodyPreview;
         public bool HandlesEnabled;
         public List<string> HighlightJoints;
         public Color PreviewColor = Color.white;
@@ -66,6 +74,7 @@ namespace KimodoBridge.Editor
         public RetargetSkeleton TargetCache;
         public List<Material> GeneratedMaterials;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
+        public ConstraintPreviewSemantic PreviewSemantic = ConstraintPreviewSemantic.ExistingFullBodyPreview;
         public bool HandlesEnabled;
         // Current frame sample used to rebuild the preview rig. This is not a
         // sampling cache; it is replaced on every RenderBatch pass.
@@ -415,18 +424,24 @@ namespace KimodoBridge.Editor
                 }
 
                 entry.ConstraintMode = item.ConstraintMode;
+                entry.PreviewSemantic = item.PreviewSemantic;
                 entry.HandlesEnabled = item.HandlesEnabled;
                 entry.Visible = item.Visible;
                 entry.OnSampleChanged = item.OnSampleChanged;
                 entry.ShowVirtualAvatar = true;
 
                 entry.SampleData = item.SampleData.Clone();
-                KimodoMarkerSampleResult renderSample =
-                    KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData);
                 var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
 
-                if (!ApplySampleToRig(renderSample, context.ModelName, entry, out error))
+                bool applied = item.PreviewSemantic == ConstraintPreviewSemantic.BindPosePreview
+                    ? ApplyBindPoseToRig(item.SampleData, entry, out error)
+                    : ApplySampleToRig(
+                        KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData),
+                        context.ModelName,
+                        entry,
+                        out error);
+                if (!applied)
                 {
                     error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                     return false;
@@ -1065,6 +1080,48 @@ namespace KimodoBridge.Editor
                 }
                 entry.TargetCache.root.SetActive(wasActive);
             }
+        }
+
+        private static bool ApplyBindPoseToRig(
+            KimodoMarkerSampleResult sample,
+            ConstraintPosePreviewEntry entry,
+            out string error)
+        {
+            error = string.Empty;
+            RetargetSkeleton cache = entry?.TargetCache;
+            if (cache == null || cache.root == null)
+            {
+                error = "Constraint target skeleton cache is unavailable.";
+                return false;
+            }
+
+            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(cache);
+            if (cache.animator != null)
+            {
+                cache.animator.enabled = false;
+            }
+
+            if (sample?.rootOverride == null ||
+                !KimodoConstraintMask.IsActive(sample, "rootposition"))
+            {
+                return true;
+            }
+
+            Transform root = cache.root.transform;
+            Vector3 bindPosition = root.position;
+            root.position = new Vector3(
+                sample.rootOverride.t.x,
+                bindPosition.y,
+                sample.rootOverride.t.z);
+
+            if (KimodoConstraintMask.IsActive(sample, "rootheading"))
+            {
+                Vector3 bindEuler = root.rotation.eulerAngles;
+                bindEuler.y = sample.rootOverride.q.eulerAngles.y;
+                root.rotation = Quaternion.Euler(bindEuler);
+            }
+
+            return true;
         }
 
         private static Color TargetColor(HumanBodyBones bone) =>

@@ -26,7 +26,7 @@
     },
     {
       "name": "kimodo_install_server",
-      "description": "Install or refresh the QuickServer runtime before starting the normal Command workflow. This preserves models and the Python environment, then restarts the server.",
+      "description": "Initialize the project-local QuickServer runtime on first use, or refresh it when installation, upgrade, or recovery is required. This preserves models and the Python environment, then restarts the server.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -36,7 +36,7 @@
     },
     {
       "name": "session_get_or_create",
-      "description": "Create an empty current animation Session, or reopen an existing named Session. Add a scene humanoid before using character-scoped commands in a new Session.",
+      "description": "Create an empty current animation Session, or reopen an existing named Session. Add a supported scene character before using character-scoped commands in a new Session.",
       "inputSchema": {
         "type": "object",
         "properties": {
