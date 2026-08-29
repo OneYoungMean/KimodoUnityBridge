@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from core.animation_analysis import build_clip_constraint_analysis, build_generation_analysis
+from core.animation_analysis import _select_kmb_keyframes, build_clip_constraint_analysis, build_generation_analysis
 
 
 class AnimationAnalysisTests(unittest.TestCase):
@@ -45,6 +45,32 @@ class AnimationAnalysisTests(unittest.TestCase):
             sorted(result["keyframes"], key=lambda item: (-item["saliency"], item["frame"])),
             result["keyframes"],
         )
+
+    def test_kmb_keyframes_ignore_root_xz_placement(self):
+        roots = np.zeros((10, 3), dtype=np.float32)
+        roots[:, 1] = [0.0, 0.0, 0.4, 1.0, 0.2, 0.2, 0.8, 0.0, 0.3, 0.0]
+        shifted = roots.copy()
+        shifted[:, 0] = [0.0, 3.0, -2.0, 5.0, -4.0, 2.0, 6.0, -1.0, 4.0, 0.0]
+        shifted[:, 2] = [0.0, -4.0, 3.0, 1.0, 5.0, -2.0, 4.0, 2.0, -3.0, 0.0]
+        quats = np.zeros((10, 2, 4), dtype=np.float32)
+        quats[..., 3] = 1.0
+
+        self.assertEqual(
+            _select_kmb_keyframes(roots, quats, 5),
+            _select_kmb_keyframes(shifted, quats, 5),
+        )
+
+    def test_kmb_keyframes_ignore_root_yaw(self):
+        roots = np.zeros((10, 3), dtype=np.float32)
+        quats = np.zeros((10, 2, 4), dtype=np.float32)
+        quats[..., 3] = 1.0
+        yawed = quats.copy()
+        yawed[:, 0, :] = 0.0
+        angles = np.linspace(0.0, np.pi, len(yawed), dtype=np.float32)
+        yawed[:, 0, 0] = np.cos(angles * 0.5)
+        yawed[:, 0, 2] = np.sin(angles * 0.5)
+
+        self.assertTrue(all(item["saliency"] <= 0.01 for item in _select_kmb_keyframes(roots, yawed, 5)))
 
     def test_foot_contact_changes_debounce_short_reversals(self):
         roots = np.zeros((18, 3), dtype=np.float32)

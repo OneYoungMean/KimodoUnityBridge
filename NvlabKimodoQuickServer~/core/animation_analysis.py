@@ -93,7 +93,12 @@ def _select_position_keyframes(joints: np.ndarray, root_index: int, count: int) 
     root_index = root_index if 0 <= root_index < joints.shape[1] else 0
     root = joints[:, root_index, :3]
     relative = joints[:, :, :3] - root[:, None, :]
-    return _select_curve_keyframes(_normalise_channels(np.concatenate((root, relative.reshape(len(joints), -1)), axis=1)), count)
+    # Root X/Z are global placement, not pose semantics. Keep height because
+    # it can represent a meaningful state change (jump, crouch, etc.).
+    root_features = root[:, 1:2]
+    return _select_curve_keyframes(
+        _normalise_channels(np.concatenate((root_features, relative.reshape(len(joints), -1)), axis=1)), count
+    )
 
 
 def _select_kmb_keyframes(roots: np.ndarray, quats: np.ndarray, count: int) -> list[dict[str, int | float]]:
@@ -104,8 +109,38 @@ def _select_kmb_keyframes(roots: np.ndarray, quats: np.ndarray, count: int) -> l
     for frame in range(1, len(rotations)):
         flip = np.sum(rotations[frame] * rotations[frame - 1], axis=1) < 0.0
         rotations[frame, flip] *= -1.0
-    values = np.concatenate((roots, rotations.reshape(len(roots), -1)), axis=1)
+    # Root yaw is a separate planar heading signal. Remove it first, then use
+    # the remaining root orientation (tilt around X/Z) as the root feature.
+    root_rotation_features = _remove_root_yaw(rotations[:, 0, :])
+    # Ignore global Root X/Z placement so identical poses at different planar
+    # locations do not become salient solely because of their world position.
+    root_features = roots[:, 1:2]
+    joint_rotation_features = rotations[:, 1:, :].reshape(len(roots), -1)
+    values = np.concatenate((root_features, root_rotation_features, joint_rotation_features), axis=1)
     return _select_curve_keyframes(_normalise_channels(values), count)
+
+
+def _remove_root_yaw(quats: np.ndarray) -> np.ndarray:
+    """Return root quaternions with their planar Y rotation removed."""
+    forward_x = 2.0 * (quats[:, 1] * quats[:, 3] + quats[:, 0] * quats[:, 2])
+    forward_z = 1.0 - 2.0 * (quats[:, 1] ** 2 + quats[:, 2] ** 2)
+    half_yaw = 0.5 * np.arctan2(forward_x, forward_z)
+    yaw_inverse = np.stack(
+        (np.cos(half_yaw), np.zeros_like(half_yaw), -np.sin(half_yaw), np.zeros_like(half_yaw)),
+        axis=-1,
+    )
+    aw, ax, ay, az = np.moveaxis(yaw_inverse, -1, 0)
+    bw, bx, by, bz = np.moveaxis(quats, -1, 0)
+    stripped = np.stack(
+        (aw * bw - ax * bx - ay * by - az * bz,
+         aw * bx + ax * bw + ay * bz - az * by,
+         aw * by - ax * bz + ay * bw + az * bx,
+         aw * bz + ax * by - ay * bx + az * bw),
+        axis=-1,
+    )
+    stripped[stripped[:, 0] < 0.0] *= -1.0
+    stripped[np.abs(stripped) < 1e-6] = 0.0
+    return stripped
 
 
 def _normalise_channels(values: np.ndarray) -> np.ndarray:
