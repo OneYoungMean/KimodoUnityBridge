@@ -82,7 +82,7 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."))),
                     CommandDefinition(SessionGetRawCommand,
-                        "Resolve a named Session character, track, clip, or constraint to its Unity object reference.",
+                        "Resolve a named Session character, track, clip, or constraint to portable Unity object metadata for external API or tool interop; the result includes guid, asset_guid, path, object_type, and optional character.",
                         Properties(
                             RequiredEnum("kind", "character", "track", "clip", "constraint"),
                             Required("name", "string", "Exact Session object name."),
@@ -182,7 +182,7 @@ namespace KimodoUnityBridge.Command
                             RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
-                        "Get generation progress, the generated animation safe name, and its project-relative asset path when completed.",
+                        "Get generation progress, the generated animation safe name, and its project-relative clip asset path when completed; path is empty until a clip exists.",
                         Properties(
                             Required("request_id", "string", "Request id returned by a generate tool."))),
                     CommandDefinition(CancelGenerationCommand,
@@ -284,7 +284,8 @@ namespace KimodoUnityBridge.Command
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
                         ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command.",
-                        ["path"] = "The {track,index} reference returned by animation_analyze at clips[].root_trajectory.path; pass it only as root_path.path."
+                        ["path"] = "For animation_analyze, this is the {track,index} Root Path reference passed only as root_path.path; for kimodo_get_generation or session_get_raw, it is a project-relative Unity asset path.",
+                        ["raw_object"] = "The portable metadata returned by session_get_raw for Unity-external API or tool interop; it does not replace Session handles."
                     },
                     ["workflow"] = new JArray
                     {

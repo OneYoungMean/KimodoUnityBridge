@@ -2,7 +2,7 @@
 
 > Temporary development snapshot. This is not an AI execution contract and does not override the live schema, `kimodo_help`, or user instructions.
 >
-> 当前文件只是临时开发快照，不是 AI 执行契约，也不覆盖实时 schema、API Help 或用户指令。日常任务从 [SKILL.md](SKILL.md) 路由，具体命令与参数读取 [Command/help.json](Command/help.json)。
+> 当前文件只是临时开发快照，不是 AI 执行契约，也不覆盖实时 schema、API Help 或用户指令。日常任务从 [SKILL.md](../SKILL.md) 路由，具体命令与参数读取 [Command/help.json](../Command/help.json)。
 
 ## Current command surface
 
@@ -27,9 +27,9 @@ The maintained public commands are:
 
 ## Active documentation work
 
-- Keep `Command/help.json` aligned with the dispatcher, and keep concrete command details out of `SKILL.md` and its three sub-skills.
+- Keep `../Command/help.json` aligned with the dispatcher, and keep concrete command details out of `../SKILL.md` and its three sub-skills.
 
 ## Verification items
 
 - Run a Unity Editor compile/import check after documentation and command-surface changes.
-- Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Closing or switching a Session cancels its active generations. Keep Foot IK/Raycast or other evaluator-only capabilities documented as boundaries unless a public command and fixture prove them.
+- Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Closing or switching a Session cancels its active generations. Keep Foot IK/Raycast or other unexposed capabilities documented as boundaries unless a public command and project asset prove them.

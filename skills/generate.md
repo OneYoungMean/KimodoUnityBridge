@@ -282,7 +282,8 @@ function execute_generate_skill(request):
     LAST_COMPLETED_SEED = state.seed
     generated_ref = {
         character: character,
-        clip: state.animation
+        clip: state.animation,
+        path: state.path
     }
 
     runtime_payload = {

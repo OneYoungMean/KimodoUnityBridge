@@ -81,7 +81,7 @@
 - [ ] 验证帧数、FPS、关节数、关节顺序、四元数顺序（XYZW）和根位移坐标系。
 - [ ] 验证 Timeline 播放、保存、重新打开和分析流程。
 - [ ] SOMA 若返回 30 joints，明确实现 30→77 扩展，或在第一版禁止 SOMA77 播放。
-- [ ] 用至少一个 `AnimationEval` 生成/播放 smoke case 回归。
+- [ ] 用至少一个项目内生成/播放 smoke case 回归。
 
 验收：native 生成不会破坏已有 Python 生成、KMB 解析或 Unity 资产持久化。
 
@@ -105,6 +105,6 @@
 
 - [kimodo.cpp README](https://github.com/localai-org/kimodo.cpp/blob/main/README.md)
 - [kimodo.cpp C API](https://github.com/localai-org/kimodo.cpp/blob/main/include/kimodo/kimodo_capi.h)
-- [当前 QuickServer runtime](NvlabKimodoQuickServer~/core/kimodo_runtime.py)
-- [当前 QuickServer 协议客户端](Runtime/Bridge/BridgeProtocolClient.cs)
-- [当前 KMB 编解码](NvlabKimodoQuickServer~/core/protocol/kmb_motion.py)
+- [当前 QuickServer runtime](../NvlabKimodoQuickServer~/core/kimodo_runtime.py)
+- [当前 QuickServer 协议客户端](../Runtime/Bridge/BridgeProtocolClient.cs)
+- [当前 KMB 编解码](../NvlabKimodoQuickServer~/core/protocol/kmb_motion.py)

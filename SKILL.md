@@ -128,3 +128,5 @@ before every API call:
 if prose_guidance_conflicts_with(runtime_result_or_error):
     follow(runtime_result_or_error)
 ```
+
+Generation polling returns the completed clip safe name and project-relative `path`; retain both for subsequent Session commands or external API handoff. Use `session_get_raw` with `kind` and `name` to resolve a Session object into portable metadata (`guid`, `asset_guid`, `path`, `object_type`, and optional `character`) for Unity-external tools. The raw lookup does not replace Session handles or alter the object.
