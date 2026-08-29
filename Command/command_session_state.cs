@@ -1022,6 +1022,131 @@ namespace KimodoUnityBridge.Command
             });
         }
 
+        public static string SessionGetRaw(string argumentsJson)
+        {
+            return Execute(argumentsJson, arguments =>
+            {
+                TimelineSessionRecord session = RequireCurrentTimelineSession();
+                string kind = RequiredStringValue(arguments, "kind").ToLowerInvariant();
+                string name = RequiredStringValue(arguments, "name");
+                string characterName = arguments.Value<string>("character")?.Trim();
+                RawSessionObject resolved = ResolveRawSessionObject(session, kind, name, characterName);
+                return Ok(DescribeRawSessionObject(resolved));
+            });
+        }
+
+        private static RawSessionObject ResolveRawSessionObject(
+            TimelineSessionRecord session,
+            string kind,
+            string name,
+            string characterName)
+        {
+            var candidates = new List<RawSessionObject>();
+            IEnumerable<TimelineCharacterRecord> characters = session.Characters;
+            if (!string.IsNullOrWhiteSpace(characterName))
+            {
+                characters = characters.Where(item => string.Equals(item.Name, characterName, StringComparison.OrdinalIgnoreCase));
+                if (!characters.Any())
+                {
+                    throw new InvalidOperationException($"Character '{characterName}' is not in the current Timeline Session.");
+                }
+            }
+
+            switch (kind)
+            {
+                case "character":
+                    candidates.AddRange(characters
+                        .Where(item => string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase))
+                        .Select(item => new RawSessionObject(kind, item.Name, item.Root, item.Name)));
+                    break;
+                case "clip":
+                    candidates.AddRange(characters.SelectMany(character => character.Animations
+                        .Where(animation => string.Equals(animation.Name, name, StringComparison.OrdinalIgnoreCase) && animation.Clip != null)
+                        .Select(animation => new RawSessionObject(kind, animation.Name, animation.Clip, character.Name))));
+                    break;
+                case "track":
+                    candidates.AddRange(characters.SelectMany(character => CollectSessionTracks(session, character)
+                        .Where(track => string.Equals(track.name, name, StringComparison.OrdinalIgnoreCase))
+                        .Select(track => new RawSessionObject(kind, track.name, track, character.Name))));
+                    break;
+                case "constraint":
+                    candidates.AddRange(characters.SelectMany(character =>
+                        character.Track != null
+                            ? character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
+                                .Where(marker => string.Equals(marker.name, name, StringComparison.OrdinalIgnoreCase))
+                                .Select(marker => new RawSessionObject(kind, marker.name, marker, character.Name))
+                            : Enumerable.Empty<RawSessionObject>()));
+                    break;
+                default:
+                    throw new InvalidOperationException("kind must be character, track, clip, or constraint.");
+            }
+
+            candidates = candidates
+                .GroupBy(item => GetObjectReference(item.Target), StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
+            if (candidates.Count == 0)
+            {
+                throw new InvalidOperationException($"Session {kind} '{name}' was not found.");
+            }
+            if (candidates.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    $"Session {kind} '{name}' is ambiguous; provide character to disambiguate.");
+            }
+            return candidates[0];
+        }
+
+        private static IEnumerable<TrackAsset> CollectSessionTracks(
+            TimelineSessionRecord session,
+            TimelineCharacterRecord character)
+        {
+            var tracks = new List<TrackAsset>();
+            if (session?.TimelineAsset != null)
+            {
+                foreach (TrackAsset root in session.TimelineAsset.GetRootTracks())
+                {
+                    tracks.Add(root);
+                    tracks.AddRange(root.GetChildTracks());
+                }
+            }
+            if (character?.Track != null) tracks.Add(character.Track);
+            if (character?.PoseCacheTrack != null) tracks.Add(character.PoseCacheTrack);
+            if (character?.AnalysisTrack != null) tracks.Add(character.AnalysisTrack);
+            return tracks.Where(item => item != null).Distinct();
+        }
+
+        private static JObject DescribeRawSessionObject(RawSessionObject value)
+        {
+            string path = AssetDatabase.GetAssetPath(value.Target) ?? string.Empty;
+            return new JObject
+            {
+                ["kind"] = value.Kind,
+                ["name"] = value.Name,
+                ["guid"] = GetObjectReference(value.Target),
+                ["asset_guid"] = string.IsNullOrWhiteSpace(path) ? string.Empty : AssetDatabase.AssetPathToGUID(path),
+                ["path"] = path,
+                ["object_type"] = value.Target != null ? value.Target.GetType().Name : string.Empty,
+                ["character"] = value.Character
+            };
+        }
+
+        private sealed class RawSessionObject
+        {
+            public RawSessionObject(string kind, string name, UnityEngine.Object target, string character)
+            {
+                Kind = kind;
+                Name = name;
+                Target = target;
+                Character = character;
+            }
+
+            public string Kind { get; }
+            public string Name { get; }
+            public UnityEngine.Object Target { get; }
+            public string Character { get; }
+        }
+
         private static JObject BuildAnimationAnalyzeClipResult(AnalysisSubject subject)
         {
             bool humanoid = IsHumanoidCharacter(subject.Character);

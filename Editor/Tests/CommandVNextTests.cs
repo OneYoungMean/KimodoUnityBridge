@@ -18,7 +18,7 @@ namespace KimodoUnityBridge.Command.Tests
             CollectionAssert.AreEquivalent(new[]
             {
                 "kimodo_help", "kimodo_install_server",
-                "session_get_or_create", "session_add", "session_close",
+                "session_get_or_create", "session_get_raw", "session_add", "session_close",
                 "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
                 "animation_analyze", "animation_compare",
                 "pose_get", "pose_contract", "pose_set_root_transform", "pose_set_muscle",
@@ -60,6 +60,29 @@ namespace KimodoUnityBridge.Command.Tests
                 Is.EqualTo("number"));
             Assert.That(generate?["properties"]?["override_heading_degrees"]?["type"]?.Value<string>(),
                 Is.EqualTo("number"));
+        }
+
+        [Test]
+        public void SessionGetRawSchema_ResolvesNamedSessionObjects()
+        {
+            JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject schema = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "session_get_raw")["inputSchema"] as JObject;
+
+            Assert.That(schema?["required"]?.Values<string>(), Is.EquivalentTo(new[] { "kind", "name" }));
+            Assert.That(schema?["properties"]?["kind"]?["enum"]?.Values<string>(),
+                Is.EquivalentTo(new[] { "character", "track", "clip", "constraint" }));
+            Assert.That(schema?["properties"]?["character"], Is.Not.Null);
+        }
+
+        [Test]
+        public void GenerationResultManualDocumentsProjectRelativePath()
+        {
+            JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject definition = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "kimodo_get_generation");
+
+            Assert.That(definition.Value<string>("description"), Does.Contain("asset path"));
         }
 
         [TestCase(false, 0f, 5f, 1f)]

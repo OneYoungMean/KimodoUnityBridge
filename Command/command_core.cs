@@ -26,6 +26,7 @@ namespace KimodoUnityBridge.Command
         public const string InstallServerCommand = "kimodo_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
         public const string SessionGetOrCreateCommand = "session_get_or_create";
+        public const string SessionGetRawCommand = "session_get_raw";
         public const string SessionCloseCommand = "session_close";
         public const string SessionAddCommand = "session_add";
         public const string AnimationAnalyzeCommand = "animation_analyze";
@@ -80,6 +81,12 @@ namespace KimodoUnityBridge.Command
                         "Create an empty current animation Session, or reopen an existing named Session. Add a supported scene character before using character-scoped commands in a new Session.",
                         Properties(
                             Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."))),
+                    CommandDefinition(SessionGetRawCommand,
+                        "Resolve a named Session character, track, clip, or constraint to its Unity object reference.",
+                        Properties(
+                            RequiredEnum("kind", "character", "track", "clip", "constraint"),
+                            Required("name", "string", "Exact Session object name."),
+                            Optional("character", "string", "Optional character name to disambiguate clips, tracks, or constraints."))),
                     CommandDefinition(SessionCloseCommand,
                         "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
                         Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
@@ -175,7 +182,7 @@ namespace KimodoUnityBridge.Command
                             RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
-                        "Get generation progress and the generated animation safe name.",
+                        "Get generation progress, the generated animation safe name, and its project-relative asset path when completed.",
                         Properties(
                             Required("request_id", "string", "Request id returned by a generate tool."))),
                     CommandDefinition(CancelGenerationCommand,
@@ -1457,6 +1464,13 @@ namespace KimodoUnityBridge.Command
                         };
                     }
                 }
+                result["path"] = generated.GeneratedClip != null
+                    ? AssetDatabase.GetAssetPath(generated.GeneratedClip) ?? string.Empty
+                    : string.Empty;
+            }
+            else
+            {
+                result["path"] = string.Empty;
             }
             if (record.TimelineGenerationTrace != null)
             {
@@ -1809,6 +1823,7 @@ namespace KimodoUnityBridge.Command
                 [HelpCommand] = GetCommandHelp,
                 [InstallServerCommand] = InstallServer,
                 [SessionGetOrCreateCommand] = SessionGetOrCreate,
+                [SessionGetRawCommand] = SessionGetRaw,
                 [SessionCloseCommand] = SessionClose,
                 [SessionAddCommand] = SessionAdd,
                 [AnimationAnalyzeCommand] = AnimationAnalyze,

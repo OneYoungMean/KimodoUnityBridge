@@ -50,6 +50,29 @@
       }
     },
     {
+      "name": "session_get_raw",
+      "description": "Resolve a named Session character, track, clip, or constraint to its Unity object reference.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["character", "track", "clip", "constraint"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Exact Session object name."
+          },
+          "character": {
+            "type": "string",
+            "description": "Optional character name to disambiguate clips, tracks, or constraints."
+          }
+        },
+        "required": ["kind", "name"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "session_close",
       "description": "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
       "inputSchema": {
@@ -847,7 +870,7 @@
     },
     {
       "name": "kimodo_get_generation",
-      "description": "Get generation progress and the generated animation safe name.",
+      "description": "Get generation progress, the generated animation safe name, and its project-relative asset path when completed.",
       "inputSchema": {
         "type": "object",
         "properties": {

@@ -38,7 +38,7 @@ namespace KimodoUnityBridge.Command.Tests
             CollectionAssert.AreEquivalent(new[]
             {
                 "kimodo_help", "kimodo_install_server",
-                "session_get_or_create", "session_add", "session_close",
+                "session_get_or_create", "session_get_raw", "session_add", "session_close",
                 "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
                 "animation_analyze", "animation_compare",
                 "pose_get", "pose_contract", "pose_set_root_transform", "pose_set_muscle",
