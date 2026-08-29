@@ -22,9 +22,9 @@
 | `README.md` | 入门说明 | 保留；不作为 API 契约 |
 | `SKILL.md` | AI 入口 | 维护安装、任务路由、产品边界和 API Help 入口 |
 | `Command/help.json` | API Help | 维护命令、参数、必选关系和嵌套 schema |
-| `skills/recognize.md` | 当前专题 | 维护语义识别流程、提示词和注意事项 |
-| `skills/compare.md` | 当前专题 | 维护相对质量比较流程、提示词和注意事项 |
-| `skills/generate.md` | 当前专题 | 维护新建/修正动画流程、提示词和注意事项 |
+| `skills/recognize.md` | 当前专题 | 维护识别 API 链、视觉提示词、证据宏与决策程序 |
+| `skills/compare.md` | 当前专题 | 维护比较 API 链、视觉提示词、标准宏与决策程序 |
+| `skills/generate.md` | 当前专题 | 维护生成 API 链、意图/证据宏、约束、验证与修正程序 |
 | `DEVELOPMENT.md` | 临时快照 | 允许短期记录；不得取代 `SKILL.md` 或 API Help |
 | `COMMAND_BOUNDARY_TEST_PLAN.md` | 测试计划 | 保留为命令边界回归入口，避免重复写进操作契约 |
 | `SAMPLE_RESULT_70D_REWRITE_*` | 历史 | 从根目录移除；历史版本由 git history 保留 |
@@ -44,7 +44,7 @@
 
 - 旧的 `pose_get` “创建或复用”表述：当前实现创建新的 External Pose slot。
 - 只写 Humanoid 的分析描述：当前 `session_add(kind:"character")` 和 `animation_analyze` 支持可渲染 Mesh 的 Mesh-only 路径。
-- 漏掉的命令：`session_close`、`pose_create_path`、`pose_set_root_transform`、`pose_set_muscle`、`kimodo_cancel_generation`、`kimodo_record_range`、`kimodo_retarget_animation`。
+- 漏掉的命令：`session_close`、`pose_set_root_transform`、`pose_set_muscle`、`kimodo_cancel_generation`、`kimodo_record_range`、`kimodo_retarget_animation`。（旧的独立路径创建命令已移除，轨迹改由分析返回。）
 - 漏掉的生成参数/边界：`output_mode`、`text_encoder_model`、`analysis_option`、`seed`、`diffusion_steps`、`resolution`、loop 超限回退和 `ignore_warning`。
 - 把 transition 说成 Bake 资产、把 Foot IK/Raycast 题库目标说成已实现命令。
 

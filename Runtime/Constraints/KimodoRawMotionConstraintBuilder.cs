@@ -9,6 +9,8 @@ namespace KimodoBridge
     /// <summary>Builds protocol constraints directly from Kimodo raw motion.</summary>
     internal static class KimodoRawMotionConstraintBuilder
     {
+        internal const int HeadingOverrideFrameInterval = 30;
+
         internal static bool TryBuildFullBodyFrame(
             KimodoRawMotionData motion,
             string modelName,
@@ -289,6 +291,269 @@ namespace KimodoBridge
             return constraints.ToString(Formatting.None);
         }
 
+        internal static string BuildPathAngleConstraintJson(
+            KimodoRawMotionData motion,
+            string modelName,
+            float pathBeginAngleDegrees,
+            float pathEndAngleDegrees,
+            int runtimeTrimStartFrame,
+            int targetFrameCount,
+            int runtimeFrameCount,
+            float frameRate,
+            string existingConstraintsJson,
+            int regularFrameInterval = 0)
+        {
+            if (motion == null || motion.FrameCount != targetFrameCount ||
+                runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f ||
+                regularFrameInterval < 0 ||
+                float.IsNaN(pathBeginAngleDegrees) || float.IsInfinity(pathBeginAngleDegrees) ||
+                float.IsNaN(pathEndAngleDegrees) || float.IsInfinity(pathEndAngleDegrees))
+            {
+                throw new InvalidOperationException("Path angle constraint frame range is invalid.");
+            }
+            if (!TryBuildFullBodyFrame(
+                    motion, modelName, 0, out KimodoConstraintInternalData first, out string firstError))
+            {
+                throw new InvalidOperationException($"Path angle pass 1 raw sampling failed: {firstError}");
+            }
+
+            float pathLength = 0f;
+            if (!motion.TryReadUnityRootPosition(0, out Vector3 previousRoot))
+            {
+                throw new InvalidOperationException("Path angle pass 1 has no valid first root position.");
+            }
+            for (int frame = 1; frame < motion.FrameCount; frame++)
+            {
+                if (!motion.TryReadUnityRootPosition(frame, out Vector3 root))
+                {
+                    throw new InvalidOperationException($"Path angle pass 1 has no valid root position at frame {frame}.");
+                }
+                pathLength += Vector2.Distance(
+                    new Vector2(previousRoot.x, previousRoot.z),
+                    new Vector2(root.x, root.z));
+                previousRoot = root;
+            }
+
+            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
+            var frames = new HashSet<int> { runtimeTrimStartFrame, terminalFrame };
+            if (runtimeTrimStartFrame > 0) frames.Add(0);
+            if (terminalFrame < runtimeFrameCount - 1) frames.Add(runtimeFrameCount - 1);
+            AddRegularFrames(frames, runtimeFrameCount, regularFrameInterval);
+            CollectRootChannelState(existingConstraintsJson, runtimeFrameCount, frames, null);
+
+            Quaternion startHeading = Quaternion.Euler(0f, pathBeginAngleDegrees, 0f);
+            float totalAngleRadians = Mathf.DeltaAngle(
+                pathBeginAngleDegrees,
+                pathEndAngleDegrees) * Mathf.Deg2Rad;
+            var orderedFrames = new List<int>(frames);
+            orderedFrames.Sort();
+            var positions = new List<Vector3>(orderedFrames.Count);
+            var headings = new List<Quaternion>(orderedFrames.Count);
+            for (int i = 0; i < orderedFrames.Count; i++)
+            {
+                float t = (orderedFrames[i] - runtimeTrimStartFrame) / (float)(targetFrameCount - 1);
+                EvaluatePathAngleBezier(pathLength, totalAngleRadians, t, out Vector2 localPosition);
+                Vector3 profileOffset = startHeading * new Vector3(localPosition.x, 0f, localPosition.y);
+                Vector3 profilePosition = first.rootPosition + profileOffset;
+                profilePosition.y = first.rootPosition.y;
+                positions.Add(profilePosition);
+                headings.Add(startHeading * Quaternion.Euler(0f, totalAngleRadians * Mathf.Rad2Deg * t, 0f));
+            }
+
+            return new JArray(BuildRoot2DConstraint(orderedFrames, positions, headings))
+                .ToString(Formatting.None);
+        }
+
+        internal static string OverrideRoot2DHeadingsJson(string constraintsJson, float headingDegrees)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson) ||
+                float.IsNaN(headingDegrees) || float.IsInfinity(headingDegrees))
+            {
+                throw new InvalidOperationException("Root2D heading override is invalid.");
+            }
+
+            JArray constraints = JArray.Parse(constraintsJson);
+            JArray protocolHeading = BuildProtocolHeading(Quaternion.Euler(0f, headingDegrees, 0f));
+            bool replaced = false;
+            foreach (JObject constraint in constraints.Children<JObject>())
+            {
+                if (!string.Equals(constraint.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase) ||
+                    constraint["frame_indices"] is not JArray frames)
+                {
+                    continue;
+                }
+
+                var headings = new JArray();
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    headings.Add(protocolHeading.DeepClone());
+                }
+                constraint["global_root_heading"] = headings;
+                replaced = true;
+            }
+            if (!replaced)
+            {
+                throw new InvalidOperationException("Root2D heading override found no Root2D constraint.");
+            }
+            return constraints.ToString(Formatting.None);
+        }
+
+        internal static string BuildHeadingOverrideConstraintJson(
+            KimodoRawMotionData motion,
+            float headingDegrees,
+            int runtimeTrimStartFrame,
+            int targetFrameCount,
+            int runtimeFrameCount,
+            float frameRate,
+            string existingConstraintsJson)
+        {
+            if (motion == null || motion.FrameCount != targetFrameCount ||
+                runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f ||
+                float.IsNaN(headingDegrees) || float.IsInfinity(headingDegrees))
+            {
+                throw new InvalidOperationException("Heading override constraint frame range is invalid.");
+            }
+
+            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
+            var frames = new HashSet<int> { runtimeTrimStartFrame, terminalFrame };
+            if (runtimeTrimStartFrame > 0) frames.Add(0);
+            if (terminalFrame < runtimeFrameCount - 1) frames.Add(runtimeFrameCount - 1);
+            AddRegularFrames(frames, runtimeFrameCount, HeadingOverrideFrameInterval);
+            var resolvedPositions = new Dictionary<int, Vector3>();
+            CollectRootChannelState(existingConstraintsJson, runtimeFrameCount, frames, resolvedPositions);
+
+            Quaternion heading = Quaternion.Euler(0f, headingDegrees, 0f);
+            var orderedFrames = new List<int>(frames);
+            orderedFrames.Sort();
+            var positions = new List<Vector3>(orderedFrames.Count);
+            var headings = new List<Quaternion>(orderedFrames.Count);
+            for (int i = 0; i < orderedFrames.Count; i++)
+            {
+                int frame = orderedFrames[i];
+                if (!resolvedPositions.TryGetValue(frame, out Vector3 position))
+                {
+                    float t = (frame - runtimeTrimStartFrame) / (float)(targetFrameCount - 1);
+                    position = EvaluateRawRootPosition(motion, t);
+                }
+                positions.Add(position);
+                headings.Add(heading);
+            }
+            return new JArray(BuildRoot2DConstraint(orderedFrames, positions, headings))
+                .ToString(Formatting.None);
+        }
+
+        private static void AddRegularFrames(ISet<int> frames, int runtimeFrameCount, int interval)
+        {
+            if (interval <= 0) return;
+            for (int frame = 0; frame < runtimeFrameCount; frame += interval)
+            {
+                frames.Add(frame);
+            }
+            frames.Add(runtimeFrameCount - 1);
+        }
+
+        private static void CollectRootChannelState(
+            string constraintsJson,
+            int runtimeFrameCount,
+            ISet<int> output,
+            IDictionary<int, Vector3> resolvedPositions)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson)) return;
+            JArray constraints = JArray.Parse(constraintsJson);
+            foreach (JObject constraint in constraints.Children<JObject>())
+            {
+                string type = constraint.Value<string>("type");
+                if ((!string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase) &&
+                     !string.Equals(type, "root2d", StringComparison.OrdinalIgnoreCase)) ||
+                    constraint["frame_indices"] is not JArray frames)
+                {
+                    continue;
+                }
+                JArray roots = constraint[type.Equals("fullbody", StringComparison.OrdinalIgnoreCase)
+                    ? "root_positions"
+                    : "smooth_root_2d"] as JArray;
+                for (int i = 0; i < frames.Count; i++)
+                {
+                    JToken frameToken = frames[i];
+                    if (frameToken.Type == JTokenType.Integer)
+                    {
+                        int frame = frameToken.Value<int>();
+                        if (frame < 0 || frame >= runtimeFrameCount) continue;
+                        output.Add(frame);
+                        if (resolvedPositions != null && roots != null && i < roots.Count && roots[i] is JArray root)
+                        {
+                            int zIndex = type.Equals("fullbody", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
+                            if (root.Count > zIndex &&
+                                (root[0].Type == JTokenType.Float || root[0].Type == JTokenType.Integer) &&
+                                (root[zIndex].Type == JTokenType.Float || root[zIndex].Type == JTokenType.Integer))
+                            {
+                                resolvedPositions[frame] = new Vector3(
+                                    -root[0].Value<float>(),
+                                    0f,
+                                    root[zIndex].Value<float>());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private static Vector3 EvaluateRawRootPosition(KimodoRawMotionData motion, float t)
+        {
+            float frame = t * (motion.FrameCount - 1);
+            int firstFrame = Mathf.Clamp(Mathf.FloorToInt(frame), 0, motion.FrameCount - 2);
+            int secondFrame = firstFrame + 1;
+            if (!motion.TryReadUnityRootPosition(firstFrame, out Vector3 first) ||
+                !motion.TryReadUnityRootPosition(secondFrame, out Vector3 second))
+            {
+                throw new InvalidOperationException("Heading override could not sample the baseline Root position.");
+            }
+            return Vector3.LerpUnclamped(first, second, frame - firstFrame);
+        }
+
+        private static void EvaluatePathAngleBezier(
+            float pathLength,
+            float totalAngleRadians,
+            float t,
+            out Vector2 position)
+        {
+            if (pathLength <= 1e-6f)
+            {
+                position = Vector2.zero;
+                return;
+            }
+            if (Mathf.Abs(totalAngleRadians) <= 1e-5f)
+            {
+                position = new Vector2(0f, pathLength * t);
+                return;
+            }
+
+            float radius = pathLength / totalAngleRadians;
+            float step = Mathf.Min(1f, (Mathf.PI * 0.5f) / Mathf.Abs(totalAngleRadians));
+            float startT = Mathf.Floor(t / step) * step;
+            float endT = startT + step;
+            float u = Mathf.Clamp01((t - startT) / step);
+            Vector2 p0 = EvaluateCircularPath(radius, totalAngleRadians, startT);
+            Vector2 p3 = EvaluateCircularPath(radius, totalAngleRadians, endT);
+            Vector2 d0 = EvaluateCircularHeading(totalAngleRadians, startT);
+            Vector2 d1 = EvaluateCircularHeading(totalAngleRadians, endT);
+            float segmentAngle = Mathf.Abs(totalAngleRadians * (endT - startT));
+            float handle = 4f / 3f * Mathf.Tan(segmentAngle * 0.25f) * Mathf.Abs(radius);
+            position = EvaluateBezier(p0, p0 + d0 * handle, p3 - d1 * handle, p3, u);
+        }
+
+        private static Vector2 EvaluateCircularPath(float radius, float angle, float t)
+        {
+            float at = angle * t;
+            return new Vector2(radius * (1f - Mathf.Cos(at)), radius * Mathf.Sin(at));
+        }
+
+        private static Vector2 EvaluateCircularHeading(float angle, float t)
+        {
+            float at = angle * t;
+            return new Vector2(Mathf.Sin(at), Mathf.Cos(at));
+        }
+
         private static JObject BuildRoot2DConstraint(
             IReadOnlyList<int> frames,
             IReadOnlyList<Vector3> positions,
@@ -306,13 +571,9 @@ namespace KimodoBridge
             for (int i = 0; i < frames.Count; i++)
             {
                 Vector3 root = ToProtocolPosition(positions[i]);
-                Vector3 forward = headings[i] * Vector3.forward;
-                forward.y = 0f;
-                if (forward.sqrMagnitude <= 1e-8f) forward = Vector3.forward;
-                forward.Normalize();
                 frameIndices.Add(frames[i]);
                 roots.Add(new JArray(root.x, root.z));
-                rootHeadings.Add(new JArray(forward.z, -forward.x));
+                rootHeadings.Add(BuildProtocolHeading(headings[i]));
             }
 
             return new JObject
@@ -322,6 +583,15 @@ namespace KimodoBridge
                 ["smooth_root_2d"] = roots,
                 ["global_root_heading"] = rootHeadings
             };
+        }
+
+        private static JArray BuildProtocolHeading(Quaternion heading)
+        {
+            Vector3 forward = heading * Vector3.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude <= 1e-8f) forward = Vector3.forward;
+            forward.Normalize();
+            return new JArray(forward.z, -forward.x);
         }
 
         private static Quaternion ResolveRootRotation(KimodoConstraintInternalData frame)
@@ -353,6 +623,15 @@ namespace KimodoBridge
         }
 
         private static Vector3 ToProtocolPosition(Vector3 position) => new Vector3(-position.x, position.y, position.z);
+
+        private static Vector2 EvaluateBezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
+        {
+            float oneMinus = 1f - t;
+            return oneMinus * oneMinus * oneMinus * p0 +
+                3f * oneMinus * oneMinus * t * p1 +
+                3f * oneMinus * t * t * p2 +
+                t * t * t * p3;
+        }
 
         private static Vector3 ToProtocolAxisAngle(Vector3 unityAxisAngle)
         {

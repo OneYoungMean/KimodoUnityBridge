@@ -12,7 +12,7 @@ The maintained public commands are:
 - Session/content: `session_get_or_create`, `session_add`, `session_close`
 - Generation jobs: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`
 - Analysis/evidence: `animation_analyze`, `animation_compare`
-- Pose/path editing: `pose_get`, `pose_create_path`, `pose_contract`, `pose_set_root_transform`, `pose_set_muscle`
+- Pose editing: `pose_get`, `pose_contract`, `pose_set_root_transform`, `pose_set_muscle`
 - Asset output: `kimodo_record_range`, `kimodo_retarget_animation`
 
 ## Current boundaries
@@ -22,7 +22,7 @@ The maintained public commands are:
 - `animation_analyze` accepts one or two explicit Session clips and returns numeric analysis plus one composite PNG at `pictures.image_path` with a self-describing `pictures.images` tile list. `level` is `low`, `middle`, or `high`; `low` keeps the grouped test panels, `middle` adds time-ordered keyframe and start/end poses, and `high` also adds time-ordered foot-transition poses. Mesh-only targets do not provide Humanoid contact semantics.
 - `animation_compare` is Humanoid-only and compares two ranges without modifying the Session; it reports root/yaw, mean-muscle, and end-effector differences, not compatible foot-contact evidence or semantic quality.
 - `session_add(kind:"animator")` imports supported state Clip candidates and materializes supported same-Layer State-to-State transitions as logical `transition_clip` records. It does not bake transition AnimationClip assets; unsupported Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
-- Root2D, fullbody, and pose-based hand/foot constraints are supplied through `kimodo_generate_animation.constraints`; `pose_create_path` creates a reusable Path and generation consumes it via `root_path`. Generation and Pose sampling require a valid Humanoid Avatar; Mesh-only characters are analysis-only. There is no standalone root-transform application command.
+- Root2D, fullbody, and pose-based hand/foot constraints are supplied through `kimodo_generate_animation.constraints`. Humanoid analysis stores and returns a reusable Root Path consumed through `root_path`; Path Override can regenerate with the same seed from absolute Unity-yaw begin/end angles, preserve the baseline path length, and coexist with loop generation. An absolute heading override runs last at 30-frame intervals, replacing Root2D headings without changing the composed Root XZ positions; when Path Override is active, it rewrites that Root2D record instead of appending a duplicate. Generation and Pose sampling require a valid Humanoid Avatar; Mesh-only characters are analysis-only. There is no standalone root-transform application command.
 - `pose_get` creates a new External Pose marker for a Humanoid character. Edit it with `pose_set_root_transform` or `pose_set_muscle`; use `pose_contract` for end-effector alignment.
 
 ## Active documentation work

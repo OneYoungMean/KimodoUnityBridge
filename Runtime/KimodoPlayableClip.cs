@@ -69,6 +69,17 @@ namespace KimodoBridge
         public int seed = 42;
         [Tooltip("Generate a baseline motion, constrain its first pose at the end, then generate an extended motion and keep its middle section.")]
         public bool generateLoop;
+        [Tooltip("Regenerate with the same seed and override the Root2D path using absolute begin/end Unity yaw angles.")]
+        public bool overridePathAngle;
+        [Tooltip("Absolute Unity yaw for the PathAngle Bezier start tangent.")]
+        public float pathBeginAngleDegrees;
+        [FormerlySerializedAs("pathAngleDegrees")]
+        [Tooltip("Absolute Unity yaw for the PathAngle Bezier end tangent.")]
+        public float pathEndAngleDegrees;
+        [Tooltip("Override second-pass Root2D headings every 30 frames with one absolute Unity yaw.")]
+        public bool overrideHeading;
+        [Tooltip("Absolute Unity yaw in degrees. Positive turns right; negative turns left; zero faces Unity forward.")]
+        public float headingDegrees;
         [Tooltip("Backend analysis options serialized as JSON and applied to this generation clip.")]
         public string analysisOptionsJson = string.Empty;
         [Tooltip("Optional generated AnimationClip asset name without extension.")]

@@ -3252,6 +3252,7 @@ namespace KimodoUnityBridge.Command
             public string AnimationName;
             public string InputSignature;
             public JObject Pictures;
+            public JObject RootTrajectory;
 
             public JObject ToJson() => new JObject
             {
@@ -3265,7 +3266,8 @@ namespace KimodoUnityBridge.Command
                 ["input_signature"] = InputSignature ?? string.Empty,
                 ["poses"] = Poses?.DeepClone() ?? new JArray(),
                 ["analysis"] = Analysis?.DeepClone() ?? new JObject(),
-                ["pictures"] = Pictures?.DeepClone() ?? new JObject()
+                ["pictures"] = Pictures?.DeepClone() ?? new JObject(),
+                ["root_trajectory"] = RootTrajectory?.DeepClone() ?? new JObject()
             };
 
             public static AnalysisCacheRecord FromJson(JObject json) => new AnalysisCacheRecord
@@ -3281,7 +3283,8 @@ namespace KimodoUnityBridge.Command
                 InputSignature = json.Value<string>("input_signature"),
                 Poses = json["poses"] as JArray ?? json["analysis"]?["poses"] as JArray ?? new JArray(),
                 Analysis = json["analysis"] as JObject ?? new JObject(),
-                Pictures = json["pictures"] as JObject ?? new JObject()
+                Pictures = json["pictures"] as JObject ?? new JObject(),
+                RootTrajectory = json["root_trajectory"] as JObject ?? new JObject()
             };
         }
     }

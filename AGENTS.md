@@ -11,9 +11,9 @@
 - `README.md`: human-facing package entry and installation overview.
 - `SKILL.md`: package installation, task routing, product boundaries, and the API-help entry.
 - `Command/help.json`: generated command and parameter schema; keep it aligned with the dispatcher.
-- `skills/recognize.md`: semantic motion recognition workflow, prompt structure, and cautions.
-- `skills/compare.md`: relative animation-quality comparison workflow, prompt structure, and cautions.
-- `skills/generate.md`: new or corrected animation workflow, prompt structure, and cautions.
+- `skills/recognize.md`: semantic motion recognition API chain, visual prompt, evidence macros, and decision program.
+- `skills/compare.md`: relative animation-quality API chain, visual prompt, criterion macros, and decision program.
+- `skills/generate.md`: generation API chain, intent/evidence macros, constraints, verification, and correction program.
 - `DEVELOPMENT.md`: temporary development snapshot; it is not an execution contract.
 - `plan.md`: documentation/validation maintenance plan; it does not override the live schema.
 - Historical rewrite notes are kept in git history, not maintained as current instructions.

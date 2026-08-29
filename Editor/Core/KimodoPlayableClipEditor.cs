@@ -21,6 +21,11 @@ namespace KimodoBridge.Editor
         private SerializedProperty randomProp;
         private SerializedProperty seed;
         private SerializedProperty generateLoopProp;
+        private SerializedProperty overridePathAngleProp;
+        private SerializedProperty pathBeginAngleDegreesProp;
+        private SerializedProperty pathEndAngleDegreesProp;
+        private SerializedProperty overrideHeadingProp;
+        private SerializedProperty headingDegreesProp;
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
@@ -53,7 +58,9 @@ namespace KimodoBridge.Editor
         private string lastError;
         private string lastConstraintsPath = string.Empty;
         private bool bridgeConnectedCached;
+        private bool showTrajectoryContinuityFoldout;
         private bool showAdvancedFoldout = true;
+        private GUIStyle trajectoryContinuityFoldoutStyle;
         private double lastRepaintTime;
         private bool repaintQueued;
 
@@ -109,6 +116,11 @@ namespace KimodoBridge.Editor
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
             generateLoopProp = serializedObject.FindProperty("generateLoop");
+            overridePathAngleProp = serializedObject.FindProperty("overridePathAngle");
+            pathBeginAngleDegreesProp = serializedObject.FindProperty("pathBeginAngleDegrees");
+            pathEndAngleDegreesProp = serializedObject.FindProperty("pathEndAngleDegrees");
+            overrideHeadingProp = serializedObject.FindProperty("overrideHeading");
+            headingDegreesProp = serializedObject.FindProperty("headingDegrees");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
@@ -227,39 +239,7 @@ namespace KimodoBridge.Editor
             int previousInOutMode = inOutConstraintModeProp?.enumValueIndex ?? 0;
             bool previousInEnabled = enableInConstraint?.boolValue ?? false;
             bool previousOutEnabled = enableOutConstraint?.boolValue ?? false;
-            if (inOutConstraintModeProp != null)
-            {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    EditorGUILayout.PropertyField(
-                        inOutConstraintModeProp,
-                        new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
-                    if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
-                    {
-                        float previousLabelWidth = EditorGUIUtility.labelWidth;
-                        EditorGUIUtility.labelWidth = 28f;
-                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(60f));
-                        EditorGUIUtility.labelWidth = 36f;
-                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(60f));
-                        EditorGUIUtility.labelWidth = previousLabelWidth;
-                    }
-                }
-            }
-            if (generateLoopProp != null)
-            {
-                EditorGUILayout.PropertyField(
-                    generateLoopProp,
-                    new GUIContent("Generate Loop", "Generate a normal baseline, constrain its first pose at the end, then generate an extended motion and keep its middle section."));
-                if (!generateLoopProp.hasMultipleDifferentValues &&
-                    generateLoopProp.boolValue &&
-                    hasTimelineDuration &&
-                    timelineClip.duration * 2.0 > 10.0)
-                {
-                    EditorGUILayout.HelpBox(
-                        "Loop generation exceeds the 600-frame limit and will fall back to normal generation.",
-                        MessageType.Warning);
-                }
-            }
+            DrawTrajectoryAndContinuitySection(timelineClip, hasTimelineDuration);
             if (showConstraint != null)
             {
                 bool wasShown = showConstraint.boolValue;
@@ -384,6 +364,101 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void DrawTrajectoryAndContinuitySection(TimelineClip timelineClip, bool hasTimelineDuration)
+        {
+            trajectoryContinuityFoldoutStyle ??= new GUIStyle(EditorStyles.foldout)
+            {
+                fontStyle = FontStyle.Bold
+            };
+            EditorGUILayout.Space(2f);
+            showTrajectoryContinuityFoldout = EditorGUILayout.Foldout(
+                showTrajectoryContinuityFoldout,
+                new GUIContent(
+                    "Trajectory & Continuity Setting",
+                    "InOut constraints, loop generation, PathAngle shaping, and heading overrides."),
+                true,
+                trajectoryContinuityFoldoutStyle);
+            if (!showTrajectoryContinuityFoldout)
+            {
+                return;
+            }
+
+            EditorGUI.indentLevel++;
+            if (inOutConstraintModeProp != null)
+            {
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    EditorGUILayout.PropertyField(
+                        inOutConstraintModeProp,
+                        new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
+                    if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
+                    {
+                        float previousLabelWidth = EditorGUIUtility.labelWidth;
+                        EditorGUIUtility.labelWidth = 28f;
+                        EditorGUILayout.PropertyField(enableInConstraint, new GUIContent("In"), GUILayout.Width(60f));
+                        EditorGUIUtility.labelWidth = 36f;
+                        EditorGUILayout.PropertyField(enableOutConstraint, new GUIContent("Out"), GUILayout.Width(60f));
+                        EditorGUIUtility.labelWidth = previousLabelWidth;
+                    }
+                }
+            }
+            if (generateLoopProp != null)
+            {
+                EditorGUILayout.PropertyField(
+                    generateLoopProp,
+                    new GUIContent("Generate Loop", "Generate a normal baseline, constrain its first pose at the end, then generate an extended motion and keep its middle section."));
+                if (!generateLoopProp.hasMultipleDifferentValues &&
+                    generateLoopProp.boolValue &&
+                    hasTimelineDuration &&
+                    timelineClip.duration * 2.0 > 10.0)
+                {
+                    EditorGUILayout.HelpBox(
+                        "Loop generation exceeds the 600-frame limit and will fall back to normal generation.",
+                        MessageType.Warning);
+                }
+            }
+            if (overridePathAngleProp != null)
+            {
+                EditorGUILayout.PropertyField(
+                    overridePathAngleProp,
+                    new GUIContent("Override Path Angle", "Generate a baseline, then reuse its path length between absolute Root2D begin/end angles."));
+                if (!overridePathAngleProp.hasMultipleDifferentValues && overridePathAngleProp.boolValue)
+                {
+                    EditorGUI.indentLevel++;
+                    if (pathBeginAngleDegreesProp != null)
+                    {
+                        EditorGUILayout.PropertyField(
+                            pathBeginAngleDegreesProp,
+                            new GUIContent("Path Begin Angle", "Absolute Unity yaw: 0 faces +Z, 90 faces +X, and -90 faces -X."));
+                    }
+                    if (pathEndAngleDegreesProp != null)
+                    {
+                        EditorGUILayout.PropertyField(
+                            pathEndAngleDegreesProp,
+                            new GUIContent("Path End Angle", "Absolute Unity yaw: 0 faces +Z, 90 faces +X, and -90 faces -X."));
+                    }
+                    EditorGUI.indentLevel--;
+                }
+            }
+            if (overrideHeadingProp != null)
+            {
+                EditorGUILayout.PropertyField(
+                    overrideHeadingProp,
+                    new GUIContent("Override Heading", "Override second-pass Root2D headings every 30 frames with one absolute Unity yaw."));
+                if (!overrideHeadingProp.hasMultipleDifferentValues &&
+                    overrideHeadingProp.boolValue &&
+                    headingDegreesProp != null)
+                {
+                    EditorGUI.indentLevel++;
+                    EditorGUILayout.PropertyField(
+                        headingDegreesProp,
+                        new GUIContent("Heading", "Absolute Unity yaw in degrees. Positive turns right; negative turns left; zero faces Unity forward."));
+                    EditorGUI.indentLevel--;
+                }
+            }
+            EditorGUI.indentLevel--;
         }
 
         private void DrawSplinePathSection(TimelineClip timelineClip)

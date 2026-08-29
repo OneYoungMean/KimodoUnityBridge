@@ -108,7 +108,7 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one or two immutable Session clips and render their visual evidence synchronously. Humanoid characters use HumanBodyBones and return keyframes/foot contacts; non-humanoid renderable Mesh objects use a Mesh-only pose-sampling path and return pose pictures without humanoid contact data. Each clip explicitly names its Session character. Completed Clips are never modified.",
+      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, delta-Y samples, distance/speed/heading metrics, and source human scale; the path is stored on the Pose Cache Track for reuse. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -347,9 +347,21 @@
             "type": "object",
             "description": "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."
           },
+          "path_begin_angle_degrees": {
+            "type": "number",
+            "description": "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
+          },
+          "path_end_angle_degrees": {
+            "type": "number",
+            "description": "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
+          },
+          "override_heading_degrees": {
+            "type": "number",
+            "description": "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."
+          },
           "constraints": {
             "type": "array",
-            "description": "Point constraints and continuous root_path constraints for the generated clip.",
+            "description": "Point constraints and reusable root_path constraints for the generated clip.",
             "items": {
               "oneOf": [
                 {
@@ -602,7 +614,7 @@
                       "properties": {
                         "path": {
                           "type": "object",
-                          "description": "External Pose slot in the current Session.",
+                          "description": "Analyzed Root Path slot returned by animation_analyze at clips[].root_trajectory.path.",
                           "additionalProperties": false,
                           "properties": {
                             "track": {
@@ -673,79 +685,6 @@
         },
         "required": [
           "source"
-        ],
-        "additionalProperties": false
-      }
-    },
-    {
-      "name": "pose_create_path",
-      "description": "Create a reusable External Path Marker on a character Pose Track.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "character": {
-            "type": "string",
-            "description": "Safe character name in the current Session."
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "forward",
-              "turn_left",
-              "turn_right",
-              "bezier"
-            ]
-          },
-          "length": {
-            "type": "number",
-            "description": "Positive path length in Track-space meters."
-          },
-          "inverse": {
-            "type": "boolean",
-            "description": "Traverse the path backwards; defaults to false."
-          },
-          "knots": {
-            "type": "array",
-            "minItems": 2,
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "position": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 2,
-                  "maxItems": 2
-                },
-                "tangent_in": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 2,
-                  "maxItems": 2
-                },
-                "tangent_out": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 2,
-                  "maxItems": 2
-                }
-              },
-              "required": [
-                "position"
-              ]
-            }
-          }
-        },
-        "required": [
-          "character",
-          "type",
-          "length"
         ],
         "additionalProperties": false
       }

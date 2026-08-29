@@ -53,7 +53,11 @@ namespace KimodoBridge
     [Serializable]
     public sealed class KimodoRootPathKnot
     {
+        public int frame;
         public Vector2 position;
+        public bool hasHeading;
+        public Vector2 heading;
+        public float deltaY;
         public bool hasTangentIn;
         public Vector2 tangentIn;
         public bool hasTangentOut;
@@ -61,7 +65,11 @@ namespace KimodoBridge
 
         public KimodoRootPathKnot Clone() => new KimodoRootPathKnot
         {
+            frame = frame,
             position = position,
+            hasHeading = hasHeading,
+            heading = heading,
+            deltaY = deltaY,
             hasTangentIn = hasTangentIn,
             tangentIn = tangentIn,
             hasTangentOut = hasTangentOut,
@@ -74,6 +82,7 @@ namespace KimodoBridge
     {
         public string type = "forward";
         public float length = 1f;
+        public float sourceHumanScale = 1f;
         public bool inverse;
         public List<KimodoRootPathKnot> knots = new List<KimodoRootPathKnot>();
 
@@ -81,6 +90,7 @@ namespace KimodoBridge
         {
             type = type,
             length = length,
+            sourceHumanScale = sourceHumanScale,
             inverse = inverse,
             knots = knots?.ConvertAll(knot => knot?.Clone()) ?? new List<KimodoRootPathKnot>()
         };

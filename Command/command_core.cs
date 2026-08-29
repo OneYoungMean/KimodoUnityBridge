@@ -33,7 +33,6 @@ namespace KimodoUnityBridge.Command
         public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
-        public const string PoseCreatePathCommand = "pose_create_path";
         public const string PoseContractCommand = "pose_contract";
         public const string PoseSetRootTransformCommand = "pose_set_root_transform";
         public const string PoseSetMuscleCommand = "pose_set_muscle";
@@ -94,7 +93,7 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render their visual evidence synchronously. Humanoid characters use HumanBodyBones and return keyframes/foot contacts; non-humanoid renderable Mesh objects use a Mesh-only pose-sampling path and return pose pictures without humanoid contact data. Each clip explicitly names its Session character. Completed Clips are never modified.",
+                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, delta-Y samples, distance/speed/heading metrics, and source human scale; the path is stored on the Pose Cache Track for reuse. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
@@ -148,20 +147,15 @@ namespace KimodoUnityBridge.Command
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
-                            OptionalConstraints("constraints", "Point constraints and continuous root_path constraints for the generated clip."))),
+                            Optional("path_begin_angle_degrees", "number", "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
+                            Optional("path_end_angle_degrees", "number", "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
+                            Optional("override_heading_degrees", "number", "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."),
+                            OptionalConstraints("constraints", "Point constraints and reusable root_path constraints for the generated clip."))),
                     CommandDefinition(PoseGetCommand,
                         "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
-                    CommandDefinition(PoseCreatePathCommand,
-                        "Create a reusable External Path Marker on a character Pose Track.",
-                        Properties(
-                            Required("character", "string", "Safe character name in the current Session."),
-                            RequiredEnum("type", "forward", "turn_left", "turn_right", "bezier"),
-                            Required("length", "number", "Positive path length in Track-space meters."),
-                            Optional("inverse", "boolean", "Traverse the path backwards; defaults to false."),
-                            OptionalPathKnots("knots"))),
                     CommandDefinition(PoseContractCommand,
                         "Align a target External Pose end-effector to an origin External Pose and create a new External Pose slot.",
                         Properties(
@@ -262,7 +256,7 @@ namespace KimodoUnityBridge.Command
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
                         "session_get_or_create is the only command that creates Sessions. New Sessions are empty; add scene content explicitly with session_add.",
-                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls or cancels generation, and {track,index} identifies a Pose or Path. Picture paths are output files to inspect, not reusable handles.",
+                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls or cancels generation, and {track,index} identifies a Pose or analyzed Root Path. Picture paths are output files to inspect, not reusable handles.",
                         "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },
@@ -274,7 +268,7 @@ namespace KimodoUnityBridge.Command
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
-                        Route("create a reusable root trajectory", PoseCreatePathCommand, "then reference path from a generation root_path constraint"),
+                        Route("obtain a reusable root trajectory", AnimationAnalyzeCommand, "then reference root_trajectory.path from a generation root_path constraint"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
                     ["handles"] = new JObject
@@ -283,7 +277,7 @@ namespace KimodoUnityBridge.Command
                         ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
                         ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command.",
-                        ["path"] = "A {track,index} reference returned by pose_create_path; pass it only as root_path.path."
+                        ["path"] = "The {track,index} reference returned by animation_analyze at clips[].root_trajectory.path; pass it only as root_path.path."
                     },
                     ["workflow"] = new JArray
                     {
@@ -342,18 +336,18 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "root_path",
-                        ["description"] = "A reusable External Path compiled to per-frame root2d constraints during generation.",
+                        ["description"] = "A reusable analyzed Root Path compiled to root2d constraints during generation.",
                         ["shape"] = new JObject
                         {
                             ["frame"] = "Optional first path frame; defaults to 0.",
-                            ["root_path"] = new JObject { ["path"] = "{track,index} from pose_create_path" }
+                            ["root_path"] = new JObject { ["path"] = "{track,index} from animation_analyze clips[].root_trajectory.path" }
                         }
                     }
                 },
                 ["rules"] = new JArray
                 {
                     "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot effector channels override their matching protocol fields.",
-                    "Use pose_create_path once, then reference its {track,index} path from root_path.",
+                    "Use animation_analyze, then reference clips[].root_trajectory.path from root_path.",
                     "An explicit root2d at a frame overrides root_path at that frame."
                 }
             };
@@ -454,6 +448,19 @@ namespace KimodoUnityBridge.Command
                 }
                 bool loopRequested = arguments.Value<bool?>("loop") ??
                     prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
+                bool hasPathBeginAngle = arguments["path_begin_angle_degrees"] != null;
+                float pathBeginAngleDegrees = hasPathBeginAngle
+                    ? ReadFiniteFloat(arguments["path_begin_angle_degrees"], "path_begin_angle_degrees")
+                    : 0f;
+                bool hasPathEndAngle = arguments["path_end_angle_degrees"] != null;
+                float pathEndAngleDegrees = hasPathEndAngle
+                    ? ReadFiniteFloat(arguments["path_end_angle_degrees"], "path_end_angle_degrees")
+                    : 0f;
+                bool overridePathAngle = hasPathBeginAngle || hasPathEndAngle;
+                bool overrideHeading = arguments["override_heading_degrees"] != null;
+                float headingDegrees = overrideHeading
+                    ? ReadFiniteFloat(arguments["override_heading_degrees"], "override_heading_degrees")
+                    : 0f;
                 bool loopFallback = loopRequested && durationFrames > 300;
                 string loopWarning = loopFallback
                     ? $"loop_requested_but_exceeds_max_duration: requested={durationFrames} frames, extended={durationFrames * 2} frames, max=600. Fallback to default generation."
@@ -500,6 +507,11 @@ namespace KimodoUnityBridge.Command
                 playableClip.randomSeed = false;
                 playableClip.seed = seed;
                 playableClip.generateLoop = loopRequested;
+                playableClip.overridePathAngle = overridePathAngle;
+                playableClip.pathBeginAngleDegrees = pathBeginAngleDegrees;
+                playableClip.pathEndAngleDegrees = pathEndAngleDegrees;
+                playableClip.overrideHeading = overrideHeading;
+                playableClip.headingDegrees = headingDegrees;
                 playableClip.loop = loopRequested
                     ? UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.On
                     : UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.Off;
@@ -559,6 +571,15 @@ namespace KimodoUnityBridge.Command
                     startedResponse["loop"] = true;
                     startedResponse["loop_source_duration_frames"] = durationFrames;
                     startedResponse["loop_extended_duration_frames"] = durationFrames * 2;
+                }
+                if (overridePathAngle)
+                {
+                    startedResponse["path_begin_angle_degrees"] = pathBeginAngleDegrees;
+                    startedResponse["path_end_angle_degrees"] = pathEndAngleDegrees;
+                }
+                if (overrideHeading)
+                {
+                    startedResponse["override_heading_degrees"] = headingDegrees;
                 }
                 if (loopWarning != null)
                 {
@@ -627,6 +648,7 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException("constraints must be an array.");
             }
             var samples = new List<KimodoMarkerSampleResult>(constraints.Count * 3);
+            var pathSamples = new List<KimodoMarkerSampleResult>();
             RetargetSkeleton targetCache = null;
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             double originalSessionTime = session.Director.time;
@@ -663,12 +685,13 @@ namespace KimodoUnityBridge.Command
                                 $"constraints[{i}].frame must be within [0,{durationFrames}).");
                         }
                         PoseReference reference = RequirePoseReference(rootPath["path"] as JObject);
-                        samples.AddRange(BuildRootPathConstraints(
+                        pathSamples.AddRange(BuildRootPathConstraints(
                             RequirePathMarker(reference).PathData,
                             i,
                             startFrame,
                             durationFrames,
                             targetRootHeight,
+                            targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f,
                             explicitRootFrames,
                             occupiedPathFrames));
                     }
@@ -731,6 +754,10 @@ namespace KimodoUnityBridge.Command
                             endEffectors[part], endEffectorTypes[part], targetCache, modelName, frameRate, at, i));
                     }
                 }
+                // Root paths are profile-space Root2D overrides. Append them
+                // after FullBody rows so they replace only Root XZ/heading at
+                // shared frames; explicit root2d rows were excluded above.
+                samples.AddRange(pathSamples);
             }
             finally
             {
@@ -747,22 +774,28 @@ namespace KimodoUnityBridge.Command
             int startFrame,
             int durationFrames,
             float targetRootHeight,
+            float targetHumanScale,
             ISet<int> explicitRootFrames,
             ISet<int> occupiedPathFrames)
         {
             List<KimodoRootPathKnot> knots = path?.knots;
-            if (path == null || path.length <= 0f || knots == null || knots.Count < 2 || knots.Any(knot => knot == null))
+            if (path == null || path.length < 0f || knots == null || knots.Count < 1 || knots.Any(knot => knot == null))
             {
                 throw new InvalidOperationException(
                     $"constraints[{constraintIndex}].root_path references invalid path data.");
             }
             float sourceLength = EstimatePathLength(knots);
-            if (sourceLength <= 1e-6f)
+            bool hasStoredHeadings = knots.All(knot => knot.hasHeading);
+            if (sourceLength <= 1e-6f && (path.length > 1e-6f || !hasStoredHeadings))
             {
                 throw new InvalidOperationException(
-                    $"constraints[{constraintIndex}].root_path has zero source length.");
+                    $"constraints[{constraintIndex}].root_path has zero source length without reusable headings.");
             }
-            float scale = path.length / sourceLength;
+            float sourceHumanScale = path.sourceHumanScale > 1e-6f ? path.sourceHumanScale : 1f;
+            float retargetScale = Mathf.Max(1e-6f, targetHumanScale) / sourceHumanScale;
+            float scale = sourceLength > 1e-6f
+                ? path.length / sourceLength * retargetScale
+                : retargetScale;
             int endFrame = durationFrames - 1;
             for (int frame = startFrame; frame <= endFrame; frame++)
             {
@@ -780,6 +813,10 @@ namespace KimodoUnityBridge.Command
                 float pathTime = path.inverse ? 1f - progress : progress;
                 EvaluatePath(knots, pathTime, out Vector2 position, out Vector2 tangent);
                 position *= scale;
+                if (hasStoredHeadings)
+                {
+                    tangent = EvaluatePathHeading(knots, pathTime);
+                }
                 if (path.inverse) tangent = -tangent;
                 if (tangent.sqrMagnitude <= 1e-8f)
                 {
@@ -797,8 +834,22 @@ namespace KimodoUnityBridge.Command
             return result;
         }
 
+        private static Vector2 EvaluatePathHeading(IReadOnlyList<KimodoRootPathKnot> knots, float time)
+        {
+            if (knots.Count == 1)
+            {
+                return knots[0].heading.sqrMagnitude > 1e-8f ? knots[0].heading.normalized : Vector2.up;
+            }
+            float scaled = Mathf.Clamp01(time) * (knots.Count - 1);
+            int segment = Mathf.Min(Mathf.FloorToInt(scaled), knots.Count - 2);
+            float t = segment == knots.Count - 2 && time >= 1f ? 1f : scaled - segment;
+            Vector2 heading = Vector2.Lerp(knots[segment].heading, knots[segment + 1].heading, t);
+            return heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.up;
+        }
+
         private static float EstimatePathLength(IReadOnlyList<KimodoRootPathKnot> knots)
         {
+            if (knots.Count < 2) return 0f;
             const int samplesPerSegment = 16;
             float length = 0f;
             EvaluatePath(knots, 0f, out Vector2 previous, out _);
@@ -818,6 +869,12 @@ namespace KimodoUnityBridge.Command
             out Vector2 position,
             out Vector2 tangent)
         {
+            if (knots.Count == 1)
+            {
+                position = knots[0].position;
+                tangent = knots[0].hasHeading ? knots[0].heading : Vector2.up;
+                return;
+            }
             float scaled = Mathf.Clamp01(time) * (knots.Count - 1);
             int segment = Mathf.Min(Mathf.FloorToInt(scaled), knots.Count - 2);
             float t = segment == knots.Count - 2 && time >= 1f ? 1f : scaled - segment;
@@ -1760,7 +1817,6 @@ namespace KimodoUnityBridge.Command
                 [RetargetAnimationCommand] = RetargetAnimation,
                 [GenerateAnimationCommand] = GenerateAnimationAsset,
                 [PoseGetCommand] = PoseGet,
-                [PoseCreatePathCommand] = PoseCreatePath,
                 [PoseContractCommand] = PoseContract,
                 [PoseSetRootTransformCommand] = PoseSetRootTransform,
                 [PoseSetMuscleCommand] = PoseSetMuscle,
@@ -2001,6 +2057,8 @@ namespace KimodoUnityBridge.Command
                 },
                 ["required"] = new JArray("root_path")
             };
+            ((JObject)rootPathItem["properties"]?["root_path"]?["properties"]?["path"])["description"] =
+                "Analyzed Root Path slot returned by animation_analyze at clips[].root_trajectory.path.";
             return new PropertyDefinition(name, new JObject
             {
                 ["type"] = "array",
@@ -2023,34 +2081,6 @@ namespace KimodoUnityBridge.Command
                 },
                 ["required"] = new JArray("character", "clip", "frame")
             }, true);
-        }
-
-        private static PropertyDefinition OptionalPathKnots(string name)
-        {
-            JObject vector2 = new JObject
-            {
-                ["type"] = "array",
-                ["items"] = new JObject { ["type"] = "number" },
-                ["minItems"] = 2,
-                ["maxItems"] = 2
-            };
-            return new PropertyDefinition(name, new JObject
-            {
-                ["type"] = "array",
-                ["minItems"] = 2,
-                ["items"] = new JObject
-                {
-                    ["type"] = "object",
-                    ["additionalProperties"] = false,
-                    ["properties"] = new JObject
-                    {
-                        ["position"] = vector2.DeepClone(),
-                        ["tangent_in"] = vector2.DeepClone(),
-                        ["tangent_out"] = vector2.DeepClone()
-                    },
-                    ["required"] = new JArray("position")
-                }
-            }, false);
         }
 
         private static PropertyDefinition RequiredPoseReference(string name)

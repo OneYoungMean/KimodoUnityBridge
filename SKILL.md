@@ -5,64 +5,126 @@ description: Install and use KimodoUnityBridge for character-animation recogniti
 
 # KimodoUnityBridge
 
-## Installation
+```pseudo
+// Shared states / 公共状态
+#define YES             1
+#define NO              0
+#define UNKNOWN        -1
+#define NOT_APPLICABLE -2
 
-- Add this package to the target Unity project and allow Unity to finish importing and compiling it.
-- On first use, initialize the project-local runtime through the installation entry documented in [Command/help.json](Command/help.json).
-- Do not repeat runtime installation after an ordinary compile, import, or Editor restart. Run it again only for installation, upgrade, or recovery.
-- Use the package diagnostics when installation or startup fails; do not claim the animation workflow is ready until the required project components are available.
+API_HELP = "Command/help.json"
+```
 
-## Workflow
+## Installation / 安装
 
-Read only the sub-skill that matches the request:
+```pseudo
+PACKAGE_IMPORTED = project_contains_package()
+UNITY_READY      = unity_import_and_compile_completed()
+FIRST_USE        = project_runtime_has_never_been_initialized()
+UPGRADE          = package_version_changed()
+RECOVERY         = runtime_diagnostics_report_missing_or_broken_components()
 
-- [Recognize](skills/recognize.md): determine whether animation evidence expresses a requested motion.
-- [Compare](skills/compare.md): compare the relative quality of two animations.
-- [Generate](skills/generate.md): create a new animation or a corrected derived result.
+if PACKAGE_IMPORTED != YES:
+    add_package_to_target_unity_project()
 
-When a request combines these intents, apply the relevant sub-skills in outcome order—for example, recognize or compare existing evidence before generating a correction.
+wait_until(UNITY_READY == YES)
 
-## Boundaries
+if FIRST_USE == YES or UPGRADE == YES or RECOVERY == YES:
+    install_or_refresh_project_runtime(
+        entry = read(API_HELP, section = "installation")
+    )
 
-- Do not infer motion meaning or quality from filenames, internal labels, candidate order, or undocumented conventions.
-- Preserve completed animation results; create a derived result when generation or correction is required.
-- Do not invent a source, target character, frame range, pose, path, or constraint that the request and project state do not establish.
-- Treat visual and structured analysis as evidence, not certainty. Static evidence alone cannot prove sliding, popping, acceleration, or velocity continuity.
-- Report unsupported operations and unverified properties explicitly instead of inventing a workflow or claiming success.
-- A visual result passes only after its returned visual evidence has actually been inspected.
+if ordinary_compile_or_import_or_editor_restart() == YES:
+    // Ordinary lifecycle events do not request another installation.
+    // 普通编译、导入或 Editor 重启不触发重复安装。
+    skip_runtime_installation()
 
-## API help
+WORKFLOW_READY =
+    PACKAGE_IMPORTED == YES
+    and UNITY_READY == YES
+    and required_project_components_available() == YES
 
-Before invoking an API, read [Command/help.json](Command/help.json). It defines the maintained command names, permitted fields, required fields, enums, defaults, nested schemas, and command descriptions. Current runtime results and errors outrank prose guidance when they differ.
+ASSERT WORKFLOW_READY == YES before running animation work
+```
 
-## 中文
+## Task router / 任务路由
 
-### 安装
+```pseudo
+#define ASKS_RECOGNITION <YES|NO>
+#define ASKS_COMPARISON  <YES|NO>
+#define ASKS_GENERATION  <YES|NO>
 
-- 将本 Package 加入目标 Unity 项目，并等待 Unity 完成导入与编译。
-- 首次使用时，按照 [Command/help.json](Command/help.json) 中的安装入口初始化项目内运行环境。
-- 普通编译、导入或 Editor 重启后不要重复安装；只有安装、升级或恢复时才再次运行。
-- 安装或启动失败时检查 Package 诊断信息；必要的项目组件未就绪前，不能声称动画工作流已经可用。
+if ASKS_RECOGNITION == YES:
+    READ_AND_EXECUTE("skills/recognize.md")
 
-### 使用流程
+if ASKS_COMPARISON == YES:
+    READ_AND_EXECUTE("skills/compare.md")
 
-只读取与请求匹配的子 Skill：
+if ASKS_GENERATION == YES:
+    READ_AND_EXECUTE("skills/generate.md")
 
-- [识别](skills/recognize.md)：判断动画证据是否表达指定动作。
-- [比较](skills/compare.md)：比较两个动画的相对质量。
-- [生成](skills/generate.md)：创建新动画或修正后的派生结果。
+// Combined requests follow data dependency, not wording order.
+// 组合请求按结果依赖顺序执行，而不是按句子出现顺序。
+if ASKS_GENERATION == YES and
+   (ASKS_RECOGNITION == YES or ASKS_COMPARISON == YES):
+    inspect_existing_evidence_before_generating_correction()
 
-请求同时包含多个意图时，按结果依赖顺序组合相关子 Skill，例如先识别或比较现有证据，再生成修正版。
+if ASKS_RECOGNITION == NO and
+   ASKS_COMPARISON == NO and
+   ASKS_GENERATION == NO:
+    return unsupported_or_needs_clarification
+```
 
-### 边界约束
+## Decision protocol / 决策协议
 
-- 不能根据文件名、内部标签、候选顺序或未记录的惯例推断动作含义或质量。
-- 保留已经完成的动画结果；生成或修正时创建派生结果。
-- 不能臆造请求和项目状态未确定的源、目标角色、帧范围、姿势、路径或约束。
-- 视觉与结构化分析只是证据，不等于确定事实；静态证据无法单独证明滑步、跳变、加速度或速度连续性。
-- 明确报告不支持的操作和无法验证的属性，不能虚构流程或声称成功。
-- 只有实际检查返回的视觉证据后，才能报告视觉通过。
+```pseudo
+// REQUEST_* is filled only from the user's request and established project state.
+// REQUEST_* 只能由用户请求和已确认的项目状态填写。
+REQUEST_* = <YES|NO|UNKNOWN>
 
-### API Help
+// EVIDENCE_* starts UNKNOWN and changes only after the returned evidence is read.
+// EVIDENCE_* 初始为 UNKNOWN，只能在读取实际返回证据后改变。
+EVIDENCE_* = UNKNOWN
 
-调用 API 前读取 [Command/help.json](Command/help.json)。它定义当前维护的命令名称、允许字段、必选字段、枚举、默认值、嵌套结构和命令说明。运行时返回和错误与文字说明不一致时，以当前运行时结果为准。
+ASSERT filenames_internal_labels_candidate_order_are_not_evidence()
+ASSERT unstated_source_target_range_pose_path_constraint_is_never_invented()
+ASSERT completed_results_are_preserved()
+ASSERT corrections_create_derived_results()
+
+if returned_visual_exists() == YES and visual_was_not_opened() == YES:
+    EVIDENCE_VISUAL = UNKNOWN
+    NEVER return passed
+
+if evidence_is_static_only() == YES:
+    EVIDENCE_PLAYBACK_CONTINUITY = UNKNOWN
+    EVIDENCE_SLIDING            = UNKNOWN
+    EVIDENCE_POPPING            = UNKNOWN
+    EVIDENCE_ACCELERATION       = UNKNOWN
+    EVIDENCE_VELOCITY_CONTINUITY = UNKNOWN
+
+if operation_is_unsupported() == YES:
+    return unsupported
+
+if required_evidence_contains(UNKNOWN) == YES:
+    return not_verified
+```
+
+## API help / API 帮助
+
+```pseudo
+at task start:
+    schema = read(API_HELP)
+
+before every API call:
+    validate(
+        command_name,
+        required_fields,
+        optional_fields,
+        enum_values,
+        defaults,
+        nested_objects
+    )
+
+if prose_guidance_conflicts_with(runtime_result_or_error):
+    follow(runtime_result_or_error)
+```
