@@ -86,7 +86,10 @@ namespace KimodoUnityBridge.Command
             bool cached = false;
             Directory.CreateDirectory(EvidenceFolder(session));
             Scene previousPreviewScene = analysisPreviewScene;
-            Scene previewScene = EditorSceneManager.NewPreviewScene();
+            Scene previewScene = session != null && session.PreviewScene.IsValid()
+                ? session.PreviewScene
+                : EditorSceneManager.NewPreviewScene();
+            bool ownsPreviewScene = !(session != null && session.PreviewScene.IsValid());
             Texture2D canvas;
             try
             {
@@ -104,7 +107,7 @@ namespace KimodoUnityBridge.Command
             finally
             {
                 analysisPreviewScene = previousPreviewScene;
-                if (previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
+                if (ownsPreviewScene && previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
             }
             try
             {

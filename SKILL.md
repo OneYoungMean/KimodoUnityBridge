@@ -1,21 +1,23 @@
 ---
 name: kimodo-unity-bridge
-description: Install and use KimodoUnityBridge for character-animation recognition, comparison, and generation while deferring exact commands and parameters to the maintained API help.
+description: Install KimodoUnityBridge and route Unity animation work through its cooperating capability tools.
 ---
 
 # KimodoUnityBridge
 
+根 Skill 只负责安装门槛、任务入口、工具编排和统一结果；公共规则见 `tools/common.md`，具体命令参数由各工具在调用边界校验。
+
 ```pseudo
-// Shared states / 公共状态
+# Shared states / 公共状态
 #define YES             1
 #define NO              0
-#define UNKNOWN        -1
-#define NOT_APPLICABLE -2
+#define UNKNOWN         -1
+#define NOT_APPLICABLE  -2
 
-API_HELP = "Command/help.json"
+WORKFLOW_READY = UNKNOWN
 ```
 
-## Installation / 安装
+## Installation gate / 安装门槛
 
 ```pseudo
 PACKAGE_IMPORTED = project_contains_package()
@@ -30,103 +32,67 @@ if PACKAGE_IMPORTED != YES:
 wait_until(UNITY_READY == YES)
 
 if FIRST_USE == YES or UPGRADE == YES or RECOVERY == YES:
-    install_or_refresh_project_runtime(
-        entry = read(API_HELP, section = "installation")
-    )
+    kimodo_install_server({})
 
-if ordinary_compile_or_import_or_editor_restart() == YES:
-    // Ordinary lifecycle events do not request another installation.
-    // 普通编译、导入或 Editor 重启不触发重复安装。
-    skip_runtime_installation()
-
-WORKFLOW_READY =
+# 普通编译、导入或 Editor 重启不重复安装。
+WORKFLOW_READY = (
     PACKAGE_IMPORTED == YES
     and UNITY_READY == YES
     and required_project_components_available() == YES
+)
 
-ASSERT WORKFLOW_READY == YES before running animation work
+ASSERT WORKFLOW_READY == YES before animation work
 ```
 
-## Task router / 任务路由
+## Capability tools / 能力工具
+
+工具按能力协作，不按单个命令拆分：
+
+| Tool | 责任 | 入口文档 |
+|---|---|---|
+| common | Session、证据、状态和报告公共规则 | `tools/common.md` |
+| session | 创建/复用/关闭 Session，加载角色、动画和 Animator | `tools/session.md` |
+| generation | 生成、轮询、取消，以及 Record/Retarget 派生结果 | `tools/generation.md` |
+| recognition | 根据明确语义识别动作 | `tools/recognition.md` |
+| comparison | 在相同证据条件下比较两个候选 | `tools/comparison.md` |
+| pose | 创建、编辑和复用 External Pose | `tools/pose.md` |
+
+命令目录只在调用边界使用；不要把完整参数结构复制到工具文档中。
+
+## Orchestration loop / 总编排 Loop
 
 ```pseudo
-#define ASKS_RECOGNITION <YES|NO>
-#define ASKS_COMPARISON  <YES|NO>
-#define ASKS_GENERATION  <YES|NO>
+function run_kimodo_task(request):
+    intent = classify_intent(request)
+    tool = route_to_capability_tool(intent)
 
-if ASKS_RECOGNITION == YES:
-    READ_AND_EXECUTE("skills/recognize.md")
+    ensure_installation_gate()
+    session = tool.prepare_session(request)
+    inputs = tool.resolve_safe_session_names(session, request)
+    inputs = tool.validate_command_arguments(inputs)
 
-if ASKS_COMPARISON == YES:
-    READ_AND_EXECUTE("skills/compare.md")
+    result = tool.execute(inputs)
+    evidence = tool.read_returned_evidence(result)
 
-if ASKS_GENERATION == YES:
-    READ_AND_EXECUTE("skills/generate.md")
+    if tool.supports_bounded_correction() and evidence.requires_correction():
+        preserve_completed_output()
+        result = tool.execute(derive_one_supported_correction(inputs, evidence))
+        evidence = tool.read_returned_evidence(result)
 
-// Combined requests follow data dependency, not wording order.
-// 组合请求按结果依赖顺序执行，而不是按句子出现顺序。
-if ASKS_GENERATION == YES and
-   (ASKS_RECOGNITION == YES or ASKS_COMPARISON == YES):
-    inspect_existing_evidence_before_generating_correction()
-
-if ASKS_RECOGNITION == NO and
-   ASKS_COMPARISON == NO and
-   ASKS_GENERATION == NO:
-    return unsupported_or_needs_clarification
+    return unified_report(result, evidence)
 ```
 
-## Decision protocol / 决策协议
+路由至少覆盖 installation、Session、generation、recognition、comparison、pose、record 和 retarget；未匹配到能力时才返回 `unsupported` 或 `needs_clarification`。
 
-```pseudo
-// REQUEST_* is filled only from the user's request and established project state.
-// REQUEST_* 只能由用户请求和已确认的项目状态填写。
-REQUEST_* = <YES|NO|UNKNOWN>
+## Shared execution rules / 公共执行规则
 
-// EVIDENCE_* starts UNKNOWN and changes only after the returned evidence is read.
-// EVIDENCE_* 初始为 UNKNOWN，只能在读取实际返回证据后改变。
-EVIDENCE_* = UNKNOWN
+- 只使用运行时返回的安全角色名、动画名和 `{track,index}` 引用；生成结果的 `path` 是资产元数据，不是 Session Clip handle。
+- `session_get_or_create` 会建立专用 Preview Scene；角色复制到该场景时自动移除 `CharacterController` 并清空 `Animator.runtimeAnimatorController`，后续制作、采样、分析和渲染均限定在该场景。
+- 视觉结论必须建立在实际打开的返回图像上；静态证据不足时不得报告视觉通过。
+- 已完成 Clip 不覆盖；修正、Record、Retarget 和生成变体均追加派生 Clip。
+- 生成轮询必须有固定间隔和总超时；终态包括 `completed`、`failed`、`canceled`，过期或未知请求按失败/未验证报告。
+- assembly reload、Editor 退出、切换场景或进入 Play Mode 导致的取消必须如实报告，不声称自动恢复。
+- 工具报告至少包含 `result`、`output`、`criteria`、`evidence`、`unverified`；工具可附加专属字段。
+- 请求未声明的 source、target、range、pose、path 或 constraint 不得自行补全。
 
-ASSERT filenames_internal_labels_candidate_order_are_not_evidence()
-ASSERT unstated_source_target_range_pose_path_constraint_is_never_invented()
-ASSERT completed_results_are_preserved()
-ASSERT corrections_create_derived_results()
-
-if returned_visual_exists() == YES and visual_was_not_opened() == YES:
-    EVIDENCE_VISUAL = UNKNOWN
-    NEVER return passed
-
-if evidence_is_static_only() == YES:
-    EVIDENCE_PLAYBACK_CONTINUITY = UNKNOWN
-    EVIDENCE_SLIDING            = UNKNOWN
-    EVIDENCE_POPPING            = UNKNOWN
-    EVIDENCE_ACCELERATION       = UNKNOWN
-    EVIDENCE_VELOCITY_CONTINUITY = UNKNOWN
-
-if operation_is_unsupported() == YES:
-    return unsupported
-
-if required_evidence_contains(UNKNOWN) == YES:
-    return not_verified
-```
-
-## API help / API 帮助
-
-```pseudo
-at task start:
-    schema = read(API_HELP)
-
-before every API call:
-    validate(
-        command_name,
-        required_fields,
-        optional_fields,
-        enum_values,
-        defaults,
-        nested_objects
-    )
-
-if prose_guidance_conflicts_with(runtime_result_or_error):
-    follow(runtime_result_or_error)
-```
-
-Generation polling returns the completed clip safe name and project-relative `path`; retain both for subsequent Session commands or external API handoff. Use `session_get_raw` with `kind` and `name` to resolve a Session object into portable metadata (`guid`, `asset_guid`, `path`, `object_type`, and optional `character`) for Unity-external tools. The raw lookup does not replace Session handles or alter the object.
+需要获取原始 Unity 数据时，使用 `session_get_raw`。

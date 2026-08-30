@@ -36,13 +36,17 @@
     },
     {
       "name": "session_get_or_create",
-      "description": "Create an empty current animation Session, or reopen an existing named Session. Add a supported scene character before using character-scoped commands in a new Session.",
+      "description": "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally copy a scene character into the Preview Scene at creation.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "name": {
             "type": "string",
             "description": "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."
+          },
+          "character": {
+            "type": "string",
+            "description": "Optional scene character name or hierarchy path to copy into the Preview Scene."
           }
         },
         "required": [],

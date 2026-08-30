@@ -1,4 +1,9 @@
-# Recognize / 识别
+---
+name: kimodo-animation-recognition
+description: Recognize whether a Session animation satisfies explicitly stated motion criteria.
+---
+
+# Recognition tool / Recognition 工具
 
 ## Decision program / 决策程序
 
@@ -43,8 +48,6 @@ TARGET_STYLE           = OPTIONAL("<relevant style / 相关风格>")
 #define STYLE_MATCH         UNKNOWN
 
 function recognize(request, character_ref, clip_ref):
-    help = read("Command/help.json")
-
     session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
     session_id = session.session_id
     // Add only missing content and keep the safe names returned by the runtime.

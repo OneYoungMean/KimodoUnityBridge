@@ -23,12 +23,13 @@ namespace KimodoBridge
     {
         private sealed class PendingRequest
         {
-            internal PendingRequest(string requestId, string taskId, Action<string> progress, int loadingTimeoutMs)
+            internal PendingRequest(string requestId, string taskId, Action<string> progress, int loadingTimeoutMs, bool isStatus)
             {
                 RequestId = requestId;
                 TaskId = taskId;
                 Progress = progress;
                 LoadingTimeoutMs = loadingTimeoutMs;
+                IsStatus = isStatus;
                 CreatedAtUtc = DateTime.UtcNow;
                 Completion = new TaskCompletionSource<BridgeProtocolResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
             }
@@ -37,6 +38,7 @@ namespace KimodoBridge
             internal string TaskId { get; }
             internal Action<string> Progress { get; }
             internal int LoadingTimeoutMs { get; }
+            internal bool IsStatus { get; }
             internal DateTime CreatedAtUtc { get; }
             internal TaskCompletionSource<BridgeProtocolResponse> Completion { get; }
         }
@@ -134,6 +136,17 @@ namespace KimodoBridge
                 null,
                 token,
                 reconnect: true);
+        }
+
+        internal Task<BridgeProtocolResponse> GetStatusAsync(
+            string host,
+            int port,
+            string taskId,
+            CancellationToken token)
+        {
+            var request = new JObject { ["cmd"] = "status" };
+            if (!string.IsNullOrWhiteSpace(taskId)) request["task_id"] = taskId.Trim();
+            return SendRequestAsync(host, port, request, null, null, token, reconnect: true);
         }
 
         internal Task<BridgeProtocolResponse> ListModelConfigurationsAsync(
@@ -381,7 +394,8 @@ namespace KimodoBridge
             string requestId = Guid.NewGuid().ToString("N");
             request["request_id"] = requestId;
             string taskId = request.Value<string>("task_id") ?? string.Empty;
-            var item = new PendingRequest(requestId, taskId, progress, modelLoadingTimeoutMs);
+            var item = new PendingRequest(requestId, taskId, progress, modelLoadingTimeoutMs,
+                string.Equals(request.Value<string>("cmd"), "status", StringComparison.OrdinalIgnoreCase));
 
             try
             {
@@ -494,6 +508,12 @@ namespace KimodoBridge
             JObject header = response.Header;
             string status = header?.Value<string>("status") ?? string.Empty;
             string message = header?.Value<string>("message") ?? string.Empty;
+            if (item.IsStatus)
+            {
+                pending.TryRemove(requestId, out _);
+                item.Completion.TrySetResult(response);
+                return;
+            }
             if (status.Equals("loading", StringComparison.OrdinalIgnoreCase) ||
                 status.Equals("initializing", StringComparison.OrdinalIgnoreCase))
             {

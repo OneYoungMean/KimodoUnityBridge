@@ -1,4 +1,9 @@
-# Compare / 比较
+---
+name: kimodo-animation-comparison
+description: Compare two Session animations under identical visual and structured evidence conditions.
+---
+
+# Comparison tool / Comparison 工具
 
 ## Decision program / 决策程序
 
@@ -42,7 +47,6 @@ TARGET_SEMANTICS = OPTIONAL("<requested action semantics / 指定动作语义>")
 #define OVERALL_WINNER           UNKNOWN
 
 function compare(candidate_1, candidate_2):
-    help = read("Command/help.json")
     session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
     session_id = session.session_id
 

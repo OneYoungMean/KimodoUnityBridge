@@ -10,6 +10,8 @@ using KimodoBridge.Editor;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEditor.SceneManagement;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
@@ -463,10 +465,17 @@ namespace KimodoUnityBridge.Command
                     director = directorObject.AddComponent<PlayableDirector>();
                     director.playableAsset = timeline;
                 }
-                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata);
+                Scene previewScene = EditorSceneManager.NewPreviewScene();
+                if (director != null && director.gameObject.scene != previewScene)
+                {
+                    SceneManager.MoveGameObjectToScene(director.gameObject, previewScene);
+                }
+                CreatePreviewSceneBasics(previewScene, KimodoRuntimeUtility.SanitizeName(metadata.sessionName, "Session"));
+                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata, previewScene);
                 foreach (KimodoCommandCharacterMetadata savedCharacter in metadata.characters ?? new List<KimodoCommandCharacterMetadata>())
                 {
-                    GameObject root = ResolveObject(savedCharacter.characterRef) as GameObject;
+                    GameObject sourceRoot = ResolveObject(savedCharacter.characterRef) as GameObject;
+                    GameObject root = sourceRoot != null ? CloneCharacterToPreview(session, sourceRoot) : null;
                     Animator animator = root != null ? root.GetComponentInChildren<Animator>(true) : null;
                     AnimationTrack track = timeline.GetRootTracks().OfType<AnimationTrack>()
                         .FirstOrDefault(item => string.Equals(item.name, savedCharacter.trackName, StringComparison.Ordinal));

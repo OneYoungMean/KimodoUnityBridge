@@ -1,4 +1,9 @@
-# Generate / 生成
+---
+name: kimodo-animation-generation
+description: Generate, verify, and derive Unity animation Clips from explicit motion requests.
+---
+
+# Generation tool / Generation 工具
 
 ## Decision program / 决策程序
 
@@ -73,20 +78,24 @@ CORRECTION_ATTEMPTS = 0
 #define ENDING_MATCH         UNKNOWN
 LAST_COMPLETED_SEED = UNKNOWN
 
-GENERATION_PROMPT = """
-{START_STATE} -> {ACTION}; phase={PHASE}; direction_or_path={DIRECTION_OR_PATH};
-speed_or_energy={SPEED_OR_ENERGY}; body_or_contact={BODY_OR_CONTACT};
-ending_or_loop={ENDING_OR_LOOP}; style={STYLE}.
+GENERATION_PROMPT = JOIN_EXPLICIT_FIELDS(
+    start_state=START_STATE,
+    action=ACTION,
+    phase=PHASE,
+    direction_or_path=DIRECTION_OR_PATH,
+    speed_or_energy=SPEED_OR_ENERGY,
+    body_or_contact=BODY_OR_CONTACT,
+    ending_or_loop=ENDING_OR_LOOP,
+    style=STYLE,
+)
 
-Preserve preparation -> main action -> recovery/end.
-保留“准备 -> 主动作 -> 恢复/结束”结构。
-Do not expand unknown abbreviations or add unstated semantics.
-不扩写未知缩写，不添加请求未说明的语义。
-"""
+# JOIN_EXPLICIT_FIELDS preserves the supplied token text and order, joining
+# only non-empty fields with natural punctuation; omitted fields are absent.
+# Only fields explicitly supplied by the caller are emitted. Do not infer
+# preparation/recovery structure, breathing, contacts, root displacement, or
+# other unstated semantics; preserve unknown abbreviations verbatim.
 
 function execute_generate_skill(request):
-    help = read("Command/help.json")
-    ASSERT all_command_arguments_are_validated_against(help)
     ASSERT not (
         REQUEST_IS_RANGE_OPERATION == YES and
         REQUEST_IS_RETARGET_ONLY == YES
@@ -258,14 +267,27 @@ function execute_generate_skill(request):
     generation = kimodo_generate_animation(args)
     request_id = generation.request_id
 
+    poll_interval_seconds = 2
+    poll_deadline = now() + configured_generation_timeout()
     do:
+        wait(poll_interval_seconds)
         if user_requests_cancellation() == YES:
             kimodo_cancel_generation({
                 request_id: request_id,
                 reason: request.cancellation_reason if supplied
             })
         state = kimodo_get_generation({request_id: request_id})
-    until state.status in {"completed", "failed", "canceled"}
+    until state.status in {"completed", "failed", "canceled"} or now() >= poll_deadline
+
+    if now() >= poll_deadline and state.status not in {"completed", "failed", "canceled"}:
+        return {
+            result: RESULT_NOT_VERIFIED,
+            output: {request_id: request_id},
+            criteria: [],
+            evidence: [],
+            unverified: ["generation_completion"],
+            runtime_warnings: {accepted: generation, last: state, reason: "poll_timeout"}
+        }
 
     if state.status != "completed":
         GENERATION_COMPLETED = NO

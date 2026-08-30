@@ -2,15 +2,14 @@
 
 ## 目标
 
-让维护文档只描述可验证的产品能力、命令边界、工作流和证据限制；具体命令与参数始终以实时 schema 和 `Command/help.json` 为准。
+让维护文档只描述可验证的产品能力、命令边界、工作流和证据限制；命令参数集中维护在命令目录中。
 
-## 权威顺序
+## 维护依据
 
 1. `Command/command_dispatcher.cs` 暴露的入口。
-2. `GetCommandDefinitionsJson()` 返回的实时 schema。
+2. `GetCommandDefinitionsJson()` 与 `Command/help.json` 的命令定义。
 3. `kimodo_help`、运行时返回值、状态和错误 envelope。
 4. 当前 Unity 项目和包内样例资产的实际结果。
-5. 维护文档。
 
 文档不应复制猜测性的完整参数结构，也不应把验证脚本或临时工具作为产品依赖。
 
@@ -21,11 +20,14 @@
 | `development/AGENTS.md` | 仓库协作规则、文档所有权和验证要求 |
 | `../README.md` | 人类用户的安装与入门说明 |
 | `../README.zh-CN.md` | `README.md` 的简体中文版本 |
-| `../SKILL.md` | AI 入口、安装状态、任务路由、产品边界和 API Help 入口 |
+| `../SKILL.md` | 安装门槛、任务入口、能力工具编排和公共执行规则 |
 | `../Command/help.json` | 维护命令、参数、必选关系和嵌套 schema |
-| `../skills/recognize.md` | 语义动作识别工作流和证据决策 |
-| `../skills/compare.md` | 动画质量比较工作流和证据决策 |
-| `../skills/generate.md` | 动画生成、验证、约束和派生修正工作流 |
+| `../tools/common.md` | Session、证据、状态和报告公共规则 |
+| `../tools/session.md` | Session 生命周期与内容加载 |
+| `../tools/recognition.md` | 语义动作识别工作流和证据决策 |
+| `../tools/comparison.md` | 动画质量比较工作流和证据决策 |
+| `../tools/generation.md` | 动画生成、验证、约束和派生修正工作流 |
+| `../tools/pose.md` | External Pose 创建与编辑 |
 | `DEVELOPMENT.md` | 临时开发快照，不是执行契约 |
 | `README.md` | 面向维护者的文档导航页 |
 

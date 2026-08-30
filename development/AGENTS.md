@@ -2,7 +2,7 @@
 
 ## Scope
 
-These rules apply to repository maintenance. Animation task execution is defined by [SKILL.md](../SKILL.md) and its linked sub-skills; command details are defined by [Command/help.json](../Command/help.json).
+These rules apply to repository maintenance. Animation task execution is defined by [SKILL.md](../SKILL.md) and its linked tools; command details are defined by [Command/help.json](../Command/help.json).
 
 ## Repository rules
 
@@ -14,8 +14,8 @@ These rules apply to repository maintenance. Animation task execution is defined
 ## Documentation ownership
 
 - `../README.md` / `../README.zh-CN.md`: human-facing package entry and installation overview.
-- `../SKILL.md`: AI animation workflow and evidence rules.
-- `../skills/*.md`: task-specific animation procedures.
+- `../SKILL.md`: installation gate, task entry, capability-tool orchestration, and shared execution rules.
+- `../tools/*.md`: capability-tool procedures for Session, generation, recognition, comparison, Pose, and derived outputs.
 - `../Command/help.json`: generated command and parameter schema; keep it aligned with the dispatcher.
 - `DEVELOPMENT.md`: temporary development snapshot, not an execution contract.
 - `README.md`: development and handoff navigation page.

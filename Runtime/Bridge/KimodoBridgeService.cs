@@ -153,6 +153,15 @@ namespace KimodoBridge
             return RequireDoneResponse(response, "Bridge model list returned no response.", "Bridge model list request failed.");
         }
 
+        public async Task<JObject> GetStatusAsync(string taskId, CancellationToken token = default)
+        {
+            ThrowIfStopRequested();
+            await EnsureConnectedAsync(null, token).ConfigureAwait(false);
+            BridgeProtocolResponse response = await protocolClient.GetStatusAsync(
+                currentHost, currentPort, taskId, token).ConfigureAwait(false);
+            return response?.Header ?? new JObject { ["status"] = "idle" };
+        }
+
         internal async Task<KimodoBridgeGenerationResult> GenerateAsync(
             KimodoGenerationRequestDto request,
             Action<string> progress,

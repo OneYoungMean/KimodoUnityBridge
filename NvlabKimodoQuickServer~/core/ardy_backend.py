@@ -829,6 +829,7 @@ class ArdySession:
         import torch
 
         self.profile = profile
+        self.progress = progress
         self.session_trace_id = str(request.get("_kimodo_session_id") or request.get("task_id") or "")
         self.request_trace_id = str(request.get("task_id") or "")
         self.quickserver_root = Path(quickserver_root).resolve()
@@ -1400,6 +1401,7 @@ class ArdySession:
         from ardy.tools import to_numpy
 
         horizon_start = self.frame_count
+        started = time.perf_counter()
         segment_end = self._activate_timeline_prompt(
             model,
             horizon_start,
@@ -1490,6 +1492,15 @@ class ArdySession:
         keep -= keep % int(self.profile.frames_per_token)
         self.history_cpu = motion[:, -keep:].detach().cpu() if keep > 0 else None
         self.outputs = _append_outputs(self.outputs, to_numpy(output))
+        elapsed = max(0.001, time.perf_counter() - started)
+        if self.progress is not None:
+            rate = float(horizon) / elapsed
+            remaining = max(0, int(getattr(self, "_target_frame_hint", horizon_start + horizon)) - self.frame_count)
+            eta = remaining / rate if rate > 0 else None
+            self.progress(
+                f"Generation progress: {self.frame_count}/{getattr(self, '_target_frame_hint', self.frame_count)} @ {rate:.2f} frames/s"
+                + (f", ETA {eta:.1f}s" if eta is not None else "")
+            )
 
     def _log_horizon_trace(
         self,
@@ -1649,6 +1660,7 @@ class ArdySession:
         if self.returned_until == 0 and self._initial_duration_frames > 0:
             minimum_delivery = max(minimum_delivery, self._initial_duration_frames)
         target = generation_start + max(1, minimum_delivery)
+        self._target_frame_hint = target
         self._ensure_generated(target, model, cancel_event)
         return_end = (
             min(self.frame_count, self._initial_duration_frames)

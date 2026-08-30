@@ -1024,13 +1024,23 @@ def _write_json_line(file, payload: dict) -> None:
     file.flush()
 
 
-def _make_cancelable_progress_bar(cancel_event: threading.Event):
+def _make_cancelable_progress_bar(cancel_event: threading.Event, progress_callback=None):
     def _progress_bar(iterable):
         progress = tqdm(iterable, ascii=" =O")
         try:
             for item in progress:
                 if cancel_event.is_set():
                     raise GenerateCancelledError("Generation canceled.")
+                if progress_callback is not None:
+                    details = progress.format_dict
+                    rate = float(details.get("rate") or 0.0)
+                    total = int(details.get("total") or 0)
+                    current = int(details.get("n") or 0)
+                    eta = (total - current) / rate if total > current and rate > 0 else None
+                    progress_callback(
+                        f"Generation progress: {current}/{total} @ {rate:.2f} it/s"
+                        + (f", ETA {eta:.1f}s" if eta is not None else "")
+                    )
                 yield item
             if cancel_event.is_set():
                 raise GenerateCancelledError("Generation canceled.")
@@ -1056,6 +1066,7 @@ def _run_generate(
     cancel_event: threading.Event | None = None,
     emit_progress: bool = True,
     attachments: tuple[bytes, ...] = (),
+    progress_callback=None,
 ):
     from kimodo.tools import seed_everything
 
@@ -1095,7 +1106,9 @@ def _run_generate(
     from kimodo.constraints import normalize_constraints_to_anchor
 
     constraint_origin = normalize_constraints_to_anchor(constraints)
-    progress_bar = _make_cancelable_progress_bar(cancel_event or threading.Event())
+    progress_bar = _make_cancelable_progress_bar(
+        cancel_event or threading.Event(), progress_callback
+    )
     if emit_progress:
         _out({"status": "progress", "message": f"Running diffusion ({diffusion_steps} steps)..."})
     if emit_progress and len(segment_frames) > 1:

@@ -12,7 +12,9 @@ using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
 using UnityEngine.Playables;
+using UnityEngine.SceneManagement;
 using UnityEngine.Timeline;
+using UnityEditor.SceneManagement;
 
 namespace KimodoUnityBridge.Command
 {
@@ -61,6 +63,11 @@ namespace KimodoUnityBridge.Command
                 }
                 currentTimelineSession = record;
                 ActivateTimelineSession(record);
+                string initialCharacter = arguments.Value<string>("character")?.Trim();
+                if (!string.IsNullOrWhiteSpace(initialCharacter))
+                {
+                    AddInitialCharacter(record, initialCharacter);
+                }
                 PersistTimelineSessionMetadata(record);
                 OpenTimelineWindow(record.Director);
                 return Ok(new JObject { ["created"] = true, ["session"] = DescribeSession(record) });
@@ -93,6 +100,10 @@ namespace KimodoUnityBridge.Command
             {
                 EditorUtility.SetDirty(record.Director);
             }
+            if (record.PreviewScene.IsValid())
+            {
+                EditorSceneManager.ClosePreviewScene(record.PreviewScene);
+            }
             AssetDatabase.SaveAssets();
             return OkForSession(record, new JObject
             {
@@ -116,6 +127,10 @@ namespace KimodoUnityBridge.Command
             CloseTimelineWindow(current.TimelineAsset);
             EditorUtility.SetDirty(current.TimelineAsset);
             EditorUtility.SetDirty(current.Director);
+            if (current.PreviewScene.IsValid())
+            {
+                EditorSceneManager.ClosePreviewScene(current.PreviewScene);
+            }
             AssetDatabase.SaveAssets();
         }
 
@@ -174,19 +189,85 @@ namespace KimodoUnityBridge.Command
             metadata.isAutomatic = isAutomatic;
             AssetDatabase.AddObjectToAsset(metadata, timelineAsset);
 
+            Scene previewScene = EditorSceneManager.NewPreviewScene();
             GameObject directorObject = new GameObject($"Kimodo_CommandSession_{safeName}");
             directorObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            SceneManager.MoveGameObjectToScene(directorObject, previewScene);
             PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
             director.playableAsset = timelineAsset;
             director.time = 0.0;
 
-            var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata);
+            CreatePreviewSceneBasics(previewScene, safeName);
+            var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata, previewScene);
 
             PersistTimelineSessionMetadata(record);
             EditorUtility.SetDirty(timelineAsset);
             EditorUtility.SetDirty(director);
             AssetDatabase.SaveAssets();
             return record;
+        }
+
+        private static void AddInitialCharacter(TimelineSessionRecord session, string requestedName)
+        {
+            bool isPath = requestedName.Contains("/");
+            GameObject[] matches = FindSceneMeshObjects()
+                .Where(item => item.scene != session.PreviewScene)
+                .Where(item => isPath
+                    ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (matches.Length != 1)
+            {
+                throw new InvalidOperationException(matches.Length == 0
+                    ? $"Scene character or Mesh object '{requestedName}' was not found."
+                    : $"Scene character name '{requestedName}' is ambiguous; rename it before adding.");
+            }
+            GameObject root = matches[0];
+            Animator animator = root.GetComponentInChildren<Animator>(true);
+            if (!AddCharacterTrack(session, root, animator, true, out string error, requireAvatar: false))
+            {
+                throw new InvalidOperationException(error);
+            }
+        }
+
+        private static void CreatePreviewSceneBasics(Scene scene, string safeName)
+        {
+            if (!scene.IsValid()) return;
+            GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            ground.name = $"Kimodo_PreviewGround_{safeName}";
+            ground.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            SceneManager.MoveGameObjectToScene(ground, scene);
+            GameObject lightObject = new GameObject($"Kimodo_PreviewLight_{safeName}");
+            lightObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            SceneManager.MoveGameObjectToScene(lightObject, scene);
+            Light light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = 1f;
+            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+        }
+
+        private static GameObject CloneCharacterToPreview(TimelineSessionRecord session, GameObject source)
+        {
+            if (source == null || session == null || !session.PreviewScene.IsValid() || source.scene == session.PreviewScene)
+            {
+                return source;
+            }
+            GameObject clone = UnityEngine.Object.Instantiate(source);
+            clone.name = source.name;
+            clone.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            SceneManager.MoveGameObjectToScene(clone, session.PreviewScene);
+            foreach (CharacterController controller in clone.GetComponentsInChildren<CharacterController>(true))
+            {
+                UnityEngine.Object.DestroyImmediate(controller);
+            }
+            foreach (Animator candidate in clone.GetComponentsInChildren<Animator>(true))
+            {
+                candidate.runtimeAnimatorController = null;
+                candidate.applyRootMotion = false;
+                candidate.Rebind();
+                candidate.Update(0f);
+            }
+            return clone;
         }
 
         private static IEnumerable<Animator> FindSceneAnimators()
@@ -249,6 +330,9 @@ namespace KimodoUnityBridge.Command
                 return false;
             }
 
+            string characterRef = GetObjectReference(root);
+            root = CloneCharacterToPreview(session, root);
+            animator = root != null ? root.GetComponentInChildren<Animator>(true) : null;
             Avatar avatar = null;
             string avatarError = string.Empty;
             if (tryGenerateAvatar)
@@ -276,7 +360,7 @@ namespace KimodoUnityBridge.Command
                 session.Director.SetGenericBinding(track, animator);
             }
             var character = new TimelineCharacterRecord(
-                GetObjectReference(root), root, animator, avatar, track, poseCacheTrack, avatarError);
+                characterRef, root, animator, avatar, track, poseCacheTrack, avatarError);
             session.Characters.Add(character);
             EditorUtility.SetDirty(track);
             EditorUtility.SetDirty(poseCacheTrack);
@@ -740,6 +824,7 @@ namespace KimodoUnityBridge.Command
                     string requestedName = RequiredStringValue(arguments, "character");
                     bool isPath = requestedName.Contains("/");
                     GameObject[] matches = FindSceneMeshObjects()
+                        .Where(item => item.scene != session.PreviewScene)
                         .Where(item => isPath
                             ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
                             : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
@@ -792,7 +877,7 @@ namespace KimodoUnityBridge.Command
                     TimelineCharacterRecord target = ResolveCurrentSessionCharacter(arguments);
                     string requested = RequiredStringValue(arguments, "animator");
                     bool isPath = requested.Contains("/");
-                    Animator[] matches = FindSceneAnimators().Where(item => isPath
+                    Animator[] matches = FindSceneAnimators().Where(item => item.gameObject.scene != session.PreviewScene).Where(item => isPath
                         ? string.Equals(GetSceneHierarchyPath(item.gameObject), requested, StringComparison.OrdinalIgnoreCase)
                         : string.Equals(item.gameObject.name, requested, StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (matches.Length != 1) throw new InvalidOperationException(matches.Length == 0
@@ -1765,7 +1850,9 @@ namespace KimodoUnityBridge.Command
                     AddCharacterTrack(session, root, animator, true, out error, requireAvatar: false);
                 if (added)
                 {
-                    match = session.Characters.FirstOrDefault(character => character.Root == root);
+                    match = session.Characters.FirstOrDefault(character =>
+                        character.CharacterRef == reference || character.Root != null && character.Root.scene == session.PreviewScene &&
+                        string.Equals(character.Name, root.name, StringComparison.OrdinalIgnoreCase));
                 }
                 else if (root != null)
                 {
@@ -1784,6 +1871,7 @@ namespace KimodoUnityBridge.Command
             return new JObject
             {
                 ["session"] = session.Name,
+                ["preview_scene"] = session.PreviewScene.IsValid() ? session.PreviewScene.name : string.Empty,
                 ["characters"] = new JArray(session.Characters.Select(DescribeCharacter)),
                 ["current_frame"] = session.Director != null
                     ? Mathf.RoundToInt((float)(session.Director.time * SessionFrameRate))
@@ -1982,7 +2070,8 @@ namespace KimodoUnityBridge.Command
                 TimelineAsset timelineAsset,
                 string timelineAssetPath,
                 bool isAutomatic,
-                KimodoCommandSessionMetadata metadata)
+                KimodoCommandSessionMetadata metadata,
+                Scene previewScene)
             {
                 Id = id;
                 Name = name;
@@ -1991,6 +2080,7 @@ namespace KimodoUnityBridge.Command
                 TimelineAssetPath = timelineAssetPath;
                 IsAutomatic = isAutomatic;
                 Metadata = metadata;
+                PreviewScene = previewScene;
                 CreatedAtUtc = DateTime.UtcNow;
             }
 
@@ -2002,6 +2092,7 @@ namespace KimodoUnityBridge.Command
             public string TimelineAssetPath { get; }
             public bool IsAutomatic { get; }
             public KimodoCommandSessionMetadata Metadata { get; }
+            public Scene PreviewScene { get; }
             public bool AutoCloseWhenIdle { get; set; }
             public List<TimelineCharacterRecord> Characters { get; } = new List<TimelineCharacterRecord>();
         }
