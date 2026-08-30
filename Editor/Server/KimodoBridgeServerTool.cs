@@ -4,20 +4,6 @@ using System.Threading;
 
 namespace KimodoBridge.Editor
 {
-    internal readonly struct ModelSetupStatus
-    {
-        public readonly bool Missing;
-        public readonly int MissingPoints;
-        public readonly int EstimatedMinutes;
-
-        public ModelSetupStatus(bool missing, int missingPoints, int estimatedMinutes)
-        {
-            Missing = missing;
-            MissingPoints = missingPoints;
-            EstimatedMinutes = estimatedMinutes;
-        }
-    }
-
     internal readonly struct ModelDirectoryInfo
     {
         public readonly string Name;
@@ -67,16 +53,6 @@ namespace KimodoBridge.Editor
         {
             Interlocked.Increment(ref runtimeMaintenanceDepth);
             return new RuntimeMaintenanceScope();
-        }
-
-        internal static bool TryGetModelMissingSetupMinutes(string runtimeRoot, KimodoTextEncoderMode mode, string modelName, string modelsRootOverride, out int minutes)
-        {
-            return KimodoBridgeRuntimeInstallFacade.TryGetModelMissingSetupMinutes(runtimeRoot, mode, modelName, modelsRootOverride, out minutes);
-        }
-
-        internal static ModelSetupStatus EvaluateModelSetupStatus(string runtimeRoot, KimodoTextEncoderMode mode, string modelName, string modelsRootOverride)
-        {
-            return KimodoBridgeRuntimeInstallFacade.EvaluateModelSetupStatus(runtimeRoot, mode, modelName, modelsRootOverride);
         }
 
         internal static List<ModelDirectoryInfo> QueryDisplayableModelDirectories(string modelsRoot)

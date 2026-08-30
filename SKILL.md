@@ -32,7 +32,11 @@ if PACKAGE_IMPORTED != YES:
 wait_until(UNITY_READY == YES)
 
 if FIRST_USE == YES or UPGRADE == YES or RECOVERY == YES:
-    kimodo_install_server({})
+    install = kimodo_install_server({})
+    install_request_id = install.request_id
+    poll kimodo_get_generation({request_id: install_request_id})
+        until status in {"done", "error"}
+    ASSERT status == "done"
 
 # 普通编译、导入或 Editor 重启不重复安装。
 WORKFLOW_READY = (
@@ -90,7 +94,7 @@ function run_kimodo_task(request):
 - `session_get_or_create` 会建立专用 Preview Scene；角色复制到该场景时自动移除 `CharacterController` 并清空 `Animator.runtimeAnimatorController`，后续制作、采样、分析和渲染均限定在该场景。
 - 视觉结论必须建立在实际打开的返回图像上；静态证据不足时不得报告视觉通过。
 - 已完成 Clip 不覆盖；修正、Record、Retarget 和生成变体均追加派生 Clip。
-- 生成轮询必须有固定间隔和总超时；终态包括 `completed`、`failed`、`canceled`，过期或未知请求按失败/未验证报告。
+- 安装和生成都返回 `request_id`，并通过 `kimodo_get_generation` 轮询。安装终态为 `done` 或 `error`；生成终态为 `completed`、`failed` 或 `canceled`。轮询必须有固定间隔和总超时；过期或未知请求按失败/未验证报告。
 - assembly reload、Editor 退出、切换场景或进入 Play Mode 导致的取消必须如实报告，不声称自动恢复。
 - 工具报告至少包含 `result`、`output`、`criteria`、`evidence`、`unverified`；工具可附加专属字段。
 - 请求未声明的 source、target、range、pose、path 或 constraint 不得自行补全。

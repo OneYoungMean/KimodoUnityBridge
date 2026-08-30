@@ -26,7 +26,7 @@
     },
     {
       "name": "kimodo_install_server",
-      "description": "Initialize the project-local QuickServer runtime on first use, or refresh it when installation, upgrade, or recovery is required. This preserves models and the Python environment, then restarts the server.",
+      "description": "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -874,13 +874,13 @@
     },
     {
       "name": "kimodo_get_generation",
-      "description": "Get generation progress, the generated animation safe name, and its project-relative clip asset path when completed; path is empty until a clip exists.",
+      "description": "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata is included only after a generation completes.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "request_id": {
             "type": "string",
-            "description": "Request id returned by a generate tool."
+            "description": "Request id returned by kimodo_install_server or kimodo_generate_animation."
           }
         },
         "required": [
@@ -891,13 +891,13 @@
     },
     {
       "name": "kimodo_cancel_generation",
-      "description": "Cancel an active Kimodo generation request.",
+      "description": "Cancel an active animation generation request. Installation requests cannot be canceled.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "request_id": {
             "type": "string",
-            "description": "Request id returned by a generate tool."
+            "description": "Generation request id returned by kimodo_generate_animation."
           },
           "reason": {
             "type": "string",

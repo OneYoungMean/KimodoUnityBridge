@@ -397,6 +397,7 @@ namespace KimodoBridge.Editor
                     if (!string.IsNullOrWhiteSpace(progress))
                     {
                         operationStatus = progress;
+                        Repaint();
                     }
                 };
 

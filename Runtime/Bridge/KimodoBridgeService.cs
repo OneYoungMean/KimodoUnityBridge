@@ -30,6 +30,9 @@ namespace KimodoBridge
 
     public sealed class KimodoBridgeService : IDisposable
     {
+        // The editor command job id is propagated to the TCP task so status
+        // queries can use one stable identifier across both layers.
+        internal static readonly AsyncLocal<string> GenerationTaskIdContext = new AsyncLocal<string>();
         private sealed class ActiveLogPump
         {
             public string Path = string.Empty;
@@ -182,6 +185,10 @@ namespace KimodoBridge
                 await EnsureConnectedAsync(progress, token).ConfigureAwait(false);
                 ThrowIfSessionChanged(requestSessionVersion);
 
+                if (string.IsNullOrWhiteSpace(request.task_id))
+                {
+                    request.task_id = GenerationTaskIdContext.Value;
+                }
                 if (string.IsNullOrWhiteSpace(request.task_id))
                 {
                     request.task_id = Guid.NewGuid().ToString("N");

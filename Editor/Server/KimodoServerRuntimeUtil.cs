@@ -793,43 +793,6 @@ namespace KimodoBridge.Editor
             return File.Exists(Path.Combine(nf4Dir, "model.safetensors")) || int8Ok;
         }
 
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, string selectedModel)
-        {
-            return EstimateMissingConfigPoints(runtimeRoot, mode, IsKeepCpuForceEnabled(), selectedModel, null);
-        }
-
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, string selectedModel, string modelsRootOverride)
-        {
-            return EstimateMissingConfigPoints(runtimeRoot, mode, IsKeepCpuForceEnabled(), selectedModel, modelsRootOverride);
-        }
-
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, bool forceCpu, string selectedModel)
-        {
-            return EstimateMissingConfigPoints(runtimeRoot, mode, forceCpu, selectedModel, null);
-        }
-
-        internal static int EstimateMissingConfigPoints(string runtimeRoot, KimodoTextEncoderMode mode, bool forceCpu, string selectedModel, string modelsRootOverride)
-        {
-            int points = 0;
-            bool firstSetup = !File.Exists(Path.Combine(runtimeRoot, ".setup.complete"));
-            if (firstSetup)
-            {
-                points += 5;
-            }
-
-            if (!IsSelectedBridgeModelInstalled(runtimeRoot, selectedModel, modelsRootOverride))
-            {
-                points += 2; // Kimodo base model estimate
-            }
-
-            if (!IsTextEncoderInstalled(runtimeRoot, mode, forceCpu, modelsRootOverride))
-            {
-                points += mode == KimodoTextEncoderMode.HighPrecision ? 16 : 8;
-            }
-
-            return points;
-        }
-
         internal static bool TryReadSetupProfile(string runtimeRoot, out string profile)
         {
             profile = string.Empty;

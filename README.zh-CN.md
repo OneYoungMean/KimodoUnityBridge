@@ -40,7 +40,7 @@ https://github.com/OneYoungMean/KimodoUnityBridge.git
 
 ## AI Agent 使用手册
 
-将 [SKILL.md](SKILL.md) 作为安装与任务入口；它负责协作调度 `tools/` 下的能力工具。命令定义位于 [Command/help.json](Command/help.json)。
+将 [SKILL.md](SKILL.md) 作为安装与任务入口；它负责协作调度 `tools/` 下的能力工具。`kimodo_install_server` 与 `kimodo_generate_animation` 均为异步命令，都会返回 `request_id`，统一通过 `kimodo_get_generation` 轮询。命令定义位于 [Command/help.json](Command/help.json)。
 
 ## 开发者与维护记录
 

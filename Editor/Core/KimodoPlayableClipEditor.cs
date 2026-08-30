@@ -351,7 +351,6 @@ namespace KimodoBridge.Editor
             }
             GUI.enabled = true;
 
-            DrawEstimatedSetupTimeHint();
 
             EditorGUILayout.LabelField(
                 "Bridge status: " + (bridgeConnectedCached ? "connected" : "disconnected"),
@@ -364,6 +363,11 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        public override bool RequiresConstantRepaint()
+        {
+            return isGenerating;
         }
 
         private void DrawTrajectoryAndContinuitySection(TimelineClip timelineClip, bool hasTimelineDuration)
@@ -686,21 +690,6 @@ namespace KimodoBridge.Editor
             DrawAdvancedCurveFilterSection();
 
             EditorGUILayout.EndVertical();
-        }
-
-        private void DrawEstimatedSetupTimeHint()
-        {
-            string runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
-            KimodoTextEncoderMode encoderMode = clip != null
-                ? clip.textEncoderMode
-                : KimodoTextEncoderMode.HighPerformance;
-            string modelName = clip == null ? KimodoMotionModelProfiles.DefaultModelName : KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
-            string modelsRootOverride = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath?.Trim();
-            if (!KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(runtimeRoot, encoderMode, modelName, modelsRootOverride, out int minutes))
-            {
-                return;
-            }
-            EditorGUILayout.HelpBox($"Model missing detected, update required, approximately {minutes} minutes.", MessageType.None);
         }
 
         private void RequestThrottledRepaint()

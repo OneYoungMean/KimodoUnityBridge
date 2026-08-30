@@ -8,9 +8,9 @@
 
 The maintained public commands are:
 
-- Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` initializes the project-local runtime on first use and is repeated only for installation, upgrade, or recovery)
+- Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` starts an asynchronous project-local installation task and returns `install:<guid>`; poll it with `kimodo_get_generation`)
 - Session/content: `session_get_or_create`, `session_add`, `session_close`
-- Generation jobs: `kimodo_generate_animation`, `kimodo_get_generation`, `kimodo_cancel_generation`
+- Async tasks: `kimodo_generate_animation` returns a generation `request_id`; `kimodo_get_generation` polls either task type; `kimodo_cancel_generation` cancels generation only
 - Analysis/evidence: `animation_analyze`, `animation_compare`
 - Pose editing: `pose_get`, `pose_contract`, `pose_set_root_transform`, `pose_set_muscle`
 - Asset output: `kimodo_record_range`, `kimodo_retarget_animation`

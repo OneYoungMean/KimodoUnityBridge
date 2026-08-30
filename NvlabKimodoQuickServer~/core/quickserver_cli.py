@@ -967,31 +967,19 @@ def _format_eta_seconds(seconds: Any) -> str:
     return f"{minutes}m {remainder:02d}s"
 
 
-def _estimated_completion_utc(seconds: Any) -> str | None:
-    try:
-        value = float(seconds)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(value) or value < 0:
-        return None
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + value))
-
-
-def _task_status_payload(task: dict[str, Any] | None, queue_index: int = -1) -> dict[str, Any]:
+def _task_status_payload(task: dict[str, Any] | None) -> dict[str, Any]:
     if task is None:
-        return {"status": "idle", "phase": "idle", "eta_seconds": None, "estimated_completion_utc": None}
+        return {"status": "idle", "progress": "0/0", "eta_seconds": None, "message": "No active task."}
     eta = task.get("eta_seconds")
+    current = int(task.get("progress_current") or 0)
+    total = int(task.get("progress_total") or 0)
+    progress = f"{current}/{total}" if total > 0 else "0/0"
     payload: dict[str, Any] = {
         "status": str(task.get("state") or "queued"),
-        "phase": str(task.get("phase") or "queued"),
         "task_id": str(task.get("task_id") or ""),
-        "message": str(task.get("status_message") or ""),
-        "progress_current": int(task.get("progress_current") or 0),
-        "progress_total": int(task.get("progress_total") or 0),
-        "progress_rate": task.get("progress_rate"),
-        "queue_index": max(0, int(queue_index)),
+        "progress": progress,
         "eta_seconds": float(eta) if isinstance(eta, (int, float)) and math.isfinite(float(eta)) else None,
-        "estimated_completion_utc": _estimated_completion_utc(eta),
+        "message": str(task.get("status_message") or ""),
     }
     if payload["eta_seconds"] is not None:
         payload["message"] = f"{payload['message']} ETA {_format_eta_seconds(payload['eta_seconds'])}.".strip()
@@ -2083,13 +2071,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                     target = session["queue"][0]
                                 if target is None and requested_task_id:
                                     target = state["recent_tasks"].get(requested_task_id)
-                                queue_index = -1
-                                if target is not None:
-                                    for index, queued_task in enumerate(session.get("queue") or ()):
-                                        if queued_task is target:
-                                            queue_index = index + 1
-                                            break
-                                status_payload = _task_status_payload(target, queue_index)
+                                status_payload = _task_status_payload(target)
                             reply(status_payload)
                         elif cmd == "quit":
                             reply({"status": "done", "session_id": default_session_id, "server_closing": True})

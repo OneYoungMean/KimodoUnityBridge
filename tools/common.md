@@ -23,10 +23,11 @@ description: Shared execution contract for all Kimodo capability tools.
 - 静态图片不能证明播放连续性、滑步、跳变、加速度或速度连续性。
 - 必要证据缺失时返回 `not_verified` 或 `insufficient_evidence`，不得猜测为通过。
 
-## Async generation
+## Async tasks
 
-- 保存 `request_id`，按固定间隔轮询 `kimodo_get_generation`。
-- 轮询必须有总超时；终态为 `completed`、`failed`、`canceled`。
+- `kimodo_install_server` 与 `kimodo_generate_animation` 都返回 `request_id`；保存它并按固定间隔轮询 `kimodo_get_generation`。
+- 安装终态为 `done`、`error`；生成终态为 `completed`、`failed`、`canceled`。安装任务当前不能取消，生成任务可用 `kimodo_cancel_generation` 取消。
+- 每次状态查询以 `progress`、`eta_seconds` 和 `message` 为进度依据；不自行重新估算剩余时间。
 - 超时、过期 request 或未知状态按未验证/失败报告，不无限重试。
 - assembly reload、Editor 退出、切换场景和进入 Play Mode 导致的取消必须如实保留。
 - 自动修正最多一次；修正结果是新的派生 Clip，原完成结果必须保留。

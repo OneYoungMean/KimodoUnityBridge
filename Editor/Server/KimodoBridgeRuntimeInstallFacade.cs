@@ -66,45 +66,6 @@ namespace KimodoBridge.Editor
             return Path.GetFullPath(runtimeRoot);
         }
 
-        internal static ModelSetupStatus EvaluateModelSetupStatus(
-            string runtimeRoot,
-            KimodoTextEncoderMode mode,
-            string modelName,
-            string modelsRootOverride)
-        {
-            if (string.IsNullOrWhiteSpace(runtimeRoot))
-            {
-                return new ModelSetupStatus(false, 0, 0);
-            }
-
-            int points = KimodoServerRuntimeUtil.EstimateMissingConfigPoints(runtimeRoot, mode, modelName, modelsRootOverride);
-            if (points <= 0)
-            {
-                return new ModelSetupStatus(false, 0, 0);
-            }
-
-            int minutes = Math.Max(3, points * 3);
-            return new ModelSetupStatus(true, points, minutes);
-        }
-
-        internal static bool TryGetModelMissingSetupMinutes(
-            string runtimeRoot,
-            KimodoTextEncoderMode mode,
-            string modelName,
-            string modelsRootOverride,
-            out int minutes)
-        {
-            ModelSetupStatus status = EvaluateModelSetupStatus(runtimeRoot, mode, modelName, modelsRootOverride);
-            minutes = 0;
-            if (!status.Missing)
-            {
-                return false;
-            }
-
-            minutes = status.EstimatedMinutes;
-            return true;
-        }
-
         internal static System.Collections.Generic.List<ModelDirectoryInfo> QueryDisplayableModelDirectories(string modelsRoot)
         {
             var result = new System.Collections.Generic.List<ModelDirectoryInfo>();

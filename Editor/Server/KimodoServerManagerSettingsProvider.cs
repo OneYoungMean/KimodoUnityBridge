@@ -378,16 +378,6 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.HelpBox(KimodoGenerationInspectorGui.GetRuntimePlacementHint(), MessageType.Info);
 
-            if (KimodoBridgeServerTool.TryGetModelMissingSetupMinutes(
-                runtimeRoot,
-                selectedEncoderMode,
-                selectedModel,
-                ResolveModelsRootForServer(),
-                out int minutes))
-            {
-                EditorGUILayout.HelpBox($"Model missing detected, update required, approximately {minutes} minutes.", MessageType.None);
-            }
-
             EditorGUILayout.LabelField("Setup Profile", setupProfile, EditorStyles.miniLabel);
 
             EditorGUILayout.EndVertical();

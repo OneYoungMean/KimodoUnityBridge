@@ -43,6 +43,7 @@ namespace KimodoUnityBridge.Command
 
         private const int MaxRememberedJobs = 128;
         private static readonly Dictionary<Guid, JobRecord> Jobs = new Dictionary<Guid, JobRecord>();
+        private static readonly Dictionary<string, JObject> InstallTasks = new Dictionary<string, JObject>(StringComparer.OrdinalIgnoreCase);
         private static readonly object JobsLock = new object();
         private static readonly Lazy<CommandCatalog> Commands = new Lazy<CommandCatalog>(BuildCommandCatalog, LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -75,7 +76,7 @@ namespace KimodoUnityBridge.Command
                             Optional("command", "string", "Command name whose full manual entry should be returned."),
                             Enum("section", "commands", "models", "constraints"))),
                     CommandDefinition(InstallServerCommand,
-                        "Initialize the project-local QuickServer runtime on first use, or refresh it when installation, upgrade, or recovery is required. This preserves models and the Python environment, then restarts the server.",
+                        "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
                         Properties()),
                     CommandDefinition(SessionGetOrCreateCommand,
                         "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally copy a scene character into the Preview Scene at creation.",
@@ -183,13 +184,13 @@ namespace KimodoUnityBridge.Command
                             RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
-                        "Get generation progress, the generated animation safe name, and its project-relative clip asset path when completed; path is empty until a clip exists.",
+                        "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata is included only after a generation completes.",
                         Properties(
-                            Required("request_id", "string", "Request id returned by a generate tool."))),
+                            Required("request_id", "string", "Request id returned by kimodo_install_server or kimodo_generate_animation."))),
                     CommandDefinition(CancelGenerationCommand,
-                        "Cancel an active Kimodo generation request.",
+                        "Cancel an active animation generation request. Installation requests cannot be canceled.",
                         Properties(
-                            Required("request_id", "string", "Request id returned by a generate tool."),
+                            Required("request_id", "string", "Generation request id returned by kimodo_generate_animation."),
                             Optional("reason", "string", "Optional cancellation reason.")))
                 }
             }.ToString(Formatting.None);
@@ -264,13 +265,14 @@ namespace KimodoUnityBridge.Command
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
                         "session_get_or_create is the only command that creates Sessions and their dedicated Preview Scene. A scene character may be copied at creation or added explicitly with session_add.",
-                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls or cancels generation, and {track,index} identifies a Pose or analyzed Root Path. Picture paths are output files to inspect, not reusable handles.",
-                        "Generation is asynchronous: save request_id and poll kimodo_get_generation until completed, failed, or canceled.",
+                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls an installation or generation task, and {track,index} identifies a Pose or analyzed Root Path. Picture paths are output files to inspect, not reusable handles.",
+                        "Installation and generation are asynchronous: save request_id and poll kimodo_get_generation. Install terminal states are done or error; generation terminal states are completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
                     },
                     ["routing"] = new JArray
                     {
                         Route("discover schema or models", HelpCommand),
+                        Route("install or refresh server", InstallServerCommand, "then " + GetGenerationCommand),
                         Route("select or create a Session", SessionGetOrCreateCommand),
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
@@ -282,7 +284,7 @@ namespace KimodoUnityBridge.Command
                     ["handles"] = new JObject
                     {
                         ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
-                        ["request_id"] = "Pass only to kimodo_get_generation or kimodo_cancel_generation.",
+                        ["request_id"] = "Returned by kimodo_install_server or kimodo_generate_animation. Pass either to kimodo_get_generation; only generation request ids can be canceled.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
                         ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command.",
                         ["path"] = "For animation_analyze, this is the {track,index} Root Path reference passed only as root_path.path; for kimodo_get_generation or session_get_raw, it is a project-relative Unity asset path.",
@@ -290,7 +292,8 @@ namespace KimodoUnityBridge.Command
                     },
                     ["workflow"] = new JArray
                     {
-                        new JObject { ["command"] = InstallServerCommand, ["arguments"] = new JObject(), ["before"] = "all other Commands" },
+                        new JObject { ["command"] = InstallServerCommand, ["arguments"] = new JObject(), ["save"] = "request_id", ["before"] = "all other Commands" },
+                        new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<install_request_id>" }, ["repeat_until"] = "status is done or error" },
                         new JObject { ["command"] = SessionGetOrCreateCommand, ["arguments"] = new JObject { ["name"] = "Locomotion" } },
                         new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
@@ -367,33 +370,96 @@ namespace KimodoUnityBridge.Command
             return Execute(argumentsJson, _ =>
             {
                 EnsureCanManageServer();
+                string requestId = "install:" + Guid.NewGuid().ToString("N");
+                lock (JobsLock)
+                {
+                    InstallTasks[requestId] = new JObject
+                    {
+                        ["status"] = "queued",
+                        ["task_id"] = requestId,
+                        ["progress"] = "0/0",
+                        ["eta_seconds"] = 60.0,
+                        ["message"] = "Server installation waiting to start."
+                    };
+                    while (InstallTasks.Count > MaxRememberedJobs)
+                    {
+                        InstallTasks.Remove(InstallTasks.Keys.First());
+                    }
+                }
+                EditorApplication.delayCall += () => _ = RunInstallServerTaskAsync(requestId);
+                return Ok(new JObject
+                {
+                    ["request_id"] = requestId,
+                    ["status"] = "accepted",
+                    ["message"] = "Server installation accepted."
+                });
+            });
+        }
+
+        private static async Task RunInstallServerTaskAsync(string requestId)
+        {
+            try
+            {
+                UpdateInstallTask(requestId, "loading", 60.0, "Installing server runtime...");
                 string runtimeRoot = KimodoBridgeServerTool.GetRuntimeRootPath();
                 using (KimodoBridgeServerTool.EnterRuntimeMaintenanceScope())
                 {
-                    KimodoBridgeService.Shared.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    await KimodoBridgeService.Shared.StopAsync(CancellationToken.None);
                     if (!KimodoBridgeServerTool.RefreshRuntimeRoot())
                     {
                         throw new InvalidOperationException("Failed to incrementally install runtime root from package template.");
                     }
                 }
 
-                KimodoBridgeService.Shared.WarmupAsync(null, CancellationToken.None).GetAwaiter().GetResult();
-                return Ok(new JObject
+                UpdateInstallTask(requestId, "loading", 60.0, "Starting QuickServer...");
+                await KimodoBridgeService.Shared.WarmupAsync(null, CancellationToken.None);
+                UpdateInstallTask(requestId, "done", 0.0, "Server installation complete.", runtimeRoot);
+            }
+            catch (Exception ex)
+            {
+                UpdateInstallTask(requestId, "error", 0.0, ex.Message);
+            }
+        }
+
+        private static void UpdateInstallTask(string requestId, string status, double? eta, string message, string runtimeRoot = null)
+        {
+            lock (JobsLock)
+            {
+                if (!InstallTasks.TryGetValue(requestId, out JObject task)) return;
+                task["status"] = status;
+                task["eta_seconds"] = eta.HasValue ? (JToken)eta.Value : JValue.CreateNull();
+                task["message"] = message ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(runtimeRoot))
                 {
-                    ["runtime_root"] = runtimeRoot,
-                    ["runtime_version"] = KimodoServerRuntimeUtil.ReadQuickServerVersion(runtimeRoot),
-                    ["install_mode"] = "incremental",
-                    ["server_connected"] = KimodoBridgeService.Shared.IsConnected
-                });
-            });
+                    task["runtime_root"] = runtimeRoot;
+                    task["runtime_version"] = KimodoServerRuntimeUtil.ReadQuickServerVersion(runtimeRoot);
+                    task["install_mode"] = "incremental";
+                    task["server_connected"] = KimodoBridgeService.Shared.IsConnected;
+                }
+            }
         }
 
         public static string GetGeneration(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
             {
+                string requestValue = RequiredStringValue(arguments, "request_id");
+                if (requestValue.StartsWith("install:", StringComparison.OrdinalIgnoreCase))
+                {
+                    lock (JobsLock)
+                    {
+                        if (InstallTasks.TryGetValue(requestValue, out JObject installStatus))
+                        {
+                            return Ok(new JObject(installStatus));
+                        }
+                    }
+                    throw new InvalidOperationException($"Unknown or expired request_id '{requestValue}'.");
+                }
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
-                Guid requestId = RequiredRequestId(arguments);
+                if (!Guid.TryParse(requestValue, out Guid requestId))
+                {
+                    throw new InvalidOperationException("request_id is not a valid GUID or install task id.");
+                }
                 if (!TryGetJob(requestId, out JobRecord record))
                 {
                     JObject persisted = LoadPersistedGenerationJob(session, requestId);
@@ -402,6 +468,34 @@ namespace KimodoUnityBridge.Command
                 }
                 EnsureGenerationBelongsToSession(record, session);
                 JObject status = BuildStatus(record);
+                try
+                {
+                    JObject serverStatus = KimodoBridgeService.Shared
+                        .GetStatusAsync(requestId.ToString("N"), CancellationToken.None)
+                        .GetAwaiter().GetResult();
+                    string serverState = serverStatus?.Value<string>("status");
+                    if (serverStatus != null && !string.IsNullOrWhiteSpace(serverState) &&
+                        !string.Equals(serverState, "idle", StringComparison.OrdinalIgnoreCase))
+                    {
+                        status["request_id"] = requestValue;
+                        status["status"] = serverStatus["status"]?.DeepClone() ?? JValue.CreateNull();
+                        status["task_id"] = serverStatus["task_id"]?.DeepClone() ?? requestValue;
+                        status["progress"] = serverStatus["progress"]?.DeepClone() ?? "0/0";
+                        status["eta_seconds"] = serverStatus["eta_seconds"]?.DeepClone() ?? JValue.CreateNull();
+                        status["message"] = serverStatus["message"]?.DeepClone() ?? string.Empty;
+                        status.Remove("stage");
+                        status.Remove("error");
+                        status.Remove("started_at_utc");
+                        status.Remove("estimated_completion_utc");
+                        status.Remove("progress_current");
+                        status.Remove("progress_total");
+                        status.Remove("progress_rate");
+                    }
+                }
+                catch
+                {
+                    // Preserve the local completed result if the server has already exited.
+                }
                 status["target_alive"] = record.Target != null;
                 return Ok(status);
             });
@@ -536,6 +630,8 @@ namespace KimodoUnityBridge.Command
                     character.Target,
                     async (generationSession, token) =>
                     {
+                        string previousTaskId = KimodoBridgeService.GenerationTaskIdContext.Value;
+                        KimodoBridgeService.GenerationTaskIdContext.Value = generationSession.RequestId.ToString("N");
                         try
                         {
                             return await ExecutePlayableClipGenerationAsync(
@@ -547,6 +643,7 @@ namespace KimodoUnityBridge.Command
                         }
                         finally
                         {
+                            KimodoBridgeService.GenerationTaskIdContext.Value = previousTaskId;
                             // Session lifetime is owned exclusively by session_close.
                         }
                     },
@@ -1446,7 +1543,16 @@ namespace KimodoUnityBridge.Command
                 ["stage"] = session.Stage.ToString(),
                 ["message"] = session.Message ?? string.Empty,
                 ["error"] = session.Error ?? string.Empty,
-                ["started_at_utc"] = session.StartedAtUtc.ToString("O", CultureInfo.InvariantCulture)
+                ["started_at_utc"] = session.StartedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+                ["eta_seconds"] = session.EstimatedSecondsRemaining.HasValue
+                    ? (JToken)session.EstimatedSecondsRemaining.Value
+                    : JValue.CreateNull(),
+                ["estimated_completion_utc"] = session.EstimatedCompletionUtc ?? string.Empty,
+                ["progress_current"] = session.ProgressCurrent,
+                ["progress_total"] = session.ProgressTotal,
+                ["progress_rate"] = session.ProgressRate.HasValue
+                    ? (JToken)session.ProgressRate.Value
+                    : JValue.CreateNull()
             };
             if (session.Payload is KimodoEditorGenerationResult generated)
             {

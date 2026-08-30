@@ -162,42 +162,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void ModelSetupStatusHonorsModelsRootOverride()
-        {
-            string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));
-            string modelsRoot = Path.Combine(Path.GetTempPath(), "kimodo-models-" + Guid.NewGuid().ToString("N"));
-
-            try
-            {
-                Directory.CreateDirectory(runtimeRoot);
-                Directory.CreateDirectory(Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16"));
-                File.WriteAllText(Path.Combine(runtimeRoot, ".setup.complete"), "setup_profile=cuda");
-                File.WriteAllText(Path.Combine(modelsRoot, "KIMODO-Meta3_llm2vec_FP16", "model.safetensors"), string.Empty);
-
-                ModelSetupStatus status = KimodoBridgeRuntimeInstallFacade.EvaluateModelSetupStatus(
-                    runtimeRoot,
-                    KimodoTextEncoderMode.HighPrecision,
-                    "Kimodo-SOMA-RP-v1",
-                    modelsRoot);
-
-                Assert.That(status.Missing, Is.True);
-                Assert.That(status.MissingPoints, Is.EqualTo(2));
-            }
-            finally
-            {
-                if (Directory.Exists(runtimeRoot))
-                {
-                    Directory.Delete(runtimeRoot, recursive: true);
-                }
-
-                if (Directory.Exists(modelsRoot))
-                {
-                    Directory.Delete(modelsRoot, recursive: true);
-                }
-            }
-        }
-
-        [Test]
         public void SetupProfileFallsBackToTorchRuntime()
         {
             string runtimeRoot = Path.Combine(Path.GetTempPath(), "kimodo-quickserver-" + Guid.NewGuid().ToString("N"));

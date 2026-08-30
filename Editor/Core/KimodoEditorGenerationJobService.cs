@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -27,6 +28,11 @@ namespace KimodoBridge.Editor
         public KimodoEditorGenerationJobStatus Status;
         public KimodoEditorGenerationResult Payload;
         public DateTime StartedAtUtc;
+        public double? EstimatedSecondsRemaining;
+        public string EstimatedCompletionUtc = string.Empty;
+        public int ProgressCurrent;
+        public int ProgressTotal;
+        public double? ProgressRate;
 
         public bool IsRunning => Status == KimodoEditorGenerationJobStatus.Running;
     }
@@ -155,7 +161,36 @@ namespace KimodoBridge.Editor
                 session.Stage = stage;
                 session.Message = message ?? string.Empty;
                 session.Error = string.Empty;
+                UpdateEstimate(session);
             });
+        }
+
+        private static void UpdateEstimate(KimodoEditorGenerationJobSession session)
+        {
+            string message = session.Message ?? string.Empty;
+            Match eta = Regex.Match(message, @"ETA\s*(?:=|:)?\s*([0-9]+(?:\.[0-9]+)?)\s*s", RegexOptions.IgnoreCase);
+            if (eta.Success && double.TryParse(eta.Groups[1].Value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+            {
+                session.EstimatedSecondsRemaining = Math.Max(0d, seconds);
+                session.EstimatedCompletionUtc = DateTime.UtcNow.AddSeconds(seconds).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            Match progress = Regex.Match(message, @"(?:Generation progress:\s*)?(\d+)\s*/\s*(\d+).*?(?:@\s*)?([0-9]+(?:\.[0-9]+)?)\s*(?:it/s|frames?/s)", RegexOptions.IgnoreCase);
+            if (progress.Success && int.TryParse(progress.Groups[1].Value, out int current) &&
+                int.TryParse(progress.Groups[2].Value, out int total) &&
+                double.TryParse(progress.Groups[3].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double rate))
+            {
+                session.ProgressCurrent = current;
+                session.ProgressTotal = total;
+                session.ProgressRate = rate;
+            }
+            else if (session.Stage == KimodoBridgeCommandStage.InvokeBackend &&
+                     message.IndexOf("ETA", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                session.EstimatedSecondsRemaining = null;
+                session.EstimatedCompletionUtc = string.Empty;
+            }
         }
 
         private static void Complete(
@@ -172,6 +207,8 @@ namespace KimodoBridge.Editor
                 session.Message = message ?? string.Empty;
                 session.Error = string.Empty;
                 session.Payload = payload;
+                session.EstimatedSecondsRemaining = 0d;
+                session.EstimatedCompletionUtc = DateTime.UtcNow.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
             });
         }
 
@@ -183,6 +220,8 @@ namespace KimodoBridge.Editor
                 session.Status = KimodoEditorGenerationJobStatus.Failed;
                 session.Message = "Generation failed.";
                 session.Error = error ?? string.Empty;
+                session.EstimatedSecondsRemaining = null;
+                session.EstimatedCompletionUtc = string.Empty;
             });
         }
 
@@ -194,6 +233,8 @@ namespace KimodoBridge.Editor
                 session.Status = KimodoEditorGenerationJobStatus.Canceled;
                 session.Message = string.IsNullOrWhiteSpace(reason) ? "Generation canceled." : reason;
                 session.Error = string.Empty;
+                session.EstimatedSecondsRemaining = null;
+                session.EstimatedCompletionUtc = string.Empty;
             });
         }
 

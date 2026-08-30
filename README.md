@@ -40,7 +40,7 @@ Runtime diagnostics are written to `NvlabKimodoQuickServer~/log/setup.log` and `
 
 ## AI Agent Manual
 
-Read [SKILL.md](SKILL.md) as the installation and task entry point; it coordinates the capability tools in `tools/`. Command definitions are kept in [Command/help.json](Command/help.json).
+Read [SKILL.md](SKILL.md) as the installation and task entry point; it coordinates the capability tools in `tools/`. `kimodo_install_server` and `kimodo_generate_animation` are asynchronous and return a `request_id`; poll either with `kimodo_get_generation`. Command definitions are kept in [Command/help.json](Command/help.json).
 
 ## Developers and maintenance records
 
