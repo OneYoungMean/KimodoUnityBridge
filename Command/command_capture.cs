@@ -24,7 +24,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "34-neutral-ghost-color-blend";
+        private const string TestAnalysisPictureRenderVersion = "35-disable-project-fog";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
@@ -90,10 +90,13 @@ namespace KimodoUnityBridge.Command
                 ? session.PreviewScene
                 : EditorSceneManager.NewPreviewScene();
             bool ownsPreviewScene = !(session != null && session.PreviewScene.IsValid());
+            bool previousFogEnabled = RenderSettings.fog;
             Texture2D canvas;
             try
             {
                 analysisPreviewScene = previewScene;
+                // Analysis evidence must not inherit distance-based project fog.
+                RenderSettings.fog = false;
                 canvas = RenderPictureCanvas(
                     data,
                     tiles,
@@ -106,6 +109,7 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                RenderSettings.fog = previousFogEnabled;
                 analysisPreviewScene = previousPreviewScene;
                 if (ownsPreviewScene && previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
             }
