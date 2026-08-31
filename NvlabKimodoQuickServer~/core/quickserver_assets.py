@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 import multiprocessing
 import os
+import platform
+import sys
 from pathlib import Path
 from queue import Empty
 import shutil
@@ -141,6 +143,10 @@ def normalize_text_encoder_mode(value: str | None) -> str:
     return normalized
 
 
+def is_apple_silicon_host() -> bool:
+    return sys.platform == "darwin" and platform.machine().strip().lower() in {"arm64", "aarch64"}
+
+
 def resolve_text_encoder_runtime(
     mode: str | None,
     runtime_device: str | None,
@@ -158,9 +164,9 @@ def resolve_text_encoder_runtime(
 
     # Apple Silicon/MPS cannot reliably load the dynamic INT8 bundles produced
     # on x86 CPUs (for example, AMD/FBGEMM). Always use the portable FP16
-    # encoder route on Metal; it may still run on CPU when the memory budget or
-    # kernel probe does not allow MPS execution.
-    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION or device == "mps":
+    # encoder route on Apple Silicon, including CPU fallback when MPS is not
+    # available or the memory budget/kernel probe rejects it.
+    if resolved_mode == TEXT_ENCODER_MODE_HIGH_PRECISION or device == "mps" or is_apple_silicon_host():
         use_accelerator = (
             has_accelerator
             and fp16_accelerator_available

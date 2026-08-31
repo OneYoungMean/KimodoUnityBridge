@@ -81,6 +81,20 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
         fallback = assets.force_text_encoder_cpu(decision)
         self.assertEqual((fallback.encoder_route, fallback.encoder_device), ("fp16", "cpu"))
 
+    def test_apple_silicon_cpu_fallback_keeps_fp16_for_high_performance(self):
+        with patch.object(assets.sys, "platform", "darwin"), patch.object(
+            assets.platform, "machine", return_value="arm64"
+        ):
+            decision = self.resolve(
+                "high_performance",
+                48,
+                device="cpu",
+                nf4=True,
+                int8=True,
+                fp16=True,
+            )
+        self.assertEqual((decision.encoder_route, decision.encoder_device), ("fp16", "cpu"))
+
     def test_cpu_only_backend_ignores_reported_accelerator_memory(self):
         decision = self.resolve("high_precision", 48, device="cpu")
         self.assertEqual((decision.motion_device, decision.encoder_device), ("cpu", "cpu"))
