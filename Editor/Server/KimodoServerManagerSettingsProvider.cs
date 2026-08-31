@@ -281,6 +281,18 @@ namespace KimodoBridge.Editor
                 }
 
                 EditorGUI.BeginChangeCheck();
+                bool debugPreviewScene = EditorGUILayout.Toggle(
+                    new GUIContent(
+                        "Activate Preview Scene (Debug)",
+                        "After a Session opens, make its isolated Preview Scene the active editor scene so its contents are easier to inspect. The previous active scene is restored when the Session closes or changes."),
+                    settings.DebugPreviewScene);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.DebugPreviewScene = debugPreviewScene;
+                    settings.SaveSettings();
+                }
+
+                EditorGUI.BeginChangeCheck();
                 bool enableKimodoStaticGraph = EditorGUILayout.Toggle(
                     new GUIContent(
                         "Kimodo Static Graph",

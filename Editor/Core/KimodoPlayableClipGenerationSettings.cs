@@ -26,6 +26,9 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool enableDebugLog;
+        // Preview Scenes are isolated by default; keep the debug view enabled
+        // for existing projects unless the user explicitly turns it off.
+        [SerializeField] private bool debugPreviewScene = true;
         [SerializeField] private bool enableKimodoStaticGraph;
         [SerializeField] private bool enableSplineExperimental;
         [SerializeField] private bool setupWizardCompleted;
@@ -110,6 +113,12 @@ namespace KimodoBridge.Editor
         {
             get => enableDebugLog;
             set => enableDebugLog = value;
+        }
+
+        internal bool DebugPreviewScene
+        {
+            get => debugPreviewScene;
+            set => debugPreviewScene = value;
         }
 
         internal bool EnableKimodoStaticGraph

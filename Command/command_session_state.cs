@@ -48,6 +48,7 @@ namespace KimodoUnityBridge.Command
                     ActivateTimelineSession(existing);
                     PersistTimelineSessionMetadata(existing);
                     OpenTimelineWindow(existing.Director);
+                    TryActivatePreviewSceneForDebug(existing);
                     return Ok(new JObject { ["created"] = false, ["session"] = DescribeSession(existing) });
                 }
 
@@ -70,6 +71,7 @@ namespace KimodoUnityBridge.Command
                 }
                 PersistTimelineSessionMetadata(record);
                 OpenTimelineWindow(record.Director);
+                TryActivatePreviewSceneForDebug(record);
                 return Ok(new JObject { ["created"] = true, ["session"] = DescribeSession(record) });
             });
         }
@@ -95,6 +97,7 @@ namespace KimodoUnityBridge.Command
             DeactivateTimelineSession(record);
             PersistTimelineSessionMetadata(record);
             CloseTimelineWindow(record.TimelineAsset);
+            RestoreDebugActiveScene(record);
             EditorUtility.SetDirty(record.TimelineAsset);
             if (record.Director != null)
             {
@@ -125,6 +128,7 @@ namespace KimodoUnityBridge.Command
             DeactivateTimelineSession(current);
             PersistTimelineSessionMetadata(current);
             CloseTimelineWindow(current.TimelineAsset);
+            RestoreDebugActiveScene(current);
             EditorUtility.SetDirty(current.TimelineAsset);
             EditorUtility.SetDirty(current.Director);
             if (current.PreviewScene.IsValid())
@@ -158,6 +162,73 @@ namespace KimodoUnityBridge.Command
             }
             session.Director.Stop();
             session.Director.enabled = false;
+        }
+
+        private static void TryActivatePreviewSceneForDebug(TimelineSessionRecord session)
+        {
+            if (session == null || !KimodoPlayableClipGenerationSettings.instance.DebugPreviewScene ||
+                !session.PreviewScene.IsValid() || EditorSceneManager.IsPreviewScene(session.PreviewScene) == false)
+            {
+                return;
+            }
+
+            Scene current = SceneManager.GetActiveScene();
+            if (!current.IsValid() || current == session.PreviewScene)
+            {
+                return;
+            }
+
+            session.PreviousActiveScene = current;
+            try
+            {
+                if (SceneManager.SetActiveScene(session.PreviewScene))
+                {
+                    session.DebugPreviewSceneActivated = true;
+                    KimodoPlayableClipGenerationSettings.DebugLog(
+                        $"[Kimodo][Debug] Activated Preview Scene '{session.PreviewScene.name}' for Session '{session.Name}'.");
+                }
+                else
+                {
+                    session.PreviousActiveScene = default;
+                    Debug.LogWarning(
+                        $"[Kimodo][Debug] Unity rejected Preview Scene '{session.PreviewScene.name}' as the active scene; keeping the current scene.");
+                }
+            }
+            catch (Exception exception)
+            {
+                session.PreviousActiveScene = default;
+                Debug.LogWarning(
+                    $"[Kimodo][Debug] Could not activate Preview Scene '{session.PreviewScene.name}': {exception.Message}");
+            }
+        }
+
+        private static void RestoreDebugActiveScene(TimelineSessionRecord session)
+        {
+            if (session == null || !session.DebugPreviewSceneActivated)
+            {
+                return;
+            }
+
+            Scene previous = session.PreviousActiveScene;
+            session.DebugPreviewSceneActivated = false;
+            session.PreviousActiveScene = default;
+            if (SceneManager.GetActiveScene() != session.PreviewScene)
+            {
+                return;
+            }
+            if (!previous.IsValid() || !previous.isLoaded)
+            {
+                return;
+            }
+
+            try
+            {
+                SceneManager.SetActiveScene(previous);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning($"[Kimodo][Debug] Could not restore the previous active scene: {exception.Message}");
+            }
         }
 
         private static TimelineSessionRecord CreateTimelineSession(string requestedName, bool isAutomatic)
@@ -2113,6 +2184,8 @@ namespace KimodoUnityBridge.Command
             public bool IsAutomatic { get; }
             public KimodoCommandSessionMetadata Metadata { get; }
             public Scene PreviewScene { get; }
+            public Scene PreviousActiveScene { get; set; }
+            public bool DebugPreviewSceneActivated { get; set; }
             public bool AutoCloseWhenIdle { get; set; }
             public List<TimelineCharacterRecord> Characters { get; } = new List<TimelineCharacterRecord>();
         }

@@ -95,6 +95,25 @@ GENERATION_PROMPT = JOIN_EXPLICIT_FIELDS(
 # preparation/recovery structure, breathing, contacts, root displacement, or
 # other unstated semantics; preserve unknown abbreviations verbatim.
 
+## Context-first generation / 上下文优先生成
+
+```pseudo
+if request_names_one_or_more_actions():
+    related_clips = find_semantically_matching_clips_in_current_session(
+        character=CHARACTER,
+        actions=actions_named_by_request
+    )
+    record_context_evidence(related_clips)
+    if request_semantics_include_fix_or_variant_of_named_actions() and related_clips is empty:
+        record_context_evidence("No matching action clip found; this is a new baseline generation.")
+    if related_clips is not empty:
+        related_analysis = animation_analyze(related_clips, level="middle", resolution=512)
+        if request_explicitly_requires_reference_or_constraints():
+            build_constraints_only_from_explicitly_selected_related_frames(related_analysis)
+```
+
+匹配到已有动画是上下文发现，不等于自动复用其关键帧或轨迹；若没有匹配动画，报告未找到上下文后再按用户明确的文本要求生成。
+
 function execute_generate_skill(request):
     ASSERT not (
         REQUEST_IS_RANGE_OPERATION == YES and

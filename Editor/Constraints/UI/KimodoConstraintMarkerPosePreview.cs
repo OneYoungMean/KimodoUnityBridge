@@ -101,9 +101,9 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 SampleData = normalizedSample,
                 ConstraintType = marker.ConstraintType,
                 ConstraintMode = marker.ConstraintMode,
-                PreviewSemantic = marker.ConstraintMode == KimodoConstraintMode.Root2D
-                    ? ConstraintPreviewSemantic.BindPosePreview
-                    : ConstraintPreviewSemantic.ExistingFullBodyPreview,
+                // Root2D uses the same FK/root/IK pipeline as FullBody. Its
+                // only presentation difference is the single root handle.
+                PreviewSemantic = ConstraintPreviewSemantic.ExistingFullBodyPreview,
                 HandlesEnabled = handlesEnabled,
                 HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),
                 PreviewColor = previewColor,

@@ -12,8 +12,7 @@ namespace KimodoBridge.Editor
     internal enum ConstraintPreviewSemantic
     {
         ExistingFullBodyPreview,
-        InOutPosePreview,
-        BindPosePreview
+        InOutPosePreview
     }
 
     internal readonly struct PoseCacheRenderContext
@@ -213,7 +212,14 @@ namespace KimodoBridge.Editor
             string label,
             bool isRoot)
         {
-            Vector3 position = value.position;
+            // Root2D's control point is shown at the preview root node while
+            // the canonical payload remains the Hips/root world position.
+            // Keep this display-only Y offset out of the authored payload.
+            bool root2DHandle = isRoot && entry?.ConstraintMode == KimodoConstraintMode.Root2D;
+            float yOffset = root2DHandle && entry?.Root != null
+                ? entry.Root.position.y - value.position.y
+                : 0f;
+            Vector3 position = value.position + (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
             Quaternion rotation = value.rotation;
             float size = isRoot
                 ? Mathf.Max(0.1f, HandleUtility.GetHandleSize(position) * 0.1f)
@@ -260,7 +266,7 @@ namespace KimodoBridge.Editor
                 }
                 if (EditorGUI.EndChangeCheck())
                 {
-                    value.position = moved;
+                    value.position = moved - (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
@@ -282,7 +288,7 @@ namespace KimodoBridge.Editor
                 if (EditorGUI.EndChangeCheck())
                 {
                     bool rotationChanged = Quaternion.Angle(previousRotation, rotation) > 1e-4f;
-                    value.position = position;
+                    value.position = position - (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
                     value.rotation = rotation.normalized;
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
@@ -434,13 +440,11 @@ namespace KimodoBridge.Editor
                 var highlightedJoints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 CollectHighlightedJointsFromItem(item, context.ModelName, highlightedJoints);
 
-                bool applied = item.PreviewSemantic == ConstraintPreviewSemantic.BindPosePreview
-                    ? ApplyBindPoseToRig(item.SampleData, entry, out error)
-                    : ApplySampleToRig(
-                        KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData),
-                        context.ModelName,
-                        entry,
-                        out error);
+                bool applied = ApplySampleToRig(
+                    KimodoConstraintSampleComposer.ResolveUnifiedSample(item.SampleData),
+                    context.ModelName,
+                    entry,
+                    out error);
                 if (!applied)
                 {
                     error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
@@ -1080,48 +1084,6 @@ namespace KimodoBridge.Editor
                 }
                 entry.TargetCache.root.SetActive(wasActive);
             }
-        }
-
-        private static bool ApplyBindPoseToRig(
-            KimodoMarkerSampleResult sample,
-            ConstraintPosePreviewEntry entry,
-            out string error)
-        {
-            error = string.Empty;
-            RetargetSkeleton cache = entry?.TargetCache;
-            if (cache == null || cache.root == null)
-            {
-                error = "Constraint target skeleton cache is unavailable.";
-                return false;
-            }
-
-            KimodoRetargetClipSamplingUtility.ResetRetargetSkeletonPose(cache);
-            if (cache.animator != null)
-            {
-                cache.animator.enabled = false;
-            }
-
-            if (sample?.rootOverride == null ||
-                !KimodoConstraintMask.IsActive(sample, "rootposition"))
-            {
-                return true;
-            }
-
-            Transform root = cache.root.transform;
-            Vector3 bindPosition = root.position;
-            root.position = new Vector3(
-                sample.rootOverride.t.x,
-                bindPosition.y,
-                sample.rootOverride.t.z);
-
-            if (KimodoConstraintMask.IsActive(sample, "rootheading"))
-            {
-                Vector3 bindEuler = root.rotation.eulerAngles;
-                bindEuler.y = sample.rootOverride.q.eulerAngles.y;
-                root.rotation = Quaternion.Euler(bindEuler);
-            }
-
-            return true;
         }
 
         private static Color TargetColor(HumanBodyBones bone) =>

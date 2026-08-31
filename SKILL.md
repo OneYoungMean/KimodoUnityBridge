@@ -93,6 +93,7 @@ function run_kimodo_task(request):
 - 只使用运行时返回的安全角色名、动画名和 `{track,index}` 引用；生成结果的 `path` 是资产元数据，不是 Session Clip handle。
 - `session_get_or_create` 和 `session_add(kind=character)` 必须以当前活动场景中用户打开/选中的 `Animator` 所属角色为权威来源；不要从保存的 prefab 路径猜测角色。已有 prefab 实例直接使用，不创建持久化 prefab 副本（允许 Preview Scene 内存 clone）；仅当该场景角色不是 prefab 时，才在请求的输出目录创建一个 prefab 并继续使用它。
 - `session_get_or_create` 会建立专用 Preview Scene；角色复制到该场景时保留源角色组件（包括已有的 `CharacterController`），仅清空预览副本的 `Animator.runtimeAnimatorController`，后续制作、采样、分析和渲染均限定在该场景。
+- 只要生成请求点名动作（例如 walk/run），生成前必须检查当前场景对应 Session 中是否已有语义匹配的角色/动画；修复、改进、替换、续作或变体请求绝不能跳过这一步。找到的动画先作为上下文证据分析，只有请求明确要求参考、复用或约束时才传入生成约束。
 - 视觉结论必须建立在实际打开的返回图像上；静态证据不足时不得报告视觉通过。
 - 已完成 Clip 不覆盖；修正、Record、Retarget 和生成变体均追加派生 Clip。
 - 安装和生成都返回 `request_id`，并通过 `kimodo_get_generation` 轮询。安装终态为 `done` 或 `error`；生成终态为 `completed`、`failed` 或 `canceled`。轮询必须有固定间隔和总超时；过期或未知请求按失败/未验证报告。
