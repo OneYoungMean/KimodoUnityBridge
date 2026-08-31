@@ -13,6 +13,7 @@ import math
 import re
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import threading
 import time
@@ -371,6 +372,45 @@ def _try_reuse_existing_supervisor(serverport_path: Path, logger: SetupLogger) -
 
     logger.log(f"[INFO] Reusing active quickserver_cli at {host}:{port}")
     return True
+
+
+def _supervisor_is_reachable(serverport_path: Path) -> bool:
+    """Return whether serverport points at a currently reachable supervisor."""
+    data = _read_serverport(serverport_path)
+    host = str(data.get("host") or "").strip()
+    try:
+        port = int(str(data.get("port") or "").strip())
+    except ValueError:
+        return False
+    pid_text = str(data.get("pid") or "").strip()
+    if pid_text:
+        try:
+            if not _pid_is_running(int(pid_text)):
+                return False
+        except ValueError:
+            return False
+    return bool(host and port > 0 and _can_connect(host, port))
+
+
+def _preserve_and_clear_supervisor_log(log_path: Path) -> bool:
+    """Copy the previous log aside, then truncate the original path in place.
+
+    The original filename is intentionally never replaced: Unity's LogPump may
+    already hold that file open and must continue following the same inode/file
+    handle after QuickServer restarts.
+    """
+    path = Path(log_path)
+    if not path.exists():
+        return False
+    old_path = Path(str(path) + "_old")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, old_path)
+        with path.open("w", encoding="utf-8", newline=""):
+            pass
+        return True
+    except OSError:
+        return False
 
 
 def _write_serverport(path: Path, host: str, port: int, state_name: str) -> None:
@@ -2159,6 +2199,9 @@ def main(argv: list[str] | None = None, *, root_dir: str | None = None, source_r
     parser = _build_parser()
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     paths = discover_project_paths(root_dir)
+    supervisor_log_path = paths.log_dir / SUPERVISOR_LOG_FILE_NAME
+    if not _supervisor_is_reachable(paths.root_dir / "serverport"):
+        _preserve_and_clear_supervisor_log(supervisor_log_path)
     with _redirect_process_output(paths, args.output, args.log, SUPERVISOR_LOG_FILE_NAME):
         with _prepare_logger(paths, "file", args.log, SUPERVISOR_LOG_FILE_NAME, append=True) as logger:
             return _run_supervisor(args, str(paths.root_dir), logger)

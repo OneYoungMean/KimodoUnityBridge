@@ -386,7 +386,10 @@ namespace KimodoUnityBridge.Command
                         InstallTasks.Remove(InstallTasks.Keys.First());
                     }
                 }
-                EditorApplication.delayCall += () => _ = RunInstallServerTaskAsync(requestId);
+                EditorApplication.delayCall += async () =>
+                {
+                    await RunInstallServerTaskAsync(requestId);
+                };
                 return Ok(new JObject
                 {
                     ["request_id"] = requestId,

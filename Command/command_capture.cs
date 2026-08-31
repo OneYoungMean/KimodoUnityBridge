@@ -24,7 +24,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "33-root2d-pelvis-heading";
+        private const string TestAnalysisPictureRenderVersion = "34-neutral-ghost-color-blend";
         private const int PictureSupersample = 2;
         private const int AnalysisKeyframeCount = 8;
         private const int TestPoseSupersampleHeight = 2048;
@@ -1699,7 +1699,10 @@ namespace KimodoUnityBridge.Command
 
         private static Color FootTint(SubjectPictureData subject, int frame)
         {
-            return TryGetFootTransitionTint(subject, frame, out Color tint) ? tint : Color.white;
+            // Auxiliary samples are intentionally neutral.  Using white here
+            // makes every non-event pose wash out the source material when
+            // several poses are composited into a ghost/trajectory tile.
+            return TryGetFootTransitionTint(subject, frame, out Color tint) ? tint : Color.gray;
         }
 
         private static IReadOnlyList<int> FootTransitionFrames(SubjectPictureData subject)
@@ -1744,7 +1747,7 @@ namespace KimodoUnityBridge.Command
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
             if (IsKeyframe(subject, frame)) return Color.yellow;
-            return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.white;
+            return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.gray;
         }
 
         private static Color ResolveTestPoseTint(PictureTile tile, int frame, out bool keyframe, out bool footTransition)
@@ -1761,7 +1764,7 @@ namespace KimodoUnityBridge.Command
             if (keyframe) return Color.yellow;
             return footTransition && TryGetFootTransitionTint(subject, frame, out Color footTint)
                 ? footTint
-                : Color.white;
+                : Color.gray;
         }
 
         private static Color ResolveSingleTestPoseTint(PictureTile tile, int frame)
@@ -3024,12 +3027,18 @@ namespace KimodoUnityBridge.Command
         private static void SetMaterialTint(Material material, Color tint)
         {
             if (material == null) return;
-            // Unity has no universal `mainColor` field. These are shader
-            // property names: URP/HDRP Lit uses _BaseColor, HDRP Unlit uses
-            // _UnlitColor, and Built-in uses _Color.
-            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", tint);
-            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", tint);
-            if (material.HasProperty("_Color")) material.SetColor("_Color", tint);
+            // Keep the source material's colour and apply the evidence tint as
+            // a blend.  Replacing the base colour outright turns all neutral
+            // ghost samples into opaque white silhouettes and causes repeated
+            // alpha compositing to wash out the panel.
+            Color current = tint;
+            if (material.HasProperty("_BaseColor")) current = material.GetColor("_BaseColor");
+            else if (material.HasProperty("_UnlitColor")) current = material.GetColor("_UnlitColor");
+            else if (material.HasProperty("_Color")) current = material.GetColor("_Color");
+            Color blended = Color.Lerp(current, tint, .8f);
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", blended);
+            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", blended);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", blended);
         }
 
         private static void SetPreviewMaterialRenderQueue(GameObject preview, int renderQueue)
