@@ -736,11 +736,12 @@ namespace KimodoUnityBridge.Command
             Camera camera = CreateAnalysisPictureCamera(tileBounds, tile.Direction, tile.Orthographic);
             try
             {
-                Texture2D result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
+                Texture2D result = null;
                 if (tile.Presentation == "ghost")
                 {
                     List<int> frames = BuildGhostFrames(tile.Subject, out HashSet<int> promotedFrames);
                     bool separated = !tile.Subject.FirstBounds.Intersects(tile.Subject.LastBounds);
+                    var poses = new List<TestVirtualPose>();
                     for (int index = 0; index < frames.Count; index++)
                     {
                         int frame = frames[index];
@@ -749,11 +750,15 @@ namespace KimodoUnityBridge.Command
                         {
                             alpha = Mathf.Min(MaxPromotedGhostAlpha, alpha + StationaryTrajectoryAlphaBoost);
                         }
-                        RenderPoseOnto(result, camera, environment, tile.Subject, frame, ResolveGhostPoseTint(tile.Subject, frame), alpha);
+                        poses.Add(CreateGhostVirtualPose(tile.Subject, frame, ResolveGhostPoseTint(tile.Subject, frame), alpha));
                     }
+                    try { result = RenderGpuPoseLayers(camera, environment, poses, size, size,
+                        new Color(.12f, .12f, .12f, 1f), false); }
+                    finally { foreach (TestVirtualPose pose in poses) pose.Dispose(); }
                 }
                 else if (tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback")
                 {
+                    result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
                     Color tint = tile.Presentation == "key" ? Color.yellow : FootTint(tile.Subject, tile.Frame);
                     RenderPoseOnto(result, camera, environment, tile.Subject, tile.Frame, tint, 1f);
                 }
@@ -1065,16 +1070,41 @@ namespace KimodoUnityBridge.Command
             int height,
             Color background)
         {
+            return RenderGpuPoseLayers(camera, environment, poses, width, height, background, true);
+        }
+
+        private static Texture2D RenderGpuPoseLayers(
+            Camera camera,
+            IReadOnlyList<GameObject> environment,
+            IReadOnlyList<TestVirtualPose> poses,
+            int width,
+            int height,
+            Color background,
+            bool includeTrajectories)
+        {
+            ComputeShader composite = Resources.Load<ComputeShader>("KimodoPoseDepthComposite");
+            if (composite == null) throw new InvalidOperationException("KimodoPoseDepthComposite compute shader is unavailable.");
             Shader depthShader = Shader.Find("Hidden/Kimodo/PoseDepthEncode")
                 ?? throw new InvalidOperationException("Pose depth encoder shader is unavailable.");
+            RenderTexture accumulationColor = NewAnalysisRenderTexture(width, height, RenderTextureFormat.ARGB32, true);
+            RenderTexture accumulationDepth = NewAnalysisRenderTexture(width, height, RenderTextureFormat.RFloat, true);
+            RenderTexture baseLayer = null;
+            RenderTexture layer = null;
+            RenderTexture depth = null;
+            int groupsX = (width + 7) / 8;
+            int groupsY = (height + 7) / 8;
+            int initKernel = composite.FindKernel("InitDepth");
+            int poseKernel = composite.FindKernel("CompositePose");
+            int blendKernel = composite.FindKernel("BlendLayer");
             try
             {
-                // The floor and trajectories are a stable, opaque base layer.
                 SetEvidenceVisualsEnabled(environment, true);
-                Texture2D result = RenderCamera(camera, width, height, background);
-                Color[] resultPixels = result.GetPixels();
-                var nearestPoseDepth = new float[resultPixels.Length];
-                var hasPoseDepth = new bool[resultPixels.Length];
+                baseLayer = RenderCameraToTexture(camera, width, height, background, RenderTextureFormat.ARGB32, false);
+                Graphics.CopyTexture(baseLayer, accumulationColor);
+                composite.SetInt("_Width", width); composite.SetInt("_Height", height);
+                composite.SetInt("_ReversedZ", SystemInfo.usesReversedZBuffer ? 1 : 0);
+                composite.SetTexture(initKernel, "_AccumDepth", accumulationDepth);
+                composite.Dispatch(initKernel, groupsX, groupsY, 1);
 
                 SetEvidenceVisualsEnabled(environment, false);
                 foreach (TestVirtualPose pose in poses)
@@ -1082,54 +1112,85 @@ namespace KimodoUnityBridge.Command
                     SetPreviewRenderersEnabled(pose.Preview, true);
                     try
                     {
-                        Texture2D color = RenderCamera(camera, width, height, Color.clear);
-                        Texture2D depth = RenderCameraDepth(camera, depthShader, width, height);
-                        try
-                        {
-                            CompositeNearestPose(
-                                resultPixels,
-                                nearestPoseDepth,
-                                hasPoseDepth,
-                                color.GetPixels(),
-                                depth.GetPixels(),
-                                pose.Alpha);
-                        }
-                        finally
-                        {
-                            UnityEngine.Object.DestroyImmediate(color);
-                            UnityEngine.Object.DestroyImmediate(depth);
-                        }
+                        layer = RenderCameraToTexture(camera, width, height, Color.clear, RenderTextureFormat.ARGB32, false);
+                        depth = RenderCameraDepthToTexture(camera, depthShader, width, height);
+                        composite.SetFloat("_PoseAlpha", pose.UsesGhostMaterial ? 1f : pose.Alpha);
+                        composite.SetTexture(poseKernel, "_PoseColor", layer);
+                        composite.SetTexture(poseKernel, "_PoseDepth", depth);
+                        composite.SetTexture(poseKernel, "_BaseColor", baseLayer);
+                        composite.SetTexture(poseKernel, "_AccumColor", accumulationColor);
+                        composite.SetTexture(poseKernel, "_AccumDepth", accumulationDepth);
+                        composite.Dispatch(poseKernel, groupsX, groupsY, 1);
+                        RenderTexture.ReleaseTemporary(layer); layer = null;
+                        RenderTexture.ReleaseTemporary(depth); depth = null;
                     }
-                    finally
-                    {
-                        SetPreviewRenderersEnabled(pose.Preview, false);
-                    }
+                    finally { SetPreviewRenderersEnabled(pose.Preview, false); }
                 }
 
-                result.SetPixels(resultPixels);
-                result.Apply(false, false);
-                SetEvidenceVisualsEnabled(environment, false);
-                foreach (GameObject item in environment)
+                if (includeTrajectories)
                 {
-                    if (item == null) continue;
-                    foreach (LineRenderer line in item.GetComponentsInChildren<LineRenderer>(true)) line.enabled = true;
+                    SetEvidenceVisualsEnabled(environment, false);
+                    foreach (GameObject item in environment)
+                    {
+                        if (item == null) continue;
+                        foreach (LineRenderer line in item.GetComponentsInChildren<LineRenderer>(true)) line.enabled = true;
+                    }
+                    layer = RenderCameraToTexture(camera, width, height, Color.clear, RenderTextureFormat.ARGB32, false);
+                    composite.SetTexture(blendKernel, "_LayerColor", layer);
+                    composite.SetTexture(blendKernel, "_AccumColor", accumulationColor);
+                    composite.Dispatch(blendKernel, groupsX, groupsY, 1);
+                    RenderTexture.ReleaseTemporary(layer); layer = null;
                 }
-                Texture2D trajectoryLayer = RenderCamera(camera, width, height, Color.clear);
-                try
-                {
-                    Composite(result, trajectoryLayer, 1f);
-                }
-                finally
-                {
-                    UnityEngine.Object.DestroyImmediate(trajectoryLayer);
-                }
-                return result;
+                return ReadRenderTexture(accumulationColor, width, height);
             }
             finally
             {
+                if (layer != null) RenderTexture.ReleaseTemporary(layer);
+                if (depth != null) RenderTexture.ReleaseTemporary(depth);
+                if (baseLayer != null) RenderTexture.ReleaseTemporary(baseLayer);
+                RenderTexture.ReleaseTemporary(accumulationColor);
+                RenderTexture.ReleaseTemporary(accumulationDepth);
                 camera.targetTexture = null;
                 SetEvidenceVisualsEnabled(environment, true);
             }
+        }
+
+        private static RenderTexture NewAnalysisRenderTexture(int width, int height, RenderTextureFormat format, bool randomWrite, int depthBitsOverride = -1)
+        {
+            int depthBits = depthBitsOverride >= 0 ? depthBitsOverride : (format == RenderTextureFormat.ARGB32 ? 24 : 0);
+            var texture = RenderTexture.GetTemporary(width, height, depthBits, format);
+            texture.Release();
+            texture.enableRandomWrite = randomWrite;
+            texture.filterMode = FilterMode.Point;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.Create();
+            return texture;
+        }
+
+        private static RenderTexture RenderCameraToTexture(Camera camera, int width, int height, Color background, RenderTextureFormat format, bool randomWrite)
+        {
+            RenderTexture target = NewAnalysisRenderTexture(width, height, format, randomWrite);
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = background;
+            camera.targetTexture = target;
+            camera.Render();
+            camera.targetTexture = null;
+            return target;
+        }
+
+        private static RenderTexture RenderCameraDepthToTexture(Camera camera, Shader depthShader, int width, int height)
+        {
+            RenderTexture target = NewAnalysisRenderTexture(width, height, RenderTextureFormat.ARGBFloat, false, 24);
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.clear;
+            camera.targetTexture = target;
+            // Replace every pose renderer, including transparent ghost materials.
+            // Matching on RenderType would skip Kimodo/GhostFront (Transparent),
+            // leaving its depth at the clear value and making submission order
+            // determine which ghost survives the GPU composite.
+            camera.RenderWithShader(depthShader, null);
+            camera.targetTexture = null;
+            return target;
         }
 
         private static Texture2D RenderRoot2DPictureTile(PictureTile tile, int width, int height)
@@ -1240,100 +1301,6 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static Texture2D RenderCameraDepth(Camera camera, Shader depthShader, int width, int height)
-        {
-            RenderTexture renderTexture = RenderTexture.GetTemporary(
-                width,
-                height,
-                24,
-                RenderTextureFormat.ARGBFloat);
-            RenderTexture previous = RenderTexture.active;
-            try
-            {
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = Color.clear;
-                camera.targetTexture = renderTexture;
-                camera.RenderWithShader(depthShader, "RenderType");
-                RenderTexture.active = renderTexture;
-                var image = new Texture2D(width, height, TextureFormat.RGBAFloat, false);
-                image.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                image.Apply(false, false);
-                return image;
-            }
-            finally
-            {
-                RenderTexture.active = previous;
-                camera.targetTexture = null;
-                RenderTexture.ReleaseTemporary(renderTexture);
-            }
-        }
-
-        private static void CompositeNearestPose(
-            Color[] destination,
-            float[] nearestDepth,
-            bool[] hasDepth,
-            Color[] color,
-            Color[] depth,
-            float poseAlpha)
-        {
-            bool reversedZ = SystemInfo.usesReversedZBuffer;
-            for (int index = 0; index < destination.Length; index++)
-            {
-                Color source = color[index];
-                if (source.a <= .01f) continue;
-                float sourceDepth = depth[index].r;
-                bool isNearer = !hasDepth[index] ||
-                    (reversedZ ? sourceDepth > nearestDepth[index] : sourceDepth < nearestDepth[index]);
-                if (!isNearer) continue;
-
-                float alpha = Mathf.Clamp01(poseAlpha * source.a);
-                destination[index] = Color.Lerp(destination[index], source, alpha);
-                nearestDepth[index] = sourceDepth;
-                hasDepth[index] = true;
-            }
-        }
-
-        private static Material CreateTestPoseCompositeMaterial()
-        {
-            // Use the engine-provided transparent blit shader. Custom
-            // SV_Depth fullscreen passes crash Tuanjie/URP on some GPUs and
-            // render as the magenta error material; pose geometry itself still
-            // gets a fresh depth buffer in each camera.Render call above.
-            Shader shader = Shader.Find("Sprites/Default") ??
-                Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default") ??
-                Shader.Find("Unlit/Transparent");
-            if (shader == null)
-            {
-                throw new InvalidOperationException("No transparent pose composite shader is available.");
-            }
-            return new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-        }
-
-        private static void RenderTestPoseOnto(
-            Texture2D destination,
-            Camera camera,
-            IReadOnlyList<GameObject> environment,
-            TestVirtualPose pose)
-        {
-            // Render one sampled pose as opaque first.  A fresh depth buffer
-            // resolves every mesh on the character before its whole image is
-            // alpha-composited, avoiding transparent sorting between Mixamo's
-            // separate body and clothing renderers.
-            SetEvidenceVisualsEnabled(environment, false);
-            SetPreviewRenderersEnabled(pose.Preview, true);
-            Texture2D layer = RenderCamera(camera, destination.width, destination.height, new Color(0f, 0f, 0f, 0f));
-            try
-            {
-                Composite(destination, layer, pose.UsesGhostMaterial ? 1f : pose.Alpha);
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(layer);
-                SetPreviewRenderersEnabled(pose.Preview, false);
-                SetEvidenceVisualsEnabled(environment, true);
-            }
-        }
-
         private static TestPosePlan BuildTestPosePlan(SubjectPictureData subject, IReadOnlyList<int> frames)
         {
             GameObject source = CreateCanonicalPosePreview(subject.Subject.Character);
@@ -1377,6 +1344,20 @@ namespace KimodoUnityBridge.Command
             TintPreview(preview, tint, transientMaterials);
             SetPreviewRenderersEnabled(preview, false);
             return new TestVirtualPose(preview, transientMaterials, alpha, false);
+        }
+
+        private static TestVirtualPose CreateGhostVirtualPose(
+            SubjectPictureData subject,
+            int frame,
+            Color tint,
+            float alpha)
+        {
+            GameObject preview = CreateAnalysisPosePreview(subject, frame);
+            var transientMaterials = new List<Material>();
+            bool usesGhostMaterial = ConfigureTestGhostMaterial(preview, tint, alpha, transientMaterials);
+            if (!usesGhostMaterial) TintPreview(preview, tint, transientMaterials);
+            SetPreviewRenderersEnabled(preview, false);
+            return new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
         }
 
         private static void SetPreviewRenderersEnabled(GameObject preview, bool enabled)
@@ -2392,10 +2373,19 @@ namespace KimodoUnityBridge.Command
 
         private static Material MakeMaterial(Color color)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit") ??
-                Shader.Find("HDRP/Unlit") ??
-                Shader.Find("Sprites/Default") ??
-                Shader.Find("Standard");
+            string pipelineName = GraphicsSettings.currentRenderPipeline == null
+                ? string.Empty
+                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
+            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
+            Shader shader = isHdrp
+                ? Shader.Find("HDRP/Unlit")
+                : isUrp
+                    ? Shader.Find("Universal Render Pipeline/Unlit")
+                    : Shader.Find("Sprites/Default") ?? Shader.Find("Standard");
+            shader ??= Shader.Find("Sprites/Default") ?? Shader.Find("Standard");
             var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
             if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", color);
@@ -2979,6 +2969,17 @@ namespace KimodoUnityBridge.Command
                 return false;
             }
             if (!shader.isSupported) return false;
+            string pipelineName = GraphicsSettings.currentRenderPipeline == null
+                ? string.Empty
+                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
+            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isHdrp && (shader.name.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ||
+                           shader.name.StartsWith("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase))) return false;
+            if (isUrp && (shader.name.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ||
+                          shader.name.StartsWith("HDRP/", StringComparison.OrdinalIgnoreCase))) return false;
             return !ShaderUtil.ShaderHasError(shader);
         }
 
@@ -2994,7 +2995,7 @@ namespace KimodoUnityBridge.Command
                 pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
 
             string[] preferred = isHdrp
-                ? new[] { "HDRP/Lit" }
+                ? new[] { "HDRP/Unlit", "HDRP/Lit" }
                 : isUrp
                     ? new[] { "Universal Render Pipeline/Lit" }
                     : new[] { "Standard" };
