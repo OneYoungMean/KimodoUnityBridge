@@ -209,13 +209,7 @@ namespace KimodoUnityBridge.Command
 
         private static void AddInitialCharacter(TimelineSessionRecord session, string requestedName)
         {
-            bool isPath = requestedName.Contains("/");
-            GameObject[] matches = FindSceneMeshObjects()
-                .Where(item => item.scene != session.PreviewScene)
-                .Where(item => isPath
-                    ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
-                    : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+            GameObject[] matches = ResolveRequestedSceneCharacters(requestedName, session.PreviewScene);
             if (matches.Length != 1)
             {
                 throw new InvalidOperationException(matches.Length == 0
@@ -256,10 +250,9 @@ namespace KimodoUnityBridge.Command
             clone.name = source.name;
             clone.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
             SceneManager.MoveGameObjectToScene(clone, session.PreviewScene);
-            foreach (CharacterController controller in clone.GetComponentsInChildren<CharacterController>(true))
-            {
-                UnityEngine.Object.DestroyImmediate(controller);
-            }
+            // Preserve components from the source character. In particular, a
+            // pre-existing CharacterController is part of the authored rig and
+            // must not be removed merely because the clone is used for preview.
             foreach (Animator candidate in clone.GetComponentsInChildren<Animator>(true))
             {
                 candidate.runtimeAnimatorController = null;
@@ -287,6 +280,34 @@ namespace KimodoUnityBridge.Command
                     gameObject.scene.IsValid() && HasRenderableMesh(gameObject))
                 .GroupBy(gameObject => KimodoUnityObjectIdUtility.IdHash(gameObject))
                 .Select(group => group.First())
+                .ToArray();
+        }
+
+        private static GameObject[] ResolveRequestedSceneCharacters(string requestedName, Scene previewScene)
+        {
+            if (string.Equals(requestedName, "@active_animator", StringComparison.OrdinalIgnoreCase))
+            {
+                Animator activeAnimator = Selection.activeGameObject?.GetComponent<Animator>()
+                    ?? Selection.activeGameObject?.GetComponentInParent<Animator>()
+                    ?? Selection.activeGameObject?.GetComponentInChildren<Animator>(true);
+                if (activeAnimator == null || activeAnimator.gameObject.scene == previewScene ||
+                    !activeAnimator.gameObject.scene.IsValid() || EditorUtility.IsPersistent(activeAnimator))
+                {
+                    return Array.Empty<GameObject>();
+                }
+                if (activeAnimator.gameObject.scene != SceneManager.GetActiveScene())
+                {
+                    return Array.Empty<GameObject>();
+                }
+                return new[] { activeAnimator.transform.root.gameObject };
+            }
+
+            bool isPath = requestedName.Contains("/");
+            return FindSceneMeshObjects()
+                .Where(item => item.scene != previewScene)
+                .Where(item => isPath
+                    ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
         }
 
@@ -792,8 +813,12 @@ namespace KimodoUnityBridge.Command
                 return null;
             }
             string reference = root != null ? GetObjectReference(root) : string.Empty;
+            // Preview-scene clones carry a null GlobalObjectId, so the persisted
+            // CharacterRef (the source scene object) can never match the clone's
+            // reference. Fall back to the live object reference before giving up.
             TimelineCharacterRecord match = !string.IsNullOrWhiteSpace(reference)
                 ? session.Characters.FirstOrDefault(character => character.CharacterRef == reference)
+                    ?? session.Characters.FirstOrDefault(character => character.Root == root)
                 : session.Characters.FirstOrDefault(character =>
                     !string.IsNullOrWhiteSpace(name) &&
                     string.Equals(character.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -822,12 +847,7 @@ namespace KimodoUnityBridge.Command
                 if (kind == "character")
                 {
                     string requestedName = RequiredStringValue(arguments, "character");
-                    bool isPath = requestedName.Contains("/");
-                    GameObject[] matches = FindSceneMeshObjects()
-                        .Where(item => item.scene != session.PreviewScene)
-                        .Where(item => isPath
-                            ? string.Equals(GetSceneHierarchyPath(item), requestedName, StringComparison.OrdinalIgnoreCase)
-                            : string.Equals(item.name, requestedName, StringComparison.OrdinalIgnoreCase))
+                    GameObject[] matches = ResolveRequestedSceneCharacters(requestedName, session.PreviewScene)
                         .Where(item => session.Characters.All(character => character.Root != item))
                         .ToArray();
                     if (matches.Length != 1)

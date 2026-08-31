@@ -79,10 +79,10 @@ namespace KimodoUnityBridge.Command
                         "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
                         Properties()),
                     CommandDefinition(SessionGetOrCreateCommand,
-                        "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally copy a scene character into the Preview Scene at creation.",
+                        "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
                         Properties(
                             Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."),
-                            Optional("character", "string", "Optional scene character name or hierarchy path to copy into the Preview Scene."))),
+                            Optional("character", "string", "Optional scene character name or hierarchy path; use @active_animator to use the currently selected/open Animator character."))),
                     CommandDefinition(SessionGetRawCommand,
                         "Resolve a named Session character, track, clip, or constraint to portable Unity object metadata for external API or tool interop; the result includes guid, asset_guid, path, object_type, and optional character.",
                         Properties(
@@ -93,11 +93,11 @@ namespace KimodoUnityBridge.Command
                         "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
                         Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
                     CommandDefinition(SessionAddCommand,
-                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object; kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
+                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object (use character=@active_animator for the selected/open Animator); kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredEnum("kind", "character", "clip", "animator"),
-                            Required("character", "string", "Scene character name/path for kind=character, or target Session character name otherwise."),
+                            Required("character", "string", "Scene character name/path for kind=character, or @active_animator for the currently selected/open Animator; target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),

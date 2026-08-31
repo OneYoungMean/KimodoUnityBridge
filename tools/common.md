@@ -11,8 +11,9 @@ description: Shared execution contract for all Kimodo capability tools.
 
 - 只使用用户明确提供的 source、target、range、pose、path 和 constraint。
 - `session_get_or_create` 立即创建并返回专用 Preview Scene；后续生成、采样、分析和渲染均在该场景执行。场景仅包含基础地面、灯光、角色和 Timeline Director。
-- `session_add(kind="character")` 将源角色复制到 Preview Scene，移除所有 `CharacterController`，清空 `Animator.runtimeAnimatorController`，保留 Humanoid Avatar。
+- `session_add(kind="character")` 将源角色复制到 Preview Scene，保留源角色组件（包括已有的 `CharacterController`），仅清空预览副本的 `Animator.runtimeAnimatorController`，保留 Humanoid Avatar。
 - `session_add` 只添加缺少且明确请求的角色、Clip 或 Animator。
+- 角色来源优先级固定为当前活动场景中用户打开/选中的 `Animator` 所属角色；不得用保存的 prefab 路径替代活动场景对象。已有 prefab 实例直接使用，不创建持久化 prefab 副本（允许 Preview Scene 内存 clone）；非 prefab 场景对象仅在请求的输出目录创建一个 prefab 后使用。
 - 后续命令只使用运行时返回的安全名称和 `{track,index}` 引用。
 - 关闭或切换 Session 可能取消活动生成；报告中必须保留该副作用。
 

@@ -39,8 +39,9 @@ namespace KimodoUnityBridge.Command
         private const int StationaryTrajectoryMinFrames = 10;
         private const float StationaryTrajectoryAlphaBoost = .1f;
         private const float MaxPromotedGhostAlpha = .75f;
-        private static readonly Color TestStartFrameTint = new Color(57f / 255f, 197f / 255f, 187f / 255f, 1f);
-        private static readonly Color TestEndFrameTint = new Color(217f / 255f, 58f / 255f, 73f / 255f, 1f);
+        private static readonly Color TestStartFrameTint = new Color(.35f, .65f, .62f, 1f);
+        private static readonly Color TestEndFrameTint = new Color(.78f, .35f, .40f, 1f);
+        private static readonly Color TestKeyframeTint = new Color(.82f, .70f, .22f, 1f);
         private static Scene analysisPreviewScene;
 
         private static JObject RenderAnalysisPictures(
@@ -779,7 +780,7 @@ namespace KimodoUnityBridge.Command
                 else if (tile.Presentation == "key" || tile.Presentation == "foot_contact" || tile.Presentation == "foot_fallback")
                 {
                     result = RenderCamera(camera, size, new Color(.12f, .12f, .12f, 1f));
-                    Color tint = tile.Presentation == "key" ? Color.yellow : FootTint(tile.Subject, tile.Frame);
+                    Color tint = tile.Presentation == "key" ? TestKeyframeTint : FootTint(tile.Subject, tile.Frame);
                     RenderPoseOnto(result, camera, environment, tile.Subject, tile.Frame, tint, 1f);
                 }
                 return result;
@@ -1240,7 +1241,7 @@ namespace KimodoUnityBridge.Command
                 int clamped = Mathf.Clamp(frame, 0, Math.Max(0, groundPoints.Length - 1));
                 Vector3 origin = groundPoints.Length > 0 ? groundPoints[clamped] : Vector3.zero;
                 Color tint = clamped == 0 ? TestStartFrameTint :
-                    clamped == groundPoints.Length - 1 ? TestEndFrameTint : Color.yellow;
+                    clamped == groundPoints.Length - 1 ? TestEndFrameTint : TestKeyframeTint;
                 CreateGroundMarker(environment, origin, .13f, tint);
                 Vector3 forward = SampleRootForward(subject, clamped);
                 CreateHeadingArrow(environment, origin, forward, .45f, tint);
@@ -1519,7 +1520,7 @@ namespace KimodoUnityBridge.Command
                         Color current = material.HasProperty("_BaseColor")
                             ? material.GetColor("_BaseColor")
                             : material.color;
-                        Color result = Color.Lerp(current, tint, .8f);
+                        Color result = Color.Lerp(current, tint, .7f);
                         if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", result);
                         if (material.HasProperty("_Color")) material.SetColor("_Color", result);
                     }
@@ -1751,7 +1752,7 @@ namespace KimodoUnityBridge.Command
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
-            if (IsKeyframe(subject, frame)) return Color.yellow;
+            if (IsKeyframe(subject, frame)) return TestKeyframeTint;
             return TryGetFootTransitionTint(subject, frame, out Color footTint) ? footTint : Color.gray;
         }
 
@@ -1766,7 +1767,7 @@ namespace KimodoUnityBridge.Command
                 tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
-            if (keyframe) return Color.yellow;
+            if (keyframe) return TestKeyframeTint;
             return footTransition && TryGetFootTransitionTint(subject, frame, out Color footTint)
                 ? footTint
                 : Color.gray;
@@ -1777,7 +1778,7 @@ namespace KimodoUnityBridge.Command
             int lastFrame = Math.Max(0, tile.Subject.Pelvis.Length - 1);
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
-            if (string.Equals(tile.PoseKind, "keyframe", StringComparison.Ordinal)) return Color.yellow;
+            if (string.Equals(tile.PoseKind, "keyframe", StringComparison.Ordinal)) return TestKeyframeTint;
             if (string.Equals(tile.PoseKind, "foot_transition", StringComparison.Ordinal) &&
                 TryGetFootTransitionTint(tile.Subject, frame, out Color footTint))
             {
@@ -3062,7 +3063,7 @@ namespace KimodoUnityBridge.Command
             if (material.HasProperty("_BaseColor")) current = material.GetColor("_BaseColor");
             else if (material.HasProperty("_UnlitColor")) current = material.GetColor("_UnlitColor");
             else if (material.HasProperty("_Color")) current = material.GetColor("_Color");
-            Color blended = Color.Lerp(current, tint, .8f);
+            Color blended = Color.Lerp(current, tint, .7f);
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", blended);
             if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", blended);
             if (material.HasProperty("_Color")) material.SetColor("_Color", blended);

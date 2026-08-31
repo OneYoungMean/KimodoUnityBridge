@@ -36,7 +36,7 @@
     },
     {
       "name": "session_get_or_create",
-      "description": "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally copy a scene character into the Preview Scene at creation.",
+      "description": "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -46,7 +46,7 @@
           },
           "character": {
             "type": "string",
-            "description": "Optional scene character name or hierarchy path to copy into the Preview Scene."
+            "description": "Optional scene character name or hierarchy path; use @active_animator to use the currently selected/open Animator character."
           }
         },
         "required": [],
@@ -93,7 +93,7 @@
     },
     {
       "name": "session_add",
-      "description": "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object; kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
+      "description": "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object (use character=@active_animator for the selected/open Animator); kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -111,7 +111,7 @@
           },
           "character": {
             "type": "string",
-            "description": "Scene character name/path for kind=character, or target Session character name otherwise."
+            "description": "Scene character name/path for kind=character, or @active_animator for the currently selected/open Animator; target Session character name otherwise."
           },
           "clip": {
             "type": "string",
