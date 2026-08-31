@@ -91,12 +91,27 @@ namespace KimodoUnityBridge.Command
                 : EditorSceneManager.NewPreviewScene();
             bool ownsPreviewScene = !(session != null && session.PreviewScene.IsValid());
             bool previousFogEnabled = RenderSettings.fog;
+            RenderPipelineAsset previousGraphicsPipeline = GraphicsSettings.renderPipelineAsset;
+            RenderPipelineAsset previousQualityPipeline = QualitySettings.renderPipeline;
+            string pipelineTypeName = previousGraphicsPipeline?.GetType().FullName ?? string.Empty;
+            bool suspendScriptablePipeline = previousGraphicsPipeline != null &&
+                (pipelineTypeName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                 pipelineTypeName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0);
             Texture2D canvas;
             try
             {
                 analysisPreviewScene = previewScene;
                 // Analysis evidence must not inherit distance-based project fog.
                 RenderSettings.fog = false;
+                // SRP editor Camera.Render paths do not render objects in an
+                // isolated preview scene reliably across HDRP/URP versions.
+                // Render this evidence pass with the built-in backend, then
+                // restore the project's pipeline.
+                if (suspendScriptablePipeline)
+                {
+                    GraphicsSettings.renderPipelineAsset = null;
+                    QualitySettings.renderPipeline = null;
+                }
                 canvas = RenderPictureCanvas(
                     data,
                     tiles,
@@ -109,6 +124,11 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                if (suspendScriptablePipeline)
+                {
+                    GraphicsSettings.renderPipelineAsset = previousGraphicsPipeline;
+                    QualitySettings.renderPipeline = previousQualityPipeline;
+                }
                 RenderSettings.fog = previousFogEnabled;
                 analysisPreviewScene = previousPreviewScene;
                 if (ownsPreviewScene && previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
@@ -2980,6 +3000,8 @@ namespace KimodoUnityBridge.Command
                            shader.name.StartsWith("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase))) return false;
             if (isUrp && (shader.name.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ||
                           shader.name.StartsWith("HDRP/", StringComparison.OrdinalIgnoreCase))) return false;
+            if (!isHdrp && !isUrp && (shader.name.StartsWith("HDRP/", StringComparison.OrdinalIgnoreCase) ||
+                                      shader.name.StartsWith("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase))) return false;
             return !ShaderUtil.ShaderHasError(shader);
         }
 
