@@ -1601,8 +1601,36 @@ namespace KimodoUnityBridge.Command
             }
             if (KimodoRawMotionUtility.TryParseFlatBuffer(motionBytes, out KimodoRawMotionData motion, out _) && motion.FrameCount > 0)
             {
-                startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
-                frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
+                // KMB uses the model's native time base (Kimodo is normally
+                // 30 FPS), while a Timeline Session is fixed at 60 FPS. The
+                // analysis contract is consumed by Session-frame renderers,
+                // so analyze a time-base-aligned copy instead of treating
+                // native model frame numbers as Session frame numbers.
+                int sessionFrameCount = Math.Max(1, Mathf.RoundToInt(
+                    (float)(animation.TimelineDurationSeconds * frameRate)));
+                if (sessionFrameCount != motion.FrameCount ||
+                    !Mathf.Approximately(motion.FrameRate, frameRate))
+                {
+                    if (!KimodoRawMotionUtility.TryResample(
+                            motion,
+                            frameRate,
+                            sessionFrameCount,
+                            out KimodoRawMotionData aligned,
+                            out string resampleError))
+                    {
+                        throw new InvalidOperationException(
+                            $"Analysis motion time-base alignment failed: {resampleError}");
+                    }
+                    motion = aligned;
+                    motionBytes = KimodoRawMotionUtility.ToFlatBuffer(motion, ResolveModelName(null));
+                    startFrame = 0;
+                    frameCount = sessionFrameCount;
+                }
+                else
+                {
+                    startFrame = Mathf.Clamp(startFrame, 0, motion.FrameCount - 1);
+                    frameCount = Mathf.Clamp(frameCount, 1, motion.FrameCount - startFrame);
+                }
             }
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             var input = new KimodoEditorAnalysisInput

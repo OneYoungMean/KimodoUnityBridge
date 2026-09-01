@@ -95,14 +95,47 @@ GENERATION_PROMPT = JOIN_EXPLICIT_FIELDS(
 # preparation/recovery structure, breathing, contacts, root displacement, or
 # other unstated semantics; preserve unknown abbreviations verbatim.
 
+## Animation source discovery / 动画来源发现
+
+当请求涉及修复、替换、参考或查找某个动作时，必须先检查场景角色的
+`Animator.runtimeAnimatorController` 及其 BlendTree 实际引用的 AnimationClip，
+不能先在 `KimodoGeneratedClips` 目录中按名称搜索。
+
+```pseudo
+controller_clips = clips_referenced_by_current_character_controller(CHARACTER)
+source_clip = first_semantic_match(
+    controller_clips,
+    prefer_assets_outside = "Assets/KimodoGeneratedClips"
+)
+
+if source_clip is empty:
+    source_clip = first_semantic_match(
+        clips_referenced_by_other_scene_controllers(CHARACTER),
+        prefer_assets_outside = "Assets/KimodoGeneratedClips"
+    )
+
+if source_clip is empty:
+    source_clip = first_semantic_match(clips_under = "Assets/KimodoGeneratedClips")
+```
+
+`source: "added"` 只表示 Clip 被加入 Session，不能证明它是原始动画。
+Controller 中的实际 AnimationClip 引用优先；生成目录中的 Clip 只能作为后备来源。
+
 ## Context-first generation / 上下文优先生成
 
 ```pseudo
 if request_names_one_or_more_actions():
-    related_clips = find_semantically_matching_clips_in_current_session(
+    related_clips = find_semantically_matching_controller_clips_first(
         character=CHARACTER,
-        actions=actions_named_by_request
+        actions=actions_named_by_request,
+        prefer_assets_outside="Assets/KimodoGeneratedClips"
     )
+    if related_clips is empty:
+        related_clips = find_semantically_matching_clips_in_current_session(
+            character=CHARACTER,
+            actions=actions_named_by_request,
+            prefer_assets_outside="Assets/KimodoGeneratedClips"
+        )
     record_context_evidence(related_clips)
     if request_semantics_include_fix_or_variant_of_named_actions() and related_clips is empty:
         record_context_evidence("No matching action clip found; this is a new baseline generation.")
@@ -261,6 +294,14 @@ function execute_generate_skill(request):
 
     if SHOULD_LOOP == YES:
         args.loop = true
+
+    if request_semantics_contain_explicit_facing_or_path_direction():
+        SHOULD_OVERRIDE_PATH_DIRECTIONS = YES
+        PATH_BEGIN_YAW_DEGREES = resolve_absolute_unity_yaw_from_scene_context(
+            CHARACTER,
+            DIRECTION_OR_PATH
+        )
+        PATH_END_YAW_DEGREES = PATH_BEGIN_YAW_DEGREES
 
     if SHOULD_OVERRIDE_PATH_DIRECTIONS == YES:
         // Supply both values deliberately; do not rely on the omitted-peer default.
@@ -523,6 +564,38 @@ ASSERT same_frame_precedence_is_fullbody_then_root2d_then_effectors()
 ASSERT no_source_target_range_pose_path_contact_or_constraint_is_invented()
 ASSERT completed_outputs_are_preserved_and_corrections_are_derived_outputs()
 ASSERT failed_canceled_or_fallback_results_are_reported_as_returned()
+
+## Root path and path-angle constraints / Root 路径统一采样
+
+`root_path` 与 `path_begin_angle_degrees/path_end_angle_degrees` 使用同一条
+稀疏 Root2D 约束管线。两者的区别仅在路径采样对象：
+
+```pseudo
+sample_frames = union(
+    clip_start_frame,
+    clip_end_frame,
+    frames_already_containing_root2d_or_fullbody_constraints
+)
+
+if ROOT_PATH:
+    path_samples = sample_animationclip_root_trajectory(root_path.source_clip)
+if PATH_ANGLE_OVERRIDE:
+    first_pass_clip = materialize_first_pass_motion_as_transient_animationclip()
+    path_samples = sample_animationclip_root_trajectory_with_angles(
+        first_pass_clip,
+        path_begin_angle_degrees,
+        path_end_angle_degrees
+    )
+
+emit_one_sparse_root2d_constraint(path_samples, sample_frames)
+```
+
+路径约束默认只在起点、终点和当前 Clip 已有约束帧采样；固定 heading
+覆盖是独立选项，只有显式启用时才可按其采样间隔增加帧。不得把路径默认展开为
+每一帧一个 Root2D 约束。路径和姿态均应通过实际 `AnimationClip` 采样。PathAngle
+的第一遍生成结果在最终 Clip 写回前，应先物化为临时 `AnimationClip`（或使用等价
+的 Clip 采样器），然后与 `root_path` 走同一套采样和稀疏约束导出逻辑；不能仅凭
+prompt 推断轨迹数据。
 
 if evidence_is_static_only():
     LOOP_SEAMLESSNESS       = UNKNOWN

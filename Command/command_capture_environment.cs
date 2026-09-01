@@ -872,7 +872,10 @@ namespace KimodoUnityBridge.Command
         {
             var signature = new JObject
             {
-                ["contract"] = "animation_analysis_picture_v3",
+                // v4 aligns native KMB analysis frames to the 60 FPS Session
+                // time base before keyframe/contact extraction. Do not reuse
+                // v3 caches, whose markers are in the model's native FPS.
+                ["contract"] = "animation_analysis_picture_v4",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
                 ["rig_type"] = IsHumanoidCharacter(character) ? "humanoid" : "mesh",
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,

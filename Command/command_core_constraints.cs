@@ -62,6 +62,11 @@ namespace KimodoUnityBridge.Command
                     .OfType<JObject>()
                     .Where(item => item["root2d"] is JObject)
                     .Select(item => RequiredNonNegativeFrame(item, "frame")));
+                var existingConstraintFrames = new HashSet<int>(constraints
+                    .OfType<JObject>()
+                    .Where(item => item["root_path"] == null)
+                    .Select(item => item.Value<int?>("frame") ?? -1)
+                    .Where(frame => frame >= 0 && frame < durationFrames));
                 var occupiedPathFrames = new HashSet<int>();
                 for (int i = 0; i < constraints.Count; i++)
                 {
@@ -74,7 +79,7 @@ namespace KimodoUnityBridge.Command
                                 $"constraints[{i}].frame must be within [0,{durationFrames}).");
                         }
                         PoseReference reference = RequirePoseReference(rootPath["path"] as JObject);
-                        pathSamples.AddRange(BuildRootPathConstraints(
+                        pathSamples.AddRange(BuildRootPathConstraintsSparse(
                             RequirePathMarker(reference).PathData,
                             i,
                             startFrame,
@@ -82,6 +87,7 @@ namespace KimodoUnityBridge.Command
                             targetRootHeight,
                             targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f,
                             explicitRootFrames,
+                            existingConstraintFrames,
                             occupiedPathFrames));
                     }
                 }
@@ -157,7 +163,7 @@ namespace KimodoUnityBridge.Command
             return samples;
         }
 
-        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
+        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraintsSparse(
             KimodoRootPathData path,
             int constraintIndex,
             int startFrame,
@@ -165,6 +171,7 @@ namespace KimodoUnityBridge.Command
             float targetRootHeight,
             float targetHumanScale,
             ISet<int> explicitRootFrames,
+            ISet<int> existingConstraintFrames,
             ISet<int> occupiedPathFrames)
         {
             List<KimodoRootPathKnot> knots = path?.knots;
@@ -186,19 +193,31 @@ namespace KimodoUnityBridge.Command
                 ? path.length / sourceLength * retargetScale
                 : retargetScale;
             int endFrame = durationFrames - 1;
-            for (int frame = startFrame; frame <= endFrame; frame++)
+            var sampleFrames = new SortedSet<int>(existingConstraintFrames ?? new HashSet<int>())
             {
+                startFrame,
+                endFrame
+            };
+            foreach (int frame in sampleFrames)
+            {
+                if (frame < startFrame || frame > endFrame)
+                {
+                    continue;
+                }
                 if (!occupiedPathFrames.Add(frame))
                 {
                     throw new InvalidOperationException("root_path frame ranges cannot overlap.");
                 }
             }
 
-            int frameCount = endFrame - startFrame + 1;
-            var result = new List<KimodoMarkerSampleResult>(frameCount);
-            for (int frame = startFrame; frame <= endFrame; frame++)
+            var result = new List<KimodoMarkerSampleResult>(sampleFrames.Count);
+            foreach (int frame in sampleFrames)
             {
-                float progress = frameCount <= 1 ? 0f : (frame - startFrame) / (float)(frameCount - 1);
+                if (frame < startFrame || frame > endFrame)
+                {
+                    continue;
+                }
+                float progress = endFrame <= startFrame ? 0f : (frame - startFrame) / (float)(endFrame - startFrame);
                 float pathTime = path.inverse ? 1f - progress : progress;
                 EvaluatePath(knots, pathTime, out Vector2 position, out Vector2 tangent);
                 position *= scale;
@@ -221,6 +240,29 @@ namespace KimodoUnityBridge.Command
                 }
             }
             return result;
+        }
+
+        // Compatibility entry retained for older reflection-based callers.
+        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
+            KimodoRootPathData path,
+            int constraintIndex,
+            int startFrame,
+            int durationFrames,
+            float targetRootHeight,
+            float targetHumanScale,
+            ISet<int> explicitRootFrames,
+            ISet<int> occupiedPathFrames)
+        {
+            return BuildRootPathConstraintsSparse(
+                path,
+                constraintIndex,
+                startFrame,
+                durationFrames,
+                targetRootHeight,
+                targetHumanScale,
+                explicitRootFrames,
+                new HashSet<int>(Enumerable.Range(startFrame, Math.Max(0, durationFrames - startFrame))),
+                occupiedPathFrames);
         }
 
         private static Vector2 EvaluatePathHeading(IReadOnlyList<KimodoRootPathKnot> knots, float time)

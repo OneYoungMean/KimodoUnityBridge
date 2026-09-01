@@ -562,6 +562,20 @@ namespace KimodoUnityBridge.Command
                     ? ReadFiniteFloat(arguments["path_end_angle_degrees"], "path_end_angle_degrees")
                     : 0f;
                 bool overridePathAngle = hasPathBeginAngle || hasPathEndAngle;
+                // Directional language is part of the generation contract,
+                // not merely prompt decoration. When callers omit explicit
+                // PathAngle values, resolve the character's current planar
+                // yaw and use it for both path endpoints. Explicit values
+                // always take precedence.
+                if (!overridePathAngle && TryResolvePromptPathAngles(
+                        prompt,
+                        character.Root,
+                        out float inferredPathAngle))
+                {
+                    pathBeginAngleDegrees = inferredPathAngle;
+                    pathEndAngleDegrees = inferredPathAngle;
+                    overridePathAngle = true;
+                }
                 bool overrideHeading = arguments["override_heading_degrees"] != null;
                 float headingDegrees = overrideHeading
                     ? ReadFiniteFloat(arguments["override_heading_degrees"], "override_heading_degrees")
@@ -696,6 +710,35 @@ namespace KimodoUnityBridge.Command
                 }
                 return Started(generation, startedResponse);
             });
+        }
+
+        private static bool TryResolvePromptPathAngles(
+            string prompt,
+            GameObject characterRoot,
+            out float yawDegrees)
+        {
+            yawDegrees = 0f;
+            string text = (prompt ?? string.Empty).Trim().ToLowerInvariant();
+            if (text.Length == 0 || characterRoot == null)
+            {
+                return false;
+            }
+            bool hasMotion = text.Contains("walk") || text.Contains("run") ||
+                text.Contains("move") || text.Contains("step") || text.Contains("jog");
+            bool hasDirection = text.Contains("forward") || text.Contains("backward") ||
+                text.Contains("backwards") || text.Contains("straight") ||
+                text.Contains("left") || text.Contains("right");
+            if (!hasMotion || !hasDirection)
+            {
+                return false;
+            }
+
+            float offset = 0f;
+            if (text.Contains("backward") || text.Contains("backwards")) offset = 180f;
+            else if (text.Contains("left")) offset = -90f;
+            else if (text.Contains("right")) offset = 90f;
+            yawDegrees = Mathf.Repeat(characterRoot.transform.eulerAngles.y + offset + 180f, 360f) - 180f;
+            return true;
         }
 
         private static async Task<KimodoEditorGenerationResult> ExecutePlayableClipGenerationAsync(
