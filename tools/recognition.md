@@ -10,18 +10,16 @@ opens the returned composite image, and returns one semantic choice plus a
 machine-readable motion profile. Never infer semantics from an asset filename,
 candidate order, clip id, or saliency alone.
 
-## Multiple-choice semantic identification / 四选一语义识别
+## Semantic identification
 
-Suite A semantic questions provide one anonymous `clip_id` and exactly four
-deliberately separated action descriptions. Analyze only that target clip once,
-then choose one label (`A`, `B`, `C`, or `D`) from the opened analysis image and
-temporal evidence. The four options must differ in action or phase
-(for example `walk loop`, `run loop`, `walk start`, `turn left`), not merely in
-speed, wording, or an arbitrary suffix. Return only the selected label in the
-answer field; keep the evidence and confidence in separate fields.
+When a caller supplies semantic alternatives, compare them against the opened
+analysis image and temporal evidence. Alternatives must differ in observable
+action or phase, not merely in speed, wording, or an arbitrary suffix. Return
+the selected semantic, evidence, and confidence as separate fields; the caller
+owns any external answer-label or scoring format.
 
 ```pseudo
-function identify_semantics(question, character_ref, clip_ref):
+function identify_semantics(alternatives, character_ref, clip_ref):
     session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
     character = ensure_character_in_session(session, character_ref)
     clip = ensure_clip_in_session(session, character, clip_ref)
@@ -41,10 +39,9 @@ function identify_semantics(question, character_ref, clip_ref):
         picture_map,
         structured_support = analysis.clips[0]
     )
-    choice = choose_one_of_four(question.options, observations)
+    choice = choose_semantic(alternatives, observations)
     profile = derive_motion_profile(analysis.clips[0], observations)
     return {
-        answer: choice.label,
         semantic: choice.semantic,
         profile: profile,
         evidence: observations,
@@ -108,8 +105,7 @@ or heading different from the observed source.
   only after `pose_get` materializes that frame and the generation request
   explicitly includes the returned `{track,index}` pose.
 
-ASSERT answer_label_is_one_of_A_B_C_D()
-ASSERT option_semantics_are_distinct_enough_to_be_visually_decidable()
+ASSERT alternatives_are_distinct_enough_to_be_visually_decidable()
 ASSERT filename_order_ids_and_saliency_are_not_semantic_proof()
 ASSERT endpoint_pose_comparison_reports_complete_root_motion()
 ASSERT override_decisions_are_not_invented_without_task_semantics()

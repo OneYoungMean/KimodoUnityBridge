@@ -7,6 +7,8 @@ description: Install KimodoUnityBridge and route Unity animation work through it
 
 根 Skill 只负责安装门槛、任务入口、工具编排和统一结果；公共规则见 `tools/common.md`，具体命令参数由各工具在调用边界校验。
 
+本文件及同目录 `tools/*.md` 是已导入 `com.unity.kimodo_unity_motion_tools` package 的唯一权威 Skill 文档。使用项目入口时，必须先定位该 package 根目录，再按相对路径读取这里的文档；不得使用外部复制的旧工具文档。
+
 ```pseudo
 # Shared states / 公共状态
 #define YES             1

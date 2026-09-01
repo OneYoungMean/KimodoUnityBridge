@@ -12,7 +12,7 @@ description: Prepare, reuse, and close the current animation Session and load on
 Session 不再创建或切换 Unity Preview Scene。每个 Session 使用一个不保存的根 GameObject；关闭或切换时仅禁用旧根对象，便于在编辑器中检查历史对象。
 
 - 新 Session 默认为空；只添加请求明确指定的角色、Clip 或 Animator。
-- `kind=character` 的角色必须从当前活动场景中用户打开/选中的 `Animator` 所属对象解析；调用 `session_get_or_create` 或 `session_add` 时使用 `character="@active_animator"`，不要根据默认 prefab、题库路径或磁盘中同名资产替代它。优先使用已有 prefab 实例；只有对象不是 prefab 时，才在请求的输出目录创建一个 prefab，不得创建已有 prefab 的持久化副本。
+- `kind=character` 的角色必须从当前活动场景中用户打开/选中的 `Animator` 所属对象解析；调用 `session_get_or_create` 或 `session_add` 时使用 `character="@active_animator"`，不要根据默认 prefab、外部资产路径或磁盘中同名资产替代它。优先使用已有 prefab 实例；只有对象不是 prefab 时，才在请求的输出目录创建一个 prefab，不得创建已有 prefab 的持久化副本。
 - 始终复用运行时返回的安全名称，不用文件名、显示标签或猜测名称替代。
 - 切换或关闭 Session 可能取消活动生成；有活动任务时先读取其状态并在报告中说明影响。
 - `session_close` 只关闭编辑上下文，保留 Timeline、资产和 Session JSON。
