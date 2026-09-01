@@ -74,7 +74,8 @@ namespace KimodoBridge
         /// <summary>
         /// Captures the scene-facing targets from the rebuilt skeleton. The
         /// caller establishes whether that Transform space is world or track;
-        /// values are never HumanPose body-space values.
+        /// positions are world/track-space positions, while effector rotations
+        /// use the transport delta returned by ResolveEffectorTransportRotation.
         /// </summary>
         internal static void CaptureWorldTargets(
             RetargetSkeleton cache,
@@ -154,8 +155,8 @@ namespace KimodoBridge
                 return currentWorld;
             }
 
-            // This world-space delta is the final rotation sent directly to
-            // AnimationHumanStream.SetGoalRotation for every effector.
+            // Transport a world-space rotation delta. Hand IK restores the
+            // absolute bone rotation before converting to Humanoid goal space.
             return currentWorld * Quaternion.Inverse(initialWorld);
         }
 

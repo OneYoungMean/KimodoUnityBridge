@@ -314,10 +314,8 @@ namespace KimodoBridge
                 Vector3 position,
                 Quaternion rotation)
             {
-                bool isHand = goal == AvatarIKGoal.LeftHand || goal == AvatarIKGoal.RightHand;
-
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled && !isHand ? 1f : 0f);
+                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
                 if (!enabled)
                 {
                     return;
@@ -451,13 +449,13 @@ namespace KimodoBridge
             any |= job.solveRightFoot = KimodoConstraintMask.IsActive(sample, "rightfoot");
 
             if (!TryResolveTarget(sample.effectors.leftHand, job.solveLeftHand,
-                    HumanBodyBones.LeftHand, out job.leftHandPosition, out job.leftHandRotation, out error) ||
+                    HumanBodyBones.LeftHand, cache, out job.leftHandPosition, out job.leftHandRotation, out error) ||
                 !TryResolveTarget(sample.effectors.rightHand, job.solveRightHand,
-                    HumanBodyBones.RightHand, out job.rightHandPosition, out job.rightHandRotation, out error) ||
+                    HumanBodyBones.RightHand, cache, out job.rightHandPosition, out job.rightHandRotation, out error) ||
                 !TryResolveTarget(sample.effectors.leftFoot, job.solveLeftFoot,
-                    HumanBodyBones.LeftFoot, out job.leftFootPosition, out job.leftFootRotation, out error) ||
+                    HumanBodyBones.LeftFoot, cache, out job.leftFootPosition, out job.leftFootRotation, out error) ||
                 !TryResolveTarget(sample.effectors.rightFoot, job.solveRightFoot,
-                    HumanBodyBones.RightFoot, out job.rightFootPosition, out job.rightFootRotation, out error))
+                    HumanBodyBones.RightFoot, cache, out job.rightFootPosition, out job.rightFootRotation, out error))
             {
                 return false;
             }
@@ -468,6 +466,7 @@ namespace KimodoBridge
             KimodoRigidTransform value,
             bool enabled,
             HumanBodyBones bone,
+            RetargetSkeleton cache,
             out Vector3 position,
             out Quaternion rotation,
             out string error)
@@ -485,9 +484,31 @@ namespace KimodoBridge
                 return false;
             }
             position = value.t;
-            // Effector q is already the final IKGoal rotation. Do not convert
-            // it back through skeleton-root or bind space here.
-            rotation = value.q;
+            if (bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand)
+            {
+                if (cache == null ||
+                    !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+                {
+                    error = $"Cannot resolve bind world rotation for hand effector '{bone}'.";
+                    return false;
+                }
+
+                // Effector q is a world-space delta. Restore the absolute bone
+                // rotation, then convert it to Unity's Humanoid IK-goal space.
+                Quaternion currentWorld = value.q * initialWorld;
+                Quaternion postRotation = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(
+                    cache.avatar,
+                    (int)bone);
+                Quaternion goalOffset = bone == HumanBodyBones.LeftHand
+                    ? new Quaternion(0.707107f, 0f, 0.707107f, 0f)
+                    : new Quaternion(0f, 0.707107f, 0f, 0.707107f);
+                rotation = (currentWorld * postRotation * goalOffset).normalized;
+            }
+            else
+            {
+                // Foot effectors retain their existing transport protocol.
+                rotation = value.q;
+            }
             return true;
         }
 
