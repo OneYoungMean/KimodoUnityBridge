@@ -202,8 +202,7 @@ namespace KimodoBridge
                 Vector3 root = ToProtocolPosition(data.rootPosition);
                 roots.Add(new JArray(root.x, root.z));
                 Quaternion heading = ResolveRootRotation(data);
-                Vector3 forward = heading * Vector3.forward;
-                forward.y = 0f;
+                Vector3 forward = KimodoMotionMath.ResolvePlanarHeading(heading) * Vector3.forward;
                 if (forward.sqrMagnitude <= 1e-8f) forward = Vector3.forward;
                 forward.Normalize();
                 headings.Add(new JArray(forward.z, -forward.x));
@@ -260,8 +259,8 @@ namespace KimodoBridge
             virtualHeadPosition.y = first.rootPosition.y;
             virtualTailPosition.y = tail.rootPosition.y;
 
-            float firstYaw = ResolvePlanarYaw(firstRotation);
-            float tailYaw = ResolvePlanarYaw(tailRotation);
+            float firstYaw = KimodoMotionMath.ResolvePlanarYawDegrees(firstRotation);
+            float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(tailRotation);
             float yawDelta = Mathf.DeltaAngle(firstYaw, tailYaw);
             Quaternion virtualHeadHeading = Quaternion.Euler(0f, firstYaw - yawDelta * headRatio, 0f);
             Quaternion virtualTailHeading = Quaternion.Euler(0f, tailYaw + yawDelta * tailRatio, 0f);
@@ -587,8 +586,7 @@ namespace KimodoBridge
 
         private static JArray BuildProtocolHeading(Quaternion heading)
         {
-            Vector3 forward = heading * Vector3.forward;
-            forward.y = 0f;
+            Vector3 forward = KimodoMotionMath.ResolvePlanarHeading(heading) * Vector3.forward;
             if (forward.sqrMagnitude <= 1e-8f) forward = Vector3.forward;
             forward.Normalize();
             return new JArray(forward.z, -forward.x);
@@ -601,13 +599,6 @@ namespace KimodoBridge
                 throw new InvalidOperationException("Raw motion FullBody frame has no root rotation.");
             }
             return KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(frame.localJointAxisAngles[0]);
-        }
-
-        private static float ResolvePlanarYaw(Quaternion rotation)
-        {
-            Vector3 forward = rotation * Vector3.forward;
-            forward.y = 0f;
-            return forward.sqrMagnitude <= 1e-8f ? 0f : Quaternion.LookRotation(forward).eulerAngles.y;
         }
 
         private static JArray BuildProtocolJoints(IReadOnlyList<Vector3> jointAxisAngles)

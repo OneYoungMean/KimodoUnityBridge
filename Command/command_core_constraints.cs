@@ -53,11 +53,6 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
-                // Fullbody FK sampling mutates the shared cache pose. Capture the
-                // profile root height once so later root2d constraints do not
-                // inherit the previous fullbody pose's transient hips height.
-                float targetRootHeight = ResolveTargetRootHeight(targetCache);
-
                 var explicitRootFrames = new HashSet<int>(constraints
                     .OfType<JObject>()
                     .Where(item => item["root2d"] is JObject)
@@ -84,7 +79,6 @@ namespace KimodoUnityBridge.Command
                             i,
                             startFrame,
                             durationFrames,
-                            targetRootHeight,
                             targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f,
                             explicitRootFrames,
                             existingConstraintFrames,
@@ -136,7 +130,7 @@ namespace KimodoUnityBridge.Command
                     }
                     if (root2D != null)
                     {
-                        samples.Add(BuildRoot2DConstraint(root2D, targetRootHeight, at, i));
+                        samples.Add(BuildRoot2DConstraint(root2D, at, i));
                     }
 
                     for (int part = 0; part < endEffectors.Length; part++)
@@ -168,7 +162,6 @@ namespace KimodoUnityBridge.Command
             int constraintIndex,
             int startFrame,
             int durationFrames,
-            float targetRootHeight,
             float targetHumanScale,
             ISet<int> explicitRootFrames,
             ISet<int> existingConstraintFrames,
@@ -235,7 +228,7 @@ namespace KimodoUnityBridge.Command
                 {
                     result.Add(CreateRoot2DSample(
                         frame,
-                        new Vector3(position.x, targetRootHeight, position.y),
+                        new Vector3(position.x, 0f, position.y),
                         new Vector3(tangent.x, 0f, tangent.y).normalized));
                 }
             }
@@ -248,7 +241,6 @@ namespace KimodoUnityBridge.Command
             int constraintIndex,
             int startFrame,
             int durationFrames,
-            float targetRootHeight,
             float targetHumanScale,
             ISet<int> explicitRootFrames,
             ISet<int> occupiedPathFrames)
@@ -258,7 +250,6 @@ namespace KimodoUnityBridge.Command
                 constraintIndex,
                 startFrame,
                 durationFrames,
-                targetRootHeight,
                 targetHumanScale,
                 explicitRootFrames,
                 new HashSet<int>(Enumerable.Range(startFrame, Math.Max(0, durationFrames - startFrame))),
@@ -359,7 +350,6 @@ namespace KimodoUnityBridge.Command
 
         private static KimodoMarkerSampleResult BuildRoot2DConstraint(
             JObject value,
-            float targetRootHeight,
             double sampleTime,
             int constraintIndex)
         {
@@ -389,7 +379,9 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
                 }
-                rootPosition = new Vector3(position.x, targetRootHeight, position.y);
+                // Root2D owns only XZ and heading. Its Y payload is ignored by
+                // the shared pose pipeline, which keeps authored vertical motion.
+                rootPosition = new Vector3(position.x, 0f, position.y);
                 rootRotation = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
             }
             else if (value?["pose"] == null)
@@ -503,20 +495,6 @@ namespace KimodoUnityBridge.Command
             sample.enableMask = KimodoConstraintMask.ForType(type);
             sample.sampleTime = sampleTime;
             sample.enabled = true;
-        }
-
-        internal static float ResolveTargetRootHeight(RetargetSkeleton targetCache)
-        {
-            if (targetCache != null &&
-                targetCache.GetBonePose(
-                    HumanBodyBones.Hips,
-                    out Vector3 hipsPosition,
-                    out _))
-            {
-                return hipsPosition.y;
-            }
-
-            return 0f;
         }
 
         private static JObject Route(string intent, string command, string next = null)

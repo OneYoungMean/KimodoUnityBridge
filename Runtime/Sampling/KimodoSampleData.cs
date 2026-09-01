@@ -99,3 +99,96 @@ namespace KimodoBridge
         }
     }
 }
+
+namespace KimodoBridge
+{
+    /// <summary>
+    /// Shared math for a Humanoid sample's complete root motion.
+    /// Root2D is a planar navigation override only; the sampled root's Y,
+    /// pitch and roll remain motion data and are never discarded here.
+    /// </summary>
+    public static class KimodoMotionMath
+    {
+        public readonly struct PoseDelta
+        {
+            public PoseDelta(float meanBodyMuscleDelta, Vector3 rootPositionDelta,
+                Vector3 rootRotationDeltaEulerDegrees, float rootRotationDeltaDegrees)
+            {
+                MeanBodyMuscleDelta = meanBodyMuscleDelta;
+                RootPositionDelta = rootPositionDelta;
+                RootRotationDeltaEulerDegrees = rootRotationDeltaEulerDegrees;
+                RootRotationDeltaDegrees = rootRotationDeltaDegrees;
+            }
+
+            public float MeanBodyMuscleDelta { get; }
+            public Vector3 RootPositionDelta { get; }
+            public Vector3 RootRotationDeltaEulerDegrees { get; }
+            public float RootRotationDeltaDegrees { get; }
+            public float RootHeightDelta => RootPositionDelta.y;
+            public float RootPitchDeltaDegrees => RootRotationDeltaEulerDegrees.x;
+            public float RootYawDeltaDegrees => RootRotationDeltaEulerDegrees.y;
+            public float RootRollDeltaDegrees => RootRotationDeltaEulerDegrees.z;
+        }
+
+        public static PoseDelta Compare(MuscleSample origin, MuscleSample target)
+        {
+            if (!KimodoSampleDataLayout.IsValid(origin) || !KimodoSampleDataLayout.IsValid(target))
+                throw new ArgumentException("Motion comparison requires two valid Humanoid samples.");
+            origin.GetRoot(out Vector3 originPosition, out Quaternion originRotation);
+            target.GetRoot(out Vector3 targetPosition, out Quaternion targetRotation);
+            return Compare(origin, target, originPosition, originRotation, targetPosition, targetRotation);
+        }
+
+        public static PoseDelta Compare(MuscleSample origin, MuscleSample target,
+            Vector3 originRootPosition, Quaternion originRootRotation,
+            Vector3 targetRootPosition, Quaternion targetRootRotation)
+        {
+            if (!KimodoSampleDataLayout.IsValid(origin) || !KimodoSampleDataLayout.IsValid(target))
+                throw new ArgumentException("Motion comparison requires two valid Humanoid samples.");
+            float bodyDelta = 0f;
+            for (int index = 0; index < KimodoSampleDataLayout.BodyMuscleCount; index++)
+                bodyDelta += Mathf.Abs(target.data[index] - origin.data[index]);
+            Quaternion relativeRotation = Quaternion.Inverse(NormalizeRotation(originRootRotation)) *
+                NormalizeRotation(targetRootRotation);
+            return new PoseDelta(bodyDelta / KimodoSampleDataLayout.BodyMuscleCount,
+                targetRootPosition - originRootPosition, SignedEulerDegrees(relativeRotation),
+                Quaternion.Angle(NormalizeRotation(originRootRotation), NormalizeRotation(targetRootRotation)));
+        }
+
+        public static Quaternion ResolvePlanarHeading(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(NormalizeRotation(rotation) * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > 1e-8f
+                ? Quaternion.LookRotation(forward.normalized, Vector3.up) : Quaternion.identity;
+        }
+
+        public static float ResolvePlanarYawDegrees(Quaternion rotation) => ResolvePlanarHeading(rotation).eulerAngles.y;
+
+        public static Vector3 RelativeEulerDegrees(Quaternion origin, Quaternion target) =>
+            SignedEulerDegrees(Quaternion.Inverse(NormalizeRotation(origin)) * NormalizeRotation(target));
+
+        public static Vector3 ApplyPlanarPosition(Vector3 completePosition, Vector3 planarPosition) =>
+            new Vector3(planarPosition.x, completePosition.y, planarPosition.z);
+
+        public static Quaternion ApplyPlanarHeading(Quaternion completeRotation, Quaternion planarHeading)
+        {
+            Quaternion currentHeading = ResolvePlanarHeading(completeRotation);
+            Quaternion desiredHeading = ResolvePlanarHeading(planarHeading);
+            return (desiredHeading * Quaternion.Inverse(currentHeading) * NormalizeRotation(completeRotation)).normalized;
+        }
+
+        private static Quaternion NormalizeRotation(Quaternion rotation)
+        {
+            float magnitudeSquared = rotation.x * rotation.x + rotation.y * rotation.y +
+                rotation.z * rotation.z + rotation.w * rotation.w;
+            return magnitudeSquared > 1e-8f ? rotation.normalized : Quaternion.identity;
+        }
+
+        private static Vector3 SignedEulerDegrees(Quaternion rotation)
+        {
+            Vector3 euler = NormalizeRotation(rotation).eulerAngles;
+            return new Vector3(Mathf.DeltaAngle(0f, euler.x), Mathf.DeltaAngle(0f, euler.y),
+                Mathf.DeltaAngle(0f, euler.z));
+        }
+    }
+}

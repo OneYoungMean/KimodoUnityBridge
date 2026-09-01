@@ -11,11 +11,11 @@ description: Shared execution contract for all Kimodo capability tools.
 
 - 只使用用户明确提供的 source、target、range、pose、path 和 constraint。
 - 只要生成请求指定了动作，先检查当前活动场景对应 Session 中的语义匹配动画；“修复/改进/替换/续作/变体 + 指定动作”绝不能跳过这一步。检查结果要记录为上下文证据，不能把发现的动画自动升级为生成约束。
-- `session_get_or_create` 立即创建并返回专用 Preview Scene；后续生成、采样、分析和渲染均在该场景执行。场景仅包含基础地面、灯光、角色和 Timeline Director。
-- `Activate Preview Scene (Debug)` 项目设置默认开启；Session 打开后会尝试激活其 Preview Scene 供编辑器检查，关闭或切换时恢复之前的活动场景。若 Unity 拒绝激活 Preview Scene，则保持隔离模式并记录警告。
-- `session_add(kind="character")` 将源角色复制到 Preview Scene，保留源角色组件（包括已有的 `CharacterController`），仅清空预览副本的 `Animator.runtimeAnimatorController`，保留 Humanoid Avatar。
+- `session_get_or_create` 立即创建并返回专用可见 Session GameObject；后续生成、采样、分析和渲染均在该对象下执行。对象仅包含基础地面、灯光、角色和 Timeline Director。
+- Session 切换时只激活当前 Session 根对象，旧 Session 根对象保持禁用但不销毁，便于调试。
+- `session_add(kind="character")` 将源角色复制到 Session 根对象，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`，保留 Humanoid Avatar。
 - `session_add` 只添加缺少且明确请求的角色、Clip 或 Animator。
-- 角色来源优先级固定为当前活动场景中用户打开/选中的 `Animator` 所属角色；不得用保存的 prefab 路径替代活动场景对象。已有 prefab 实例直接使用，不创建持久化 prefab 副本（允许 Preview Scene 内存 clone）；非 prefab 场景对象仅在请求的输出目录创建一个 prefab 后使用。
+- 角色来源优先级固定为当前活动场景中用户打开/选中的 `Animator` 所属角色；不得用保存的 prefab 路径替代活动场景对象。已有 prefab 实例直接使用，不创建持久化 prefab 副本；非 prefab 场景对象仅在请求的输出目录创建一个 prefab 后使用。
 - 后续命令只使用运行时返回的安全名称和 `{track,index}` 引用。
 - 关闭或切换 Session 可能取消活动生成；报告中必须保留该副作用。
 

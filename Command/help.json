@@ -36,7 +36,7 @@
     },
     {
       "name": "session_get_or_create",
-      "description": "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
+      "description": "Create the current animation Session and its dedicated visible Session GameObject, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -135,7 +135,7 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, delta-Y samples, distance/speed/heading metrics, and source human scale; the path is stored on the Pose Cache Track for reuse. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, vertical motion, root pitch/roll samples, distance/speed/heading metrics, source human scale, endpoint_pose_comparison (body muscles plus complete root position/rotation), and motion_profile (loop/path/heading/vertical/tilt evidence plus deferred override decisions); the path is stored on the Pose Cache Track for reuse. Root2D is a planar XZ/heading override and never suppresses sampled Y, pitch, or roll. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {

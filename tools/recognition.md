@@ -1,180 +1,115 @@
 ---
 name: kimodo-animation-recognition
-description: Recognize whether a Session animation satisfies explicitly stated motion criteria.
+description: Identify a Session animation's semantic action from visual evidence and expose the motion profile needed by generation.
 ---
 
 # Recognition tool / Recognition 工具
 
-## Decision program / 决策程序
+Recognition is an evidence step, not a generation step. It analyzes one clip,
+opens the returned composite image, and returns one semantic choice plus a
+machine-readable motion profile. Never infer semantics from an asset filename,
+candidate order, clip id, or saliency alone.
+
+## Multiple-choice semantic identification / 四选一语义识别
+
+Suite A semantic questions provide one anonymous `clip_id` and exactly four
+deliberately separated action descriptions. Analyze only that target clip once,
+then choose one label (`A`, `B`, `C`, or `D`) from the opened analysis image and
+temporal evidence. The four options must differ in action or phase
+(for example `walk loop`, `run loop`, `walk start`, `turn left`), not merely in
+speed, wording, or an arbitrary suffix. Return only the selected label in the
+answer field; keep the evidence and confidence in separate fields.
 
 ```pseudo
-#define YES             1
-#define NO              0
-#define UNKNOWN        -1
-#define NOT_APPLICABLE -2
-
-#define RESULT_MATCH                 "match"
-#define RESULT_NOT_MATCH             "not_match"
-#define RESULT_INSUFFICIENT_EVIDENCE "insufficient_evidence"
-
-// Fill from the request; do not infer omitted semantics.
-// 根据请求填写，不能补写请求未提供的语义。
-TARGET_ACTION          = REQUIRED("<action / 动作>")
-TARGET_PHASE           = OPTIONAL("<phase / 阶段>")
-TARGET_DIRECTION       = OPTIONAL("<character-relative direction / 角色相对方向>")
-TARGET_PATH            = OPTIONAL("<path / 路径>")
-TARGET_BODY_STATE      = OPTIONAL("<body state / 身体状态>")
-TARGET_CONTACT_STATE   = OPTIONAL("<contact state / 接触状态>")
-TARGET_ENDING_OR_LOOP  = OPTIONAL("<ending or loop / 结束或循环>")
-TARGET_STYLE           = OPTIONAL("<relevant style / 相关风格>")
-
-#define ACTION_REQUIRED         YES
-#define PHASE_REQUIRED          is_present(TARGET_PHASE)
-#define DIRECTION_REQUIRED      is_present(TARGET_DIRECTION)
-#define PATH_REQUIRED           is_present(TARGET_PATH)
-#define BODY_REQUIRED           is_present(TARGET_BODY_STATE)
-#define CONTACT_REQUIRED        is_present(TARGET_CONTACT_STATE)
-#define ENDING_OR_LOOP_REQUIRED is_present(TARGET_ENDING_OR_LOOP)
-#define STYLE_REQUIRED          is_present(TARGET_STYLE)
-
-#define VISUAL_OPENED       UNKNOWN
-#define ACTION_MATCH        UNKNOWN
-#define PHASE_MATCH         UNKNOWN
-#define DIRECTION_MATCH     UNKNOWN
-#define PATH_MATCH          UNKNOWN
-#define BODY_MATCH          UNKNOWN
-#define CONTACT_MATCH       UNKNOWN
-#define ENDING_OR_LOOP_MATCH UNKNOWN
-#define STYLE_MATCH         UNKNOWN
-
-function recognize(request, character_ref, clip_ref):
+function identify_semantics(question, character_ref, clip_ref):
     session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
-    session_id = session.session_id
-    // Add only missing content and keep the safe names returned by the runtime.
-    // 只添加 Session 中缺少的内容，并使用运行时返回的安全名称。
-    if character_ref is not a safe name in session.session.characters:
-        added_character = session_add({
-            session_id: session_id,
-            kind: "character",
-            character: character_ref
-        })
-        character_ref = added_character.character.name
-
-    if clip_ref is not a safe animation name under character_ref:
-        added_clip = session_add({
-            session_id: session_id,
-            kind: "clip",
-            character: character_ref,
-            clip: clip_ref
-        })
-        clip_ref = added_clip.animation.name
-
+    character = ensure_character_in_session(session, character_ref)
+    clip = ensure_clip_in_session(session, character, clip_ref)
     analysis = animation_analyze({
-        session_id: session_id,
-        clips: [{
-            role: "source",
-            character: character_ref,
-            clip: clip_ref
-        }],
+        session_id: session.session_id,
+        clips: [{role: "source", character: character, clip: clip}],
         level: "middle",
         resolution: 512
     })
 
     image_path = analysis.pictures.image_path
     picture_map = analysis.pictures.images
-    VISUAL_OPENED = OPEN_WITH_AVAILABLE_VISUAL_TOOL(image_path)
+    ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image_path) == YES
 
-    // Structured Humanoid trajectory supports the image judgment; it never replaces it.
-    // Humanoid 结构化轨迹仅支持图像判断，不能替代图像判断。
-    trajectory_support = {
-        path:                   analysis.clips[0].root_trajectory.path,
-        samples:                analysis.clips[0].root_trajectory.samples,
-        path_length_xz:         analysis.clips[0].root_trajectory.path_length_xz,
-        net_displacement_xz:    analysis.clips[0].root_trajectory.net_displacement_xz,
-        net_distance_xz:        analysis.clips[0].root_trajectory.net_distance_xz,
-        average_speed_xz:       analysis.clips[0].root_trajectory.average_speed_xz,
-        heading_change_degrees: analysis.clips[0].root_trajectory.heading_change_degrees,
-        delta_y_range:          analysis.clips[0].root_trajectory.delta_y_range
-    } if present else NOT_APPLICABLE
-
-    EVALUATION_PROMPT = """
-    Target / 目标:
-      action={TARGET_ACTION}; phase={TARGET_PHASE};
-      direction={TARGET_DIRECTION}; path={TARGET_PATH};
-      body={TARGET_BODY_STATE}; contact={TARGET_CONTACT_STATE};
-      ending_or_loop={TARGET_ENDING_OR_LOOP}; style={TARGET_STYLE}.
-
-    Inspect the returned images in temporal order and keep each observation
-    mapped to this animation. Judge action and phase first. Use direction,
-    path, body, contact, ending/loop, and style only when marked REQUIRED.
-    Resolve direction from character forward plus observed trajectory.
-    Structured trajectory may support, but may not replace, visual evidence.
-
-    按时间顺序检查返回图像，始终保持证据与本动画对应。先判断动作和阶段；
-    仅判断标记为 REQUIRED 的方向、路径、身体、接触、结束/循环与风格。
-    方向依据角色前向和观察轨迹；结构化轨迹只能辅助，不能替代视觉证据。
-
-    Fill each *_MATCH with YES, NO, UNKNOWN, or NOT_APPLICABLE.
-    对每个 *_MATCH 只填写 YES、NO、UNKNOWN 或 NOT_APPLICABLE。
-    """
-
-    observations = fill_match_macros_from(
-        prompt = EVALUATION_PROMPT,
-        visual = image_path,
-        picture_map = picture_map,
-        structured_support = trajectory_support
+    observations = inspect_temporal_tiles(
+        image_path,
+        picture_map,
+        structured_support = analysis.clips[0]
     )
-
-    return recognition_result(observations)
-
-function recognition_result(observations):
-    if VISUAL_OPENED != YES:
-        return recognition_report(
-            RESULT_INSUFFICIENT_EVIDENCE,
-            observations
-        )
-
-    required_matches = [
-        ACTION_MATCH,
-        required(PHASE_REQUIRED,          PHASE_MATCH),
-        required(DIRECTION_REQUIRED,      DIRECTION_MATCH),
-        required(PATH_REQUIRED,           PATH_MATCH),
-        required(BODY_REQUIRED,           BODY_MATCH),
-        required(CONTACT_REQUIRED,        CONTACT_MATCH),
-        required(ENDING_OR_LOOP_REQUIRED, ENDING_OR_LOOP_MATCH),
-        required(STYLE_REQUIRED,          STYLE_MATCH)
-    ]
-
-    if required_matches contains UNKNOWN:
-        return recognition_report(
-            RESULT_INSUFFICIENT_EVIDENCE,
-            observations
-        )
-
-    if required_matches contains NO:
-        return recognition_report(RESULT_NOT_MATCH, observations)
-
-    return recognition_report(RESULT_MATCH, observations)
-
-function recognition_report(result, observations):
+    choice = choose_one_of_four(question.options, observations)
+    profile = derive_motion_profile(analysis.clips[0], observations)
     return {
-        result: result,
-        criteria: required_matches_only(),
-        evidence: concise_observations_mapped_to_criteria(observations),
-        unverified: criteria_with_UNKNOWN_evidence()
+        answer: choice.label,
+        semantic: choice.semantic,
+        profile: profile,
+        evidence: observations,
+        confidence: choice.confidence
     }
-
-function required(required_flag, evidence):
-    return evidence if required_flag == YES else NOT_APPLICABLE
-
-ASSERT filename_label_order_or_motion_magnitude_is_not_semantic_proof()
-ASSERT more_displacement_contacts_or_selected_frames_is_not_automatic_match()
-ASSERT missing_humanoid_trajectory_is_NOT_APPLICABLE_not_failure()
-
-if evidence_is_static_only():
-    PLAYBACK_CONTINUITY_MATCH = UNKNOWN
-    SLIDING_MATCH             = UNKNOWN
-    POPPING_MATCH             = UNKNOWN
-    ACCELERATION_MATCH        = UNKNOWN
-    VELOCITY_CONTINUITY_MATCH = UNKNOWN
 ```
+
+## Motion profile / 动画运动画像
+
+Every non-mesh Humanoid recognition result must report these fields, even when
+the answer is `UNKNOWN`:
+
+```json
+{
+  "action": "walk",
+  "phase": "loop",
+  "is_loop_candidate": true,
+  "endpoint_pose": {
+    "status": "ok",
+    "mean_muscle_delta": 0.02,
+    "root_transform_included": true,
+    "root_height_delta": 0.01,
+    "root_rotation_delta_euler_degrees": [1.2, 0.3, -0.7]
+  },
+  "has_clear_path": false,
+  "path_length_xz": 0.04,
+  "net_distance_xz": 0.01,
+  "heading_change_degrees": 0.8,
+  "heading_consistent": true,
+  "should_override_path": "defer_to_task_semantics",
+  "should_override_heading": "defer_to_task_semantics"
+}
+```
+
+`endpoint_pose` compares the first and last body poses through the shared
+Humanoid motion math. It also reports the complete root Transform: XYZ
+translation (including height) and pitch/yaw/roll. `root2d` is only a planar
+path/heading override; it never removes the sampled root's Y, pitch, or roll.
+For loop continuity, evaluate body-pose continuity separately from intentional
+planar displacement. `is_loop_candidate` also requires the endpoint root
+height, pitch, and roll to remain continuous; intentional XZ displacement and
+yaw are reported separately and do not erase those motion signals.
+
+`is_loop_candidate` combines the source Clip loop flag with endpoint body-pose,
+root-height, and root-tilt continuity. `has_clear_path` and
+`heading_consistent` describe observed planar motion.
+The two `should_override_*` fields are decisions for the generation task: keep
+`defer_to_task_semantics` until the selected semantic and user intent are known.
+For a known semantic, set them only when the requested result requires a path
+or heading different from the observed source.
+
+## Evidence rules / 证据规则
+
+- Inspect image tiles in temporal order and map every observation to this clip.
+- Use structured Root Path and endpoint-pose metrics as support, never as a
+  replacement for visual evidence.
+- Missing Humanoid trajectory or endpoint samples is `insufficient_evidence`,
+  not a failed action.
+- Static images cannot prove playback continuity, sliding, or velocity smoothness.
+- A selected keyframe is analysis evidence. It becomes a generation constraint
+  only after `pose_get` materializes that frame and the generation request
+  explicitly includes the returned `{track,index}` pose.
+
+ASSERT answer_label_is_one_of_A_B_C_D()
+ASSERT option_semantics_are_distinct_enough_to_be_visually_decidable()
+ASSERT filename_order_ids_and_saliency_are_not_semantic_proof()
+ASSERT endpoint_pose_comparison_reports_complete_root_motion()
+ASSERT override_decisions_are_not_invented_without_task_semantics()

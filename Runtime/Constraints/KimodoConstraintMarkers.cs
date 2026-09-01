@@ -277,8 +277,9 @@ namespace KimodoBridge
         // runtime APIs convert world goals once to neutral model space.
         [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
-        // Complete hips override in the same explicit-target space. Root2D X/Z
-        // and heading projection is applied only at protocol export.
+        // Complete hips override in the same explicit-target space. For a
+        // root2d/mix constraint, consumers project only X/Z and heading;
+        // sampled root Y, pitch and roll remain motion channels.
         [UnityEngine.Serialization.FormerlySerializedAs("root2DOverride")]
         public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
 

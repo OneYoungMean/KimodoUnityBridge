@@ -76,7 +76,7 @@ namespace KimodoUnityBridge.Command
                         "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
                         Properties()),
                     CommandDefinition(SessionGetOrCreateCommand,
-                        "Create the current animation Session and its dedicated Preview Scene, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
+                        "Create the current animation Session and its dedicated visible Session GameObject, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
                         Properties(
                             Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."),
                             Optional("character", "string", "Optional scene character name or hierarchy path; use @active_animator to use the currently selected/open Animator character."))),
@@ -99,7 +99,7 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, delta-Y samples, distance/speed/heading metrics, and source human scale; the path is stored on the Pose Cache Track for reuse. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, vertical motion, root pitch/roll samples, distance/speed/heading metrics, source human scale, endpoint_pose_comparison (body muscles plus complete root position/rotation), and motion_profile (loop/path/heading/vertical/tilt evidence plus deferred override decisions); the path is stored on the Pose Cache Track for reuse. Root2D is a planar XZ/heading override and never suppresses sampled Y, pitch, or roll. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
@@ -261,7 +261,7 @@ namespace KimodoUnityBridge.Command
                     ["execution_model"] = new JArray
                     {
                         "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
-                        "session_get_or_create is the only command that creates Sessions and their dedicated Preview Scene. A scene character may be copied at creation or added explicitly with session_add.",
+                        "session_get_or_create is the only command that creates Sessions and their dedicated visible Session GameObject. A scene character may be copied at creation or added explicitly with session_add.",
                         "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls an installation or generation task, and {track,index} identifies a Pose or analyzed Root Path. Picture paths are output files to inspect, not reusable handles.",
                         "Installation and generation are asynchronous: save request_id and poll kimodo_get_generation. Install terminal states are done or error; generation terminal states are completed, failed, or canceled.",
                         "Read session_json_path after Session-changing commands for the complete AI-readable Session state."

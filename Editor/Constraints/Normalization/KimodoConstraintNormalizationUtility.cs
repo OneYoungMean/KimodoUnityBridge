@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using KimodoBridge;
 using TimelineInject;
 using UnityEngine;
 
@@ -43,13 +44,8 @@ namespace KimodoBridge.Editor
                 string.Equals(constraintType, "right-hand", StringComparison.OrdinalIgnoreCase);
         }
 
-        internal static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
-        }
+        internal static Quaternion ResolvePlanarRotation(Quaternion rotation) =>
+            KimodoMotionMath.ResolvePlanarHeading(rotation);
 
         internal static float ResolveHumanScale(Avatar avatar)
         {

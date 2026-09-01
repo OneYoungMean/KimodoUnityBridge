@@ -129,10 +129,10 @@ namespace KimodoBridge
                         ? state.HipsBone.position
                         : state.Animator.transform.position;
                     Quaternion sourceRotation = sourceCache.skeletonRoot != null
-                        ? ResolvePlanarRotation(sourceCache.skeletonRoot.rotation)
+                        ? KimodoMotionMath.ResolvePlanarHeading(sourceCache.skeletonRoot.rotation)
                         : Quaternion.identity;
                     state.SourceToTargetRotation =
-                        ResolvePlanarRotation(state.Animator.transform.rotation) *
+                        KimodoMotionMath.ResolvePlanarHeading(state.Animator.transform.rotation) *
                         Quaternion.Inverse(sourceRotation);
                     state.RetargetAnchorInitialized = true;
                 }
@@ -179,14 +179,6 @@ namespace KimodoBridge
                 targets[i]?.RestoreAnimator();
             }
             targets.Clear();
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
         }
 
     }

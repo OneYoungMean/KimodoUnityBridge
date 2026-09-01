@@ -40,6 +40,8 @@ namespace KimodoUnityBridge.Command.Tests
                 {
                     ["name"] = "AnimationAnalyze_ArcWalkFixture_" + Guid.NewGuid().ToString("N")
                 });
+                string sessionJsonPath = session.Value<string>("session_json_path");
+                Assert.That(sessionJsonPath?.Replace('\\', '/'), Does.StartWith("Library/KimodoData/"));
                 JObject addedCharacter = Require("session_add", new JObject
                 {
                     ["kind"] = "character", ["character"] = character.name, ["session_id"] = session.Value<string>("session_id")
@@ -65,8 +67,14 @@ namespace KimodoUnityBridge.Command.Tests
                     ? string.Empty
                     : Path.GetFullPath(Path.Combine(Application.dataPath, "..", relativePng));
                 Assert.That(relativePng, Is.Not.Null.And.EndsWith(".png"));
+                Assert.That(relativePng.Replace('\\', '/'), Does.StartWith("Library/KimodoData/"));
                 Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
                 Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
+
+                JObject persistedSession = JObject.Parse(File.ReadAllText(
+                    Path.GetFullPath(Path.Combine(Application.dataPath, "..", sessionJsonPath))));
+                string analysisPath = persistedSession["analyses"]?[0]?.Value<string>("analysis_path");
+                Assert.That(analysisPath?.Replace('\\', '/'), Does.StartWith("Library/KimodoData/"));
 
                 JObject root2D = analysis["pictures"]?["images"]?
                     .Children<JObject>()
@@ -157,6 +165,7 @@ namespace KimodoUnityBridge.Command.Tests
                     ? string.Empty
                     : Path.GetFullPath(Path.Combine(Application.dataPath, "..", relativePng));
                 Assert.That(relativePng, Is.Not.Null.And.EndsWith(".png"));
+                Assert.That(relativePng.Replace('\\', '/'), Does.StartWith("Library/KimodoData/"));
                 Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
                 Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
                 Debug.Log("[Kimodo][Test] Generated T-pose walk-forward analysis screenshot: " + absolutePng);

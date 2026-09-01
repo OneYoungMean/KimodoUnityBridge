@@ -141,11 +141,23 @@ if request_names_one_or_more_actions():
         record_context_evidence("No matching action clip found; this is a new baseline generation.")
     if related_clips is not empty:
         related_analysis = animation_analyze(related_clips, level="middle", resolution=512)
+        source_profile = related_analysis.clips[0].motion_profile
+        source_keyframes = related_analysis.clips[0].keyframes
+        if request_is_repair_or_variant_of_related_clip():
+            derive_loop_path_and_heading_decisions_from(
+                source_profile,
+                selected_semantic,
+                explicit_user_intent
+            )
         if request_explicitly_requires_reference_or_constraints():
             build_constraints_only_from_explicitly_selected_related_frames(related_analysis)
 ```
 
-匹配到已有动画是上下文发现，不等于自动复用其关键帧或轨迹；若没有匹配动画，报告未找到上下文后再按用户明确的文本要求生成。
+匹配到已有动画后，必须先使用 analysis 返回的 `motion_profile` 判断循环、路径和
+heading，再决定是否覆盖。关键帧列表只是分析结果；要用于生成，必须对选定帧调用
+`pose_get`，并把返回的 `{track,index}` 作为显式 Pose 约束传入。若没有匹配动画，
+报告未找到上下文后再按动作语义推断：向前为 PathAngle 起止 `0°`，左转终点
+`-90°`，右转终点 `+90°`；仅在语义明确时启用对应覆盖。
 
 function execute_generate_skill(request):
     ASSERT not (
@@ -226,6 +238,14 @@ function execute_generate_skill(request):
         source_image_path = source_analysis.pictures.image_path
         source_picture_map = source_analysis.pictures.images
         ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(source_image_path) == YES
+        source_profile = source_analysis.clips[0].motion_profile
+        source_keyframes = source_analysis.clips[0].keyframes
+        if request_is_repair_or_variant_of_source_clip():
+            derive_loop_path_and_heading_decisions_from(
+                source_profile,
+                selected_semantic,
+                explicit_user_intent
+            )
 
     constraints = []
 
@@ -240,12 +260,15 @@ function execute_generate_skill(request):
 
     if any_pose_constraint_is_needed() == YES:
         ASSERT HAS_SOURCE_ANIMATION == YES
-        for each explicitly_established_constraint_frame:
+        constraint_frames = explicitly_established_constraint_frames if supplied \
+            else source_keyframes if request_is_repair_or_variant_of_source_clip() \
+            else []
+        for each constraint_frame in constraint_frames:
             pose_ref = pose_get({
                 source: {
                     character: character,
                     clip: source_clip,
-                    frame: explicitly_established_constraint_frame
+                    frame: constraint_frame
                 },
                 full_data: request.needs_full_pose_data
             }).pose
@@ -273,7 +296,7 @@ function execute_generate_skill(request):
 
             constraints.append(
                 build_help_validated_point_constraint(
-                    frame = explicitly_established_constraint_frame,
+                    frame = constraint_frame,
                     pose = pose_ref,
                     use_fullbody = NEED_FULLBODY_POSE,
                     use_root2d = NEED_ROOT2D_POSE,
@@ -554,7 +577,9 @@ function derive_supported_correction_from_failed_macros():
 function required(required_flag, evidence):
     return evidence if required_flag == YES else NOT_APPLICABLE
 
-ASSERT analysis_selected_frames_are_evidence_not_constraints()
+ASSERT analysis_selected_frames_require_pose_get_before_constraints()
+ASSERT repair_keyframes_become_constraints_only_after_pose_get()
+ASSERT source_motion_profile_precedes_prompt_heuristics()
 ASSERT pose_constraints_use_pose_get_returned_track_and_index()
 ASSERT analyzed_path_is_a_constraint_only_when_root_trajectory_path_is_reused()
 ASSERT path_override_and_loop_are_independent_and_may_coexist()
@@ -596,6 +621,9 @@ emit_one_sparse_root2d_constraint(path_samples, sample_frames)
 的第一遍生成结果在最终 Clip 写回前，应先物化为临时 `AnimationClip`（或使用等价
 的 Clip 采样器），然后与 `root_path` 走同一套采样和稀疏约束导出逻辑；不能仅凭
 prompt 推断轨迹数据。
+
+`Root2D` 只覆盖根节点的 XZ 和平面 heading；原动画/FullBody Pose 中的根 Y、高低、
+Pitch 与 Roll 均是运动语义，必须保留，不能由路径约束静默归零或替换。
 
 if evidence_is_static_only():
     LOOP_SEAMLESSNESS       = UNKNOWN

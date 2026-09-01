@@ -63,11 +63,7 @@ namespace KimodoUnityBridge.Command
             int imageHeight;
             bool cached = false;
             Directory.CreateDirectory(EvidenceFolder(session));
-            Scene previousPreviewScene = analysisPreviewScene;
-            Scene previewScene = session != null && session.PreviewScene.IsValid()
-                ? session.PreviewScene
-                : EditorSceneManager.NewPreviewScene();
-            bool ownsPreviewScene = !(session != null && session.PreviewScene.IsValid());
+            GameObject previousAnalysisRoot = analysisSessionRoot;
             bool previousFogEnabled = RenderSettings.fog;
             RenderPipelineAsset previousGraphicsPipeline = GraphicsSettings.renderPipelineAsset;
             RenderPipelineAsset previousQualityPipeline = QualitySettings.renderPipeline;
@@ -78,11 +74,11 @@ namespace KimodoUnityBridge.Command
             Texture2D canvas;
             try
             {
-                analysisPreviewScene = previewScene;
+                analysisSessionRoot = session?.SessionRoot;
                 // Analysis evidence must not inherit distance-based project fog.
                 RenderSettings.fog = false;
-                // SRP editor Camera.Render paths do not render objects in an
-                // isolated preview scene reliably across HDRP/URP versions.
+                // SRP editor Camera.Render paths are deterministic because the
+                // camera is restricted to the dedicated analysis layer.
                 // Render this evidence pass with the built-in backend, then
                 // restore the project's pipeline.
                 if (suspendScriptablePipeline)
@@ -108,8 +104,7 @@ namespace KimodoUnityBridge.Command
                     QualitySettings.renderPipeline = previousQualityPipeline;
                 }
                 RenderSettings.fog = previousFogEnabled;
-                analysisPreviewScene = previousPreviewScene;
-                if (ownsPreviewScene && previewScene.IsValid()) EditorSceneManager.ClosePreviewScene(previewScene);
+                analysisSessionRoot = previousAnalysisRoot;
             }
             try
             {

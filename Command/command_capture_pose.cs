@@ -24,9 +24,9 @@ namespace KimodoUnityBridge.Command
         private static void CreateWorldLine(List<GameObject> objects, IReadOnlyList<Vector3> points, Color color, float width)
         {
             if (points == null || points.Count < 2) return;
-            GameObject lineObject = MoveToAnalysisPreviewScene(
+            GameObject lineObject = MoveToAnalysisSessionRoot(
                 new GameObject("Kimodo Root2D Pelvis Trajectory") { hideFlags = HideFlags.HideAndDontSave });
-            SetLayerRecursively(lineObject, 31);
+            SetLayerRecursively(lineObject, SessionCaptureLayer);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = points.Count;
             line.SetPositions(points.Select(point => point + Vector3.up * .025f).ToArray());
@@ -45,10 +45,10 @@ namespace KimodoUnityBridge.Command
             string name = "Kimodo Root2D Keyframe",
             float height = .045f)
         {
-            GameObject marker = MoveToAnalysisPreviewScene(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
+            GameObject marker = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
             marker.name = name;
             marker.hideFlags = HideFlags.HideAndDontSave;
-            SetLayerRecursively(marker, 31);
+            SetLayerRecursively(marker, SessionCaptureLayer);
             marker.transform.position = position + Vector3.up * height;
             marker.transform.localScale = new Vector3(radius, .04f, radius);
             marker.GetComponent<Renderer>().sharedMaterial = MakeUnlitMaterial(color);
@@ -111,7 +111,7 @@ namespace KimodoUnityBridge.Command
             Color tint,
             float alpha)
         {
-            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(snapshot.SourcePrefab));
+            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(snapshot.SourcePrefab));
             preview.name = "Kimodo Test Virtual Pose";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Animator animator in preview.GetComponentsInChildren<Animator>(true))
@@ -192,12 +192,12 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException("Mesh-only analysis has no scene object to preview.");
             }
-            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(subject.Character.Root));
+            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(subject.Character.Root));
             preview.name = "Kimodo Mesh Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
             {
-                transform.gameObject.layer = 31;
+                transform.gameObject.layer = SessionCaptureLayer;
             }
 
             foreach (Animator animator in preview.GetComponentsInChildren<Animator>(true))
@@ -225,12 +225,12 @@ namespace KimodoUnityBridge.Command
 
         private static GameObject CreateCanonicalPosePreview(TimelineCharacterRecord character)
         {
-            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(character.Root));
+            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(character.Root));
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
             {
-                transform.gameObject.layer = 31;
+                transform.gameObject.layer = SessionCaptureLayer;
             }
 
             Animator animator = preview.GetComponentInChildren<Animator>(true)
@@ -264,7 +264,12 @@ namespace KimodoUnityBridge.Command
             }
             if (TryGetRoot2DWorld(sample, out Vector3 rootPosition, out Quaternion rootRotation))
             {
-                animator.transform.SetPositionAndRotation(rootPosition, rootRotation);
+                animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
+                    animator.transform.position,
+                    rootPosition);
+                animator.transform.rotation = KimodoMotionMath.ApplyPlanarHeading(
+                    animator.transform.rotation,
+                    rootRotation);
             }
         }
 
@@ -472,6 +477,9 @@ namespace KimodoUnityBridge.Command
 
         private static IReadOnlyList<int> FootTransitionFrames(SubjectPictureData subject)
         {
+            // Use only QuickServer events here. The KMB contact channel has a
+            // different timebase in some clips and must not be used as a
+            // fallback or merged into the rendered markers.
             return (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray())
                 .OfType<JObject>()
                 .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, subject.Pelvis.Length - 1)))
@@ -482,6 +490,8 @@ namespace KimodoUnityBridge.Command
 
         private static bool TryGetFootTransitionTint(SubjectPictureData subject, int frame, out Color tint)
         {
+            // Keep marker colors on the same QuickServer analysis timebase as
+            // FootTransitionFrames; do not fall back to KMB contact samples.
             bool left = false;
             bool right = false;
             foreach (JObject item in (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray()).OfType<JObject>())

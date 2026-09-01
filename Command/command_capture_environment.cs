@@ -23,9 +23,9 @@ namespace KimodoUnityBridge.Command
     {
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
         {
-            const int captureLayer = 31;
+            const int captureLayer = SessionCaptureLayer;
             float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-            GameObject floor = MoveToAnalysisPreviewScene(GameObject.CreatePrimitive(PrimitiveType.Plane));
+            GameObject floor = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Plane));
             floor.hideFlags = HideFlags.HideAndDontSave;
             floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
             floor.transform.localScale = Vector3.one * (size / 10f);
@@ -80,7 +80,7 @@ namespace KimodoUnityBridge.Command
         private static GameObject CreateTestGridFloor(Vector3 center, float size, Texture2D gridTexture)
         {
             const int subdivisions = 16;
-            const int captureLayer = 31;
+            const int captureLayer = SessionCaptureLayer;
             var mesh = new Mesh { name = "Kimodo Test 16x16 UV Grid", hideFlags = HideFlags.HideAndDontSave };
             int vertexSide = subdivisions + 1;
             var vertices = new Vector3[vertexSide * vertexSide];
@@ -120,7 +120,7 @@ namespace KimodoUnityBridge.Command
             mesh.triangles = triangles;
             mesh.RecalculateNormals();
 
-            GameObject floor = MoveToAnalysisPreviewScene(
+            GameObject floor = MoveToAnalysisSessionRoot(
                 new GameObject("Kimodo Test UV Grid") { hideFlags = HideFlags.HideAndDontSave });
             floor.transform.position = center;
             floor.layer = captureLayer;
@@ -142,7 +142,7 @@ namespace KimodoUnityBridge.Command
         private static Camera CreateAnalysisPictureCamera(Bounds bounds, Vector3 direction, bool orthographic)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Analysis Picture Camera");
-            camera.cullingMask = 1 << 31;
+            camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = orthographic;
             camera.nearClipPlane = .01f;
             camera.farClipPlane = 100f;
@@ -162,7 +162,7 @@ namespace KimodoUnityBridge.Command
             float aspect)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Test Analysis Picture Camera");
-            camera.cullingMask = 1 << 31;
+            camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.1f, aspect);
             camera.nearClipPlane = .01f;
@@ -197,7 +197,7 @@ namespace KimodoUnityBridge.Command
             float aspect)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
-            camera.cullingMask = 1 << 31;
+            camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.1f, aspect);
             camera.nearClipPlane = .01f;
@@ -232,7 +232,7 @@ namespace KimodoUnityBridge.Command
             float aspect)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
-            camera.cullingMask = 1 << 31;
+            camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.0001f, aspect);
             camera.nearClipPlane = .01f;
@@ -250,10 +250,9 @@ namespace KimodoUnityBridge.Command
 
         private static Camera CreateAnalysisPictureCamera(string name)
         {
-            GameObject cameraObject = MoveToAnalysisPreviewScene(
+            GameObject cameraObject = MoveToAnalysisSessionRoot(
                 new GameObject(name) { hideFlags = HideFlags.HideAndDontSave });
             Camera camera = cameraObject.AddComponent<Camera>();
-            if (analysisPreviewScene.IsValid()) camera.scene = analysisPreviewScene;
             ConfigureRenderPipelineAnalysisCamera(camera);
             return camera;
         }
@@ -340,9 +339,9 @@ namespace KimodoUnityBridge.Command
             float lineWidth)
         {
             if (points == null || points.Length < 2) return;
-            GameObject lineObject = MoveToAnalysisPreviewScene(
+            GameObject lineObject = MoveToAnalysisSessionRoot(
                 new GameObject("Kimodo Test Body Trajectory") { hideFlags = HideFlags.HideAndDontSave });
-            SetLayerRecursively(lineObject, 31);
+            SetLayerRecursively(lineObject, SessionCaptureLayer);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = points.Length;
             line.SetPositions(points.Select(point => point + Vector3.up * .02f).ToArray());
@@ -536,8 +535,8 @@ namespace KimodoUnityBridge.Command
             KimodoMarkerSampleResult sample,
             bool root2DOnly)
         {
-            const int captureLayer = 31;
-            GameObject preview = MoveToAnalysisPreviewScene(UnityEngine.Object.Instantiate(character.Root));
+            const int captureLayer = SessionCaptureLayer;
+            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(character.Root));
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
@@ -600,7 +599,7 @@ namespace KimodoUnityBridge.Command
                 (position: new Vector3(0f, 5f, 5f), intensity: .35f)
             })
             {
-                GameObject lightObject = MoveToAnalysisPreviewScene(
+                GameObject lightObject = MoveToAnalysisSessionRoot(
                     new GameObject("Kimodo Evidence Light") { hideFlags = HideFlags.HideAndDontSave });
                 Light light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
@@ -613,9 +612,9 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color, bool unlit = false)
         {
-            GameObject lineObject = MoveToAnalysisPreviewScene(
+            GameObject lineObject = MoveToAnalysisSessionRoot(
                 new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave });
-            SetLayerRecursively(lineObject, 31);
+            SetLayerRecursively(lineObject, SessionCaptureLayer);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
             line.positionCount = 2;
             line.SetPositions(new[] { from, to });
@@ -657,11 +656,12 @@ namespace KimodoUnityBridge.Command
             foreach (Transform transform in root.GetComponentsInChildren<Transform>(true)) transform.gameObject.layer = layer;
         }
 
-        private static GameObject MoveToAnalysisPreviewScene(GameObject gameObject)
+        private static GameObject MoveToAnalysisSessionRoot(GameObject gameObject)
         {
-            if (gameObject != null && analysisPreviewScene.IsValid())
+            if (gameObject != null && analysisSessionRoot != null)
             {
-                SceneManager.MoveGameObjectToScene(gameObject, analysisPreviewScene);
+                gameObject.transform.SetParent(analysisSessionRoot.transform, true);
+                SetLayerRecursively(gameObject, SessionCaptureLayer);
             }
             return gameObject;
         }

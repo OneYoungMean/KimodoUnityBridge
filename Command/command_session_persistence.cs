@@ -94,7 +94,10 @@ namespace KimodoUnityBridge.Command
     internal static partial class command_context
     {
         private const string SessionJsonSchemaVersion = "vNext.transition_clip.1";
-        private const string GeneratedSessionsFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Sessions";
+        // Session state and analysis evidence are runtime data, not Unity assets.
+        // Keeping them below Library prevents every JSON/PNG write from entering
+        // the AssetDatabase import pipeline.
+        private const string GeneratedSessionsFolder = "Library/KimodoData/Sessions";
 
         // Rebuilt lazily after every editor domain reload.
         private static bool timelineSessionsRestored;
@@ -465,17 +468,19 @@ namespace KimodoUnityBridge.Command
                     director = directorObject.AddComponent<PlayableDirector>();
                     director.playableAsset = timeline;
                 }
-                Scene previewScene = EditorSceneManager.NewPreviewScene();
-                if (director != null && director.gameObject.scene != previewScene)
+                string safeName = KimodoRuntimeUtility.SanitizeName(metadata.sessionName, "Session");
+                GameObject sessionRoot = new GameObject($"KimodoSession_{safeName}")
                 {
-                    SceneManager.MoveGameObjectToScene(director.gameObject, previewScene);
-                }
-                CreatePreviewSceneBasics(previewScene, KimodoRuntimeUtility.SanitizeName(metadata.sessionName, "Session"));
-                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata, previewScene);
+                    hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor,
+                    layer = SessionCaptureLayer
+                };
+                director.transform.SetParent(sessionRoot.transform, false);
+                CreateSessionBasics(sessionRoot, safeName);
+                var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata, sessionRoot);
                 foreach (KimodoCommandCharacterMetadata savedCharacter in metadata.characters ?? new List<KimodoCommandCharacterMetadata>())
                 {
                     GameObject sourceRoot = ResolveObject(savedCharacter.characterRef) as GameObject;
-                    GameObject root = sourceRoot != null ? CloneCharacterToPreview(session, sourceRoot) : null;
+                    GameObject root = sourceRoot != null ? CloneCharacterToSession(session, sourceRoot) : null;
                     Animator animator = root != null ? root.GetComponentInChildren<Animator>(true) : null;
                     AnimationTrack track = timeline.GetRootTracks().OfType<AnimationTrack>()
                         .FirstOrDefault(item => string.Equals(item.name, savedCharacter.trackName, StringComparison.Ordinal));
@@ -555,6 +560,13 @@ namespace KimodoUnityBridge.Command
             if (currentTimelineSession != null)
             {
                 ActivateTimelineSession(currentTimelineSession);
+            }
+            else
+            {
+                foreach (TimelineSessionRecord session in restored)
+                {
+                    session.SessionRoot?.SetActive(false);
+                }
             }
         }
     }

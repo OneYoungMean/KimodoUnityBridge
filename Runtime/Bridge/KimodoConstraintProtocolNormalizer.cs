@@ -216,9 +216,7 @@ namespace KimodoBridge
             Vector3 protocolAxisAngle = ReadVector3(joints[0], "FullBody root local rotation");
             Quaternion protocolRoot = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(protocolAxisAngle);
             Quaternion unityRoot = FromKimodoRotation(protocolRoot);
-            Quaternion oldYaw = ResolvePlanarRotation(unityRoot);
-            Quaternion tilt = Quaternion.Inverse(oldYaw) * unityRoot;
-            Quaternion mergedUnityRoot = root2DHeading * tilt;
+            Quaternion mergedUnityRoot = KimodoMotionMath.ApplyPlanarHeading(unityRoot, root2DHeading);
             Vector3 mergedAxisAngle = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
                 ToKimodoRotation(mergedUnityRoot));
             joints[0] = new JArray(mergedAxisAngle.x, mergedAxisAngle.y, mergedAxisAngle.z);
@@ -256,14 +254,6 @@ namespace KimodoBridge
             // Exporter encoding is [UnityForward.z, -UnityForward.x].
             float yawDegrees = Mathf.Atan2(-sine, cosine) * Mathf.Rad2Deg;
             return Quaternion.AngleAxis(yawDegrees, Vector3.up);
-        }
-
-        private static Quaternion ResolvePlanarRotation(Quaternion rotation)
-        {
-            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
         }
 
         private static Quaternion ToKimodoRotation(Quaternion unityRotation)

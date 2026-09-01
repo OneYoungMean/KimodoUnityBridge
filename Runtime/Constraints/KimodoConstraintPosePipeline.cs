@@ -251,10 +251,26 @@ namespace KimodoBridge
                 return false;
             }
 
-            hips.position = sample.rootOverride.t;
+            string mode = KimodoConstraintInternal.NormalizeMode(sample.constraintMode);
+            bool planarRoot2D = mode == "root2d" || mode == "mix";
+            if (!planarRoot2D)
+            {
+                hips.position = sample.rootOverride.t;
+                if (KimodoConstraintMask.IsActive(sample, "rootheading"))
+                {
+                    hips.rotation = sample.rootOverride.q.normalized;
+                }
+                return true;
+            }
+
+            // Root2D is deliberately planar: preserve the sampled vertical
+            // motion instead of replacing it with the navigation payload.
+            hips.position = KimodoMotionMath.ApplyPlanarPosition(hips.position, sample.rootOverride.t);
             if (KimodoConstraintMask.IsActive(sample, "rootheading"))
             {
-                hips.rotation = sample.rootOverride.q.normalized;
+                // Likewise, heading changes yaw only; root pitch/roll remain
+                // part of the authored motion.
+                hips.rotation = KimodoMotionMath.ApplyPlanarHeading(hips.rotation, sample.rootOverride.q);
             }
             return true;
         }

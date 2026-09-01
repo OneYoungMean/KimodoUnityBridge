@@ -1177,26 +1177,11 @@ namespace KimodoBridge
                 Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(
                     modelToWorldRotation,
                     worldHeading.Value);
-                Vector3 currentForward = sourceRotation * Vector3.forward;
-                currentForward.y = 0f;
-                if (currentForward.sqrMagnitude < 1e-6f)
-                {
-                    currentForward = Vector3.forward;
-                }
-
-                Quaternion currentYaw = Quaternion.LookRotation(currentForward.normalized, Vector3.up);
                 Quaternion desiredYaw = Quaternion.LookRotation(
                     new Vector3(modelHeading.x, 0f, modelHeading.y),
                     Vector3.up);
-                Quaternion desiredRotation =
-                    (desiredYaw * Quaternion.Inverse(currentYaw) * sourceRotation).normalized;
-                Vector3 forward = desiredRotation * Vector3.forward;
-                forward.y = 0f;
-                if (forward.sqrMagnitude < 1e-6f)
-                {
-                    forward = Vector3.forward;
-                }
-                forward.Normalize();
+                Vector3 forward = KimodoMotionMath.ResolvePlanarHeading(
+                    KimodoMotionMath.ApplyPlanarHeading(sourceRotation, desiredYaw)) * Vector3.forward;
                 constraint.protocolHeading = new Vector2(forward.z, -forward.x);
             }
 
@@ -1251,22 +1236,9 @@ namespace KimodoBridge
             if (worldHeading.HasValue)
             {
                 Vector2 modelHeading = KimodoRoot2DPlanner.ToModelHeading(modelToWorldRotation, worldHeading.Value);
-                Vector3 currentForward = sourceRotation * Vector3.forward;
-                currentForward.y = 0f;
-                if (currentForward.sqrMagnitude < 1e-6f)
-                {
-                    currentForward = Vector3.forward;
-                }
-                Quaternion currentYaw = Quaternion.LookRotation(currentForward.normalized, Vector3.up);
                 Quaternion desiredYaw = Quaternion.LookRotation(new Vector3(modelHeading.x, 0f, modelHeading.y), Vector3.up);
-                Quaternion desiredRotation = (desiredYaw * Quaternion.Inverse(currentYaw) * sourceRotation).normalized;
-                Vector3 forward = desiredRotation * Vector3.forward;
-                forward.y = 0f;
-                if (forward.sqrMagnitude < 1e-6f)
-                {
-                    forward = Vector3.forward;
-                }
-                forward.Normalize();
+                Vector3 forward = KimodoMotionMath.ResolvePlanarHeading(
+                    KimodoMotionMath.ApplyPlanarHeading(sourceRotation, desiredYaw)) * Vector3.forward;
                 target.protocolHeading = new Vector2(forward.z, -forward.x);
             }
             return true;
@@ -1310,10 +1282,7 @@ namespace KimodoBridge
         {
             Animator primaryTarget = ResolvePrimaryTargetAnimator();
             Transform modelRoot = primaryTarget != null ? primaryTarget.transform : transform;
-            Vector3 forward = Vector3.ProjectOnPlane(modelRoot.forward, Vector3.up);
-            return forward.sqrMagnitude > 1e-8f
-                ? Quaternion.LookRotation(forward.normalized, Vector3.up)
-                : Quaternion.identity;
+            return KimodoMotionMath.ResolvePlanarHeading(modelRoot.rotation);
         }
 
         private float ResolveTargetHumanScale()
