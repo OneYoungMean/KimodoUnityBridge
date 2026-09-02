@@ -42,6 +42,11 @@ namespace KimodoUnityBridge.Command
         private static readonly Color TestStartFrameTint = new Color(.35f, .65f, .62f, 1f);
         private static readonly Color TestEndFrameTint = new Color(.78f, .35f, .40f, 1f);
         private static readonly Color TestKeyframeTint = new Color(.82f, .70f, .22f, 1f);
-        private static GameObject analysisSessionRoot;
+        private static GameObject captureSessionRoot;
+
+        private static bool IsBuiltInCapturePipeline()
+        {
+            return GraphicsSettings.currentRenderPipeline == null;
+        }
     }
 }

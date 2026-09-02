@@ -592,11 +592,12 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
         {
+            bool isBuiltIn = IsBuiltInCapturePipeline();
             foreach (var setup in new[]
             {
-                (position: new Vector3(-4f, 6f, -4f), intensity: 1.1f),
-                (position: new Vector3(4f, 3f, -2f), intensity: .55f),
-                (position: new Vector3(0f, 5f, 5f), intensity: .35f)
+                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? .375f : 1.1f),
+                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .175f : .55f),
+                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .10f : .35f)
             })
             {
                 GameObject lightObject = MoveToAnalysisSessionRoot(
@@ -658,9 +659,9 @@ namespace KimodoUnityBridge.Command
 
         private static GameObject MoveToAnalysisSessionRoot(GameObject gameObject)
         {
-            if (gameObject != null && analysisSessionRoot != null)
+            if (gameObject != null && captureSessionRoot != null)
             {
-                gameObject.transform.SetParent(analysisSessionRoot.transform, true);
+                gameObject.transform.SetParent(captureSessionRoot.transform, true);
                 SetLayerRecursively(gameObject, SessionCaptureLayer);
             }
             return gameObject;

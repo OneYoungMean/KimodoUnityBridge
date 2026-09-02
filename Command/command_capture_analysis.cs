@@ -11,10 +11,7 @@ using KimodoUnityBridge;
 using KimodoBridge;
 using TimelineInject;
 using UnityEditor;
-using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.Rendering;
-using UnityEngine.SceneManagement;
 
 namespace KimodoUnityBridge.Command
 
@@ -63,29 +60,26 @@ namespace KimodoUnityBridge.Command
             int imageHeight;
             bool cached = false;
             Directory.CreateDirectory(EvidenceFolder(session));
-            GameObject previousAnalysisRoot = analysisSessionRoot;
+            GameObject previousCaptureRoot = captureSessionRoot;
             bool previousFogEnabled = RenderSettings.fog;
-            RenderPipelineAsset previousGraphicsPipeline = GraphicsSettings.renderPipelineAsset;
-            RenderPipelineAsset previousQualityPipeline = QualitySettings.renderPipeline;
-            string pipelineTypeName = previousGraphicsPipeline?.GetType().FullName ?? string.Empty;
-            bool suspendScriptablePipeline = previousGraphicsPipeline != null &&
-                (pipelineTypeName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 pipelineTypeName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0);
+            var hiddenCharacterRenderers = new List<(Renderer Renderer, bool Enabled)>();
             Texture2D canvas;
             try
             {
-                analysisSessionRoot = session?.SessionRoot;
+                captureSessionRoot = session?.SessionRoot;
+                foreach (GameObject characterRoot in subjects
+                    .Select(subject => subject.Character?.Root)
+                    .Where(root => root != null)
+                    .Distinct())
+                {
+                    foreach (Renderer renderer in characterRoot.GetComponentsInChildren<Renderer>(true))
+                    {
+                        hiddenCharacterRenderers.Add((renderer, renderer.enabled));
+                        renderer.enabled = false;
+                    }
+                }
                 // Analysis evidence must not inherit distance-based project fog.
                 RenderSettings.fog = false;
-                // SRP editor Camera.Render paths are deterministic because the
-                // camera is restricted to the dedicated analysis layer.
-                // Render this evidence pass with the built-in backend, then
-                // restore the project's pipeline.
-                if (suspendScriptablePipeline)
-                {
-                    GraphicsSettings.renderPipelineAsset = null;
-                    QualitySettings.renderPipeline = null;
-                }
                 canvas = RenderPictureCanvas(
                     data,
                     tiles,
@@ -98,13 +92,12 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
-                if (suspendScriptablePipeline)
+                foreach ((Renderer renderer, bool enabled) in hiddenCharacterRenderers)
                 {
-                    GraphicsSettings.renderPipelineAsset = previousGraphicsPipeline;
-                    QualitySettings.renderPipeline = previousQualityPipeline;
+                    if (renderer != null) renderer.enabled = enabled;
                 }
                 RenderSettings.fog = previousFogEnabled;
-                analysisSessionRoot = previousAnalysisRoot;
+                captureSessionRoot = previousCaptureRoot;
             }
             try
             {

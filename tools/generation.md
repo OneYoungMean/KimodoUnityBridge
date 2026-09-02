@@ -34,6 +34,7 @@ description: Generate, verify, and derive Unity animation Clips from explicit mo
 #define NEED_LEFT_FOOT_POSE             <YES|NO>
 #define NEED_RIGHT_FOOT_POSE            <YES|NO>
 #define SHOULD_RETARGET_AFTER_GENERATION <YES|NO>
+#define ALLOW_DIRECT_POSE_EDIT           NO
 
 CHARACTER       = REQUIRED("<safe character / 安全角色名>")
 SOURCE_CLIP     = REQUIRED_IF(
@@ -150,14 +151,24 @@ if request_names_one_or_more_actions():
                 explicit_user_intent
             )
         if request_explicitly_requires_reference_or_constraints():
-            build_constraints_only_from_explicitly_selected_related_frames(related_analysis)
+            build_constraints_from_analysis_trajectory_and_pathangle(related_analysis)
 ```
 
 匹配到已有动画后，必须先使用 analysis 返回的 `motion_profile` 判断循环、路径和
-heading，再决定是否覆盖。关键帧列表只是分析结果；要用于生成，必须对选定帧调用
-`pose_get`，并把返回的 `{track,index}` 作为显式 Pose 约束传入。若没有匹配动画，
+heading，再决定是否覆盖。关键帧列表用于动作阶段、采样帧和验证证据；默认不调用
+`pose_get`、`pose_set` 或 `pose_contract`，也不创建/修改 Pose 资产。轨迹直接复用
+`root_trajectory.path`，明确方向使用 PathAngle 起止角度。只有用户明确要求编辑 Pose，
+并确认接受 rig/Humanoid 映射副作用时，才允许启用 `ALLOW_DIRECT_POSE_EDIT=YES`。若没有匹配动画，
 报告未找到上下文后再按动作语义推断：向前为 PathAngle 起止 `0°`，左转终点
 `-90°`，右转终点 `+90°`；仅在语义明确时启用对应覆盖。
+
+```pseudo
+analysis_frame_anchors = source_analysis.clips[0].keyframes
+verification_frames = choose_phase_and_endpoint_frames(analysis_frame_anchors)
+path_constraint = source_analysis.clips[0].root_trajectory.path
+path_angle = derive_path_angle_from_motion_profile_and_request(source_profile, request)
+// No pose_get/pose_set: anchors are metadata, path/path_angle are generation inputs.
+```
 
 function execute_generate_skill(request):
     ASSERT not (
@@ -259,53 +270,14 @@ function execute_generate_skill(request):
         })
 
     if any_pose_constraint_is_needed() == YES:
-        ASSERT HAS_SOURCE_ANIMATION == YES
-        constraint_frames = explicitly_established_constraint_frames if supplied \
-            else source_keyframes if request_is_repair_or_variant_of_source_clip() \
-            else []
-        for each constraint_frame in constraint_frames:
-            pose_ref = pose_get({
-                source: {
-                    character: character,
-                    clip: source_clip,
-                    frame: constraint_frame
-                },
-                full_data: request.needs_full_pose_data
-            }).pose
-
-            if request_explicitly_requires_root_transform_edit:
-                pose_ref = pose_set_root_transform({
-                    pose: pose_ref,
-                    root: request.help_validated_root
-                }).pose
-
-            if request_explicitly_requires_muscle_edit:
-                pose_ref = pose_set_muscle({
-                    pose: pose_ref,
-                    muscles: request.help_validated_muscles
-                }).pose
-
-            if request_explicitly_requires_effector_alignment:
-                pose_ref = pose_contract({
-                    origin: request.origin_pose,
-                    target: pose_ref,
-                    endeffectors: request.endeffectors,
-                    components: request.components,
-                    mode: request.contract_mode
-                }).pose
-
-            constraints.append(
-                build_help_validated_point_constraint(
-                    frame = constraint_frame,
-                    pose = pose_ref,
-                    use_fullbody = NEED_FULLBODY_POSE,
-                    use_root2d = NEED_ROOT2D_POSE,
-                    use_left_hand = NEED_LEFT_HAND_POSE,
-                    use_right_hand = NEED_RIGHT_HAND_POSE,
-                    use_left_foot = NEED_LEFT_FOOT_POSE,
-                    use_right_foot = NEED_RIGHT_FOOT_POSE
-                )
+        if ALLOW_DIRECT_POSE_EDIT != YES:
+            record_generation_warning(
+                "Pose constraints deferred: generation uses analysis trajectory/PathAngle only."
             )
+        else:
+            ASSERT request_explicitly_confirms_rig_side_effects() == YES
+            ASSERT HAS_SOURCE_ANIMATION == YES
+            use_explicit_pose_workflow_only(request, source_analysis)
 
     args = {
         character: character,
@@ -567,7 +539,9 @@ function derive_supported_correction_from_failed_macros():
         )
 
     if POSE_MATCH == NO or CONTACT_MATCH == NO:
-        return request_with_pose_constraints_only_if_pose_get_refs_exist()
+        if ALLOW_DIRECT_POSE_EDIT == YES and request_explicitly_confirms_rig_side_effects():
+            return request_with_explicit_pose_workflow(source_analysis)
+        return no_supported_correction
 
     if LOOP_MATCH == NO and SHOULD_LOOP == YES:
         return request_with_loop_enabled_unless_runtime_declares_loop_fallback()
@@ -577,10 +551,10 @@ function derive_supported_correction_from_failed_macros():
 function required(required_flag, evidence):
     return evidence if required_flag == YES else NOT_APPLICABLE
 
-ASSERT analysis_selected_frames_require_pose_get_before_constraints()
-ASSERT repair_keyframes_become_constraints_only_after_pose_get()
+ASSERT analysis_keyframes_are_used_as_evidence_and_timing_anchors()
+ASSERT default_generation_does_not_materialize_or_edit_pose_assets()
 ASSERT source_motion_profile_precedes_prompt_heuristics()
-ASSERT pose_constraints_use_pose_get_returned_track_and_index()
+ASSERT direct_pose_edit_requires_explicit_user_confirmation_and_opt_in()
 ASSERT analyzed_path_is_a_constraint_only_when_root_trajectory_path_is_reused()
 ASSERT path_override_and_loop_are_independent_and_may_coexist()
 ASSERT fixed_heading_overrides_path_tangent_heading_but_not_path_positions()

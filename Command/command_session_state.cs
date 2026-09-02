@@ -254,17 +254,12 @@ namespace KimodoUnityBridge.Command
         internal static void CreateSessionBasics(GameObject sessionRoot, string safeName)
         {
             if (sessionRoot == null) return;
-            GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            ground.name = $"Kimodo_Ground_{safeName}";
-            ground.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            ground.transform.SetParent(sessionRoot.transform, false);
-            SetLayerRecursively(ground, SessionCaptureLayer);
             GameObject lightObject = new GameObject($"Kimodo_PreviewLight_{safeName}");
             lightObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
             lightObject.transform.SetParent(sessionRoot.transform, false);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1f;
+            light.intensity = IsBuiltInCapturePipeline() ? .25f : 1f;
             light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
         }
 
