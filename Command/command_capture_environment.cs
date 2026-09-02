@@ -595,9 +595,9 @@ namespace KimodoUnityBridge.Command
             bool isBuiltIn = IsBuiltInCapturePipeline();
             foreach (var setup in new[]
             {
-                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? .375f : 1.1f),
-                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .175f : .55f),
-                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .10f : .35f)
+                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? 1.125f : 3.3f),
+                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .525f : 1.65f),
+                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .30f : 1.05f)
             })
             {
                 GameObject lightObject = MoveToAnalysisSessionRoot(
