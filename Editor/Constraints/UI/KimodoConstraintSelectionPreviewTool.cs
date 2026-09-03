@@ -14,8 +14,8 @@ namespace KimodoBridge.Editor
     internal static class KimodoConstraintSelectionPreviewTool
     {
         private const string EntryPrefix = "selection:";
-        private static readonly Dictionary<string, PoseCacheRenderContext> RenderedContexts =
-            new Dictionary<string, PoseCacheRenderContext>();
+        private static readonly Dictionary<string, ConstraintPreviewContext> RenderedContexts =
+            new Dictionary<string, ConstraintPreviewContext>();
         private static readonly Dictionary<string, EditPreviewRegistration> EditPreviews =
             new Dictionary<string, EditPreviewRegistration>(StringComparer.Ordinal);
         private static bool refreshQueued;
@@ -41,7 +41,7 @@ namespace KimodoBridge.Editor
 
         internal static bool TryBeginEditPreview(
             KimodoConstraintMarker marker,
-            out PoseCacheRenderContext context,
+            out ConstraintPreviewContext context,
             out string entryId,
             out string error)
         {
@@ -63,10 +63,10 @@ namespace KimodoBridge.Editor
             }
 
             entryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
-            if (EditPreviews.TryGetValue(context.ContextKey, out EditPreviewRegistration previous))
+            if (EditPreviews.TryGetValue(context.PreviewKey, out EditPreviewRegistration previous))
             {
-                KimodoConstraintPoseCache.DestroyEntry(context, previous.EntryId);
-                EditPreviews.Remove(context.ContextKey);
+                KimodoConstraintPreviewRenderer.DestroyScope(context);
+                EditPreviews.Remove(context.PreviewKey);
             }
 
             // Populate the marker's canonical SampleResult before the Window
@@ -87,13 +87,13 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            EditPreviews[context.ContextKey] = new EditPreviewRegistration(context, entryId);
+            EditPreviews[context.PreviewKey] = new EditPreviewRegistration(context, entryId);
             return true;
         }
 
         internal static bool TryRenderEditPreview(
             KimodoConstraintMarker marker,
-            PoseCacheRenderContext context,
+            ConstraintPreviewContext context,
             out string error)
         {
             error = string.Empty;
@@ -103,7 +103,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!EditPreviews.ContainsKey(context.ContextKey))
+            if (!EditPreviews.ContainsKey(context.PreviewKey))
             {
                 error = "edit preview is not registered";
                 return false;
@@ -117,7 +117,7 @@ namespace KimodoBridge.Editor
 
         internal static bool TryUpdateMarkerPreview(
             KimodoConstraintMarker marker,
-            PoseCacheRenderContext editContext,
+            ConstraintPreviewContext editContext,
             bool renderEditPreview,
             out string error)
         {
@@ -144,7 +144,7 @@ namespace KimodoBridge.Editor
         }
 
         internal static void EndEditPreview(
-            PoseCacheRenderContext context,
+            ConstraintPreviewContext context,
             string entryId)
         {
             if (string.IsNullOrWhiteSpace(entryId))
@@ -152,16 +152,16 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoConstraintPoseCache.DestroyEntry(context, entryId);
-            EditPreviews.Remove(context.ContextKey);
+            KimodoConstraintPreviewRenderer.DestroyScope(context);
+            EditPreviews.Remove(context.PreviewKey);
             SceneView.RepaintAll();
         }
 
         private static void UpdateSelectionPreview()
         {
             refreshQueued = false;
-            var groups = new Dictionary<string, List<PoseCacheRenderItem>>(StringComparer.Ordinal);
-            var contexts = new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
+            var groups = new Dictionary<string, List<ConstraintPreviewItem>>(StringComparer.Ordinal);
+            var contexts = new Dictionary<string, ConstraintPreviewContext>(StringComparer.Ordinal);
             List<KimodoConstraintMarker> selectedMarkers = CollectSelectedConstraintMarkers();
             for (int i = 0; i < selectedMarkers.Count; i++)
             {
@@ -170,7 +170,7 @@ namespace KimodoBridge.Editor
                     KimodoConstraintOverrideEditWindow.IsOpenForMarker(marker) ||
                     !KimodoConstraintMarkerEditorUtility.TryUpdateAutoSampleMarkerData(marker, out _ ) ||
                     !KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
-                        marker, out PoseCacheRenderContext context, out _) ||
+                        marker, out ConstraintPreviewContext context, out _) ||
                     !KimodoConstraintMarkerPosePreview.TryBuildMarkerPreviewRequest(
                         marker,
                         context,
@@ -183,27 +183,27 @@ namespace KimodoBridge.Editor
                     continue;
                 }
 
-                if (!groups.TryGetValue(context.ContextKey, out List<PoseCacheRenderItem> items))
+                if (!groups.TryGetValue(context.PreviewKey, out List<ConstraintPreviewItem> items))
                 {
-                    groups.Add(context.ContextKey, items = new List<PoseCacheRenderItem>());
-                    contexts.Add(context.ContextKey, context);
+                    groups.Add(context.PreviewKey, items = new List<ConstraintPreviewItem>());
+                    contexts.Add(context.PreviewKey, context);
                 }
                 items.Add(item);
             }
 
-            foreach (KeyValuePair<string, PoseCacheRenderContext> previous in RenderedContexts)
+            foreach (KeyValuePair<string, ConstraintPreviewContext> previous in RenderedContexts)
             {
                 if (!contexts.ContainsKey(previous.Key))
                 {
-                    KimodoConstraintPoseCache.DestroyEntriesInScope(previous.Value, EntryPrefix);
+                    KimodoConstraintPreviewRenderer.DestroyScope(previous.Value);
                 }
             }
 
             RenderedContexts.Clear();
-            foreach (KeyValuePair<string, List<PoseCacheRenderItem>> group in groups)
+            foreach (KeyValuePair<string, List<ConstraintPreviewItem>> group in groups)
             {
-                PoseCacheRenderContext context = contexts[group.Key];
-                if (KimodoConstraintPoseCache.RenderBatch(
+                ConstraintPreviewContext context = contexts[group.Key];
+                if (KimodoConstraintPreviewRenderer.RenderPreview(
                         context, group.Value, out _, EntryPrefix))
                 {
                     RenderedContexts[group.Key] = context;
@@ -272,25 +272,25 @@ namespace KimodoBridge.Editor
 
         private static void Clear()
         {
-            foreach (KeyValuePair<string, PoseCacheRenderContext> context in RenderedContexts)
+            foreach (KeyValuePair<string, ConstraintPreviewContext> context in RenderedContexts)
             {
-                KimodoConstraintPoseCache.DestroyEntriesInScope(context.Value, EntryPrefix);
+                KimodoConstraintPreviewRenderer.DestroyScope(context.Value);
             }
             RenderedContexts.Clear();
 
             foreach (EditPreviewRegistration edit in EditPreviews.Values)
             {
-                KimodoConstraintPoseCache.DestroyEntry(edit.Context, edit.EntryId);
+                KimodoConstraintPreviewRenderer.DestroyScope(edit.Context);
             }
             EditPreviews.Clear();
         }
 
         private sealed class EditPreviewRegistration
         {
-            internal readonly PoseCacheRenderContext Context;
+            internal readonly ConstraintPreviewContext Context;
             internal readonly string EntryId;
 
-            internal EditPreviewRegistration(PoseCacheRenderContext context, string entryId)
+            internal EditPreviewRegistration(ConstraintPreviewContext context, string entryId)
             {
                 Context = context;
                 EntryId = entryId;

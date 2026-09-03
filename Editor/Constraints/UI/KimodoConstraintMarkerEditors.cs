@@ -207,7 +207,7 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             SceneView.RepaintAll();
         }
 
-        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out PoseCacheRenderContext context, out string error)
+        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out ConstraintPreviewContext context, out string error)
         {
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForMarker(marker, out context, out error);
         }

@@ -86,10 +86,10 @@ namespace KimodoBridge.Editor
                 ConvertRigidTransform(sample.rootOverride, trackPosition, trackRotation);
             }
 
-            ConvertRigidTransformIfActive(sample, "lefthand", sample.effectors?.leftHand, trackPosition, trackRotation);
-            ConvertRigidTransformIfActive(sample, "righthand", sample.effectors?.rightHand, trackPosition, trackRotation);
-            ConvertRigidTransformIfActive(sample, "leftfoot", sample.effectors?.leftFoot, trackPosition, trackRotation);
-            ConvertRigidTransformIfActive(sample, "rightfoot", sample.effectors?.rightFoot, trackPosition, trackRotation);
+            ConvertEffectorPositionIfActive(sample, "lefthand", sample.effectors?.leftHand, trackPosition, trackRotation);
+            ConvertEffectorPositionIfActive(sample, "righthand", sample.effectors?.rightHand, trackPosition, trackRotation);
+            ConvertEffectorPositionIfActive(sample, "leftfoot", sample.effectors?.leftFoot, trackPosition, trackRotation);
+            ConvertEffectorPositionIfActive(sample, "rightfoot", sample.effectors?.rightFoot, trackPosition, trackRotation);
         }
 
         private static void ConvertRigidTransformIfActive(
@@ -103,6 +103,29 @@ namespace KimodoBridge.Editor
             {
                 ConvertRigidTransform(target, trackPosition, trackRotation);
             }
+        }
+
+        private static void ConvertEffectorPositionIfActive(
+            KimodoMarkerSampleResult sample,
+            string channel,
+            KimodoRigidTransform target,
+            Vector3 trackPosition,
+            Quaternion trackRotation)
+        {
+            if (target == null || !KimodoConstraintMask.IsActive(sample, channel))
+            {
+                return;
+            }
+
+            TrackToWorldPose(
+                target.t,
+                Quaternion.identity,
+                trackPosition,
+                trackRotation,
+                out Vector3 position,
+                out _);
+            target.t = position;
+            // q is a bind-relative IK-goal delta, not a track-space rotation.
         }
 
         private static void ConvertRigidTransform(
