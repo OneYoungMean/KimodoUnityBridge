@@ -20,7 +20,7 @@ namespace KimodoBridge.Editor
             get => marker;
             private set => marker = value;
         }
-        private PoseCacheRenderContext editContext;
+        private ConstraintPreviewContext editContext;
         private bool hasEditContext;
         private string editEntryId;
         private bool timelineLockCaptured;
@@ -107,7 +107,7 @@ namespace KimodoBridge.Editor
                     ConfigureEditSession(marker);
                 }
 
-                if (TryGetEditContext(out PoseCacheRenderContext context, out _))
+                if (TryGetEditContext(out ConstraintPreviewContext context, out _))
                 {
                     KimodoConstraintPreviewRenderer.SetGroupState(context, visible: true, selectable: true);
                     FocusSelectionOnEditTarget(context, editEntryId);
@@ -236,7 +236,7 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            if (!TryGetEditContext(out PoseCacheRenderContext context, out string contextError))
+            if (!TryGetEditContext(out ConstraintPreviewContext context, out string contextError))
             {
                 MarkInvalid(string.IsNullOrWhiteSpace(contextError)
                     ? "The edited character or rig is no longer available."
@@ -351,7 +351,7 @@ namespace KimodoBridge.Editor
             if (constraintInspectorEditor != null && constraintInspectorEditor.DrawGUI(isWindow: true))
             {
                 string poseError = string.Empty;
-                bool rendered = TryGetEditContext(out PoseCacheRenderContext context, out poseError) &&
+                bool rendered = TryGetEditContext(out ConstraintPreviewContext context, out poseError) &&
                     KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out poseError);
                 if (rendered)
                 {
@@ -450,7 +450,7 @@ namespace KimodoBridge.Editor
             FocusSelectionOnEditTarget(editContext, editEntryId);
         }
 
-        private bool TryGetEditContext(out PoseCacheRenderContext context, out string error)
+        private bool TryGetEditContext(out ConstraintPreviewContext context, out string error)
         {
             error = string.Empty;
             if (invalidContext)
@@ -476,7 +476,7 @@ namespace KimodoBridge.Editor
 
             if (!KimodoConstraintMarkerEditorUtility.TryBuildRenderContextForMarker(
                     marker,
-                    out PoseCacheRenderContext resolvedContext,
+                    out ConstraintPreviewContext resolvedContext,
                     out contextError))
             {
                 context = default;
@@ -659,7 +659,7 @@ namespace KimodoBridge.Editor
             editContext = default;
         }
 
-        private static bool AreSameContext(PoseCacheRenderContext left, PoseCacheRenderContext right)
+        private static bool AreSameContext(ConstraintPreviewContext left, ConstraintPreviewContext right)
         {
             return left.ClipId == right.ClipId &&
                 left.AnimatorId == right.AnimatorId &&
@@ -669,7 +669,7 @@ namespace KimodoBridge.Editor
         }
 
         private static void FocusSelectionOnEditTarget(
-            PoseCacheRenderContext context,
+            ConstraintPreviewContext context,
             string entryId)
         {
             // The controller gizmos have no renderable bounds, so framing one
@@ -736,7 +736,7 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
-            KimodoConstraintPreviewRenderer.SetGroupState(window.editContext, visible: true, selectable: true);
+                KimodoConstraintPreviewRenderer.SetGroupState(window.editContext, visible: true, selectable: true);
                 FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             };
         }

@@ -5,7 +5,6 @@ using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -15,7 +14,7 @@ namespace KimodoBridge.Editor
         InOutPosePreview
     }
 
-    internal readonly struct PoseCacheRenderContext
+    internal readonly struct ConstraintPreviewContext
     {
         public readonly int ClipId;
         public readonly int AnimatorId;
@@ -23,9 +22,9 @@ namespace KimodoBridge.Editor
         public readonly string ModelName;
         public readonly KimodoConstraintRigType RigType;
         public readonly Avatar SourceAvatar;
-        public readonly string ContextKey;
+        public readonly string PreviewKey;
 
-        public PoseCacheRenderContext(
+        public ConstraintPreviewContext(
             int clipId,
             int animatorId,
             int trackId,
@@ -39,14 +38,14 @@ namespace KimodoBridge.Editor
             ModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
             RigType = rigType;
             SourceAvatar = sourceAvatar;
-            ContextKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +
+            PreviewKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(animatorId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(trackId) + ":" +
                 KimodoConstraintMarkerEditorUtility.GetCachedIntString(KimodoUnityObjectIdUtility.IdHash(sourceAvatar));
             }
         }
 
-    internal class PoseCacheRenderItem
+    internal class ConstraintPreviewItem
     {
         public string EntryId;
         public KimodoMarkerSampleResult SampleData;
@@ -62,21 +61,21 @@ namespace KimodoBridge.Editor
 
     // Generic preview input. The renderer does not know whether the request
     // came from the Inspector, EditWindow, or another editor surface.
-    internal sealed class ConstraintPreviewRequest : PoseCacheRenderItem
+    internal sealed class ConstraintPreviewRequest : ConstraintPreviewItem
     {
     }
 
-    internal sealed class ConstraintPosePreviewEntry
+    internal sealed class ConstraintPreviewInstance
     {
         public string Key;
         public Transform Root;
-        public RetargetSkeleton TargetCache;
+        public RetargetSkeleton TargetSkeleton;
         public List<Material> GeneratedMaterials;
         public KimodoConstraintMode ConstraintMode = KimodoConstraintMode.FullBody;
         public ConstraintPreviewSemantic PreviewSemantic = ConstraintPreviewSemantic.ExistingFullBodyPreview;
         public bool HandlesEnabled;
         // Current frame sample used to rebuild the preview rig. This is not a
-        // sampling cache; it is replaced on every RenderBatch pass.
+        // Current frame sample for the active preview instance.
         public KimodoMarkerSampleResult SampleData;
         public bool PickingEnabled;
         public bool ShowVirtualAvatar = true;
@@ -84,17 +83,15 @@ namespace KimodoBridge.Editor
         public Action<KimodoMarkerSampleResult> OnSampleChanged;
     }
 
-    internal sealed class ConstraintPreviewBatch : IDisposable
+    internal sealed class ConstraintPreviewScope : IDisposable
     {
-        internal readonly Dictionary<string, ConstraintPosePreviewEntry> Entries =
-            new Dictionary<string, ConstraintPosePreviewEntry>(StringComparer.Ordinal);
+        internal readonly Dictionary<string, ConstraintPreviewInstance> Entries =
+            new Dictionary<string, ConstraintPreviewInstance>(StringComparer.Ordinal);
 
-        // Context describes the currently displayed preview only. It is not
-        // used to decide whether sampled data or a rig can be reused.
-        internal PoseCacheRenderContext Context { get; private set; }
+        internal ConstraintPreviewContext Context { get; }
         internal bool IsDisposed { get; private set; }
 
-        internal ConstraintPreviewBatch(PoseCacheRenderContext context)
+        internal ConstraintPreviewScope(ConstraintPreviewContext context)
         {
             Context = context;
         }
@@ -103,7 +100,7 @@ namespace KimodoBridge.Editor
         {
             if (!IsDisposed)
             {
-                KimodoConstraintPreviewRenderer.ReleaseBatch(this);
+                KimodoConstraintPreviewRenderer.DestroyBatch(this);
             }
         }
 
@@ -116,10 +113,10 @@ namespace KimodoBridge.Editor
     [InitializeOnLoad]
     internal static class KimodoConstraintPreviewRenderer
     {
-        // Active preview instances only. This is a display registry, not a
-        // reusable sample/pose cache: every RenderBatch creates a new session.
-        private static readonly List<ConstraintPreviewBatch> ActiveBatches =
-            new List<ConstraintPreviewBatch>();
+        // Active preview instances only. Entries are never reused between
+        // renders; a refresh always rebuilds the requested pose from scratch.
+        private static readonly Dictionary<string, ConstraintPreviewScope> ActiveScopes =
+            new Dictionary<string, ConstraintPreviewScope>(StringComparer.Ordinal);
         private static string selectedHandleKey;
 
         private const float NonConstraintAlpha = 1.0f;
@@ -146,10 +143,10 @@ namespace KimodoBridge.Editor
                 "Selected Handle: " + (selectedHandleKey ?? "<none>"));
             Handles.EndGUI();
 
-            foreach (ConstraintPreviewBatch session in ActiveBatches)
+            foreach (ConstraintPreviewScope session in ActiveScopes.Values)
             {
                 if (session?.IsDisposed == true) continue;
-                foreach (ConstraintPosePreviewEntry entry in session.Entries.Values)
+                foreach (ConstraintPreviewInstance entry in session.Entries.Values)
                 {
                     if (entry == null || !entry.HandlesEnabled || !entry.Visible || entry.SampleData == null)
                     {
@@ -188,7 +185,7 @@ namespace KimodoBridge.Editor
         }
 
         private static void DrawEffectorHandle(
-            ConstraintPosePreviewEntry entry,
+            ConstraintPreviewInstance entry,
             HumanBodyBones bone,
             KimodoRigidTransform value,
             bool enabled)
@@ -198,7 +195,7 @@ namespace KimodoBridge.Editor
         }
 
         private static void DrawSampleHandle(
-            ConstraintPosePreviewEntry entry,
+            ConstraintPreviewInstance entry,
             HumanBodyBones bone,
             KimodoRigidTransform value,
             Color color,
@@ -314,12 +311,12 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool CreateBatch(
-            PoseCacheRenderContext context,
-            out ConstraintPreviewBatch session,
+        internal static bool CreatePreviewScope(
+            ConstraintPreviewContext context,
+            out ConstraintPreviewScope batch,
             out string error)
         {
-            session = null;
+            batch = null;
             error = string.Empty;
             if (context.ClipId == 0 || context.AnimatorId == 0 || context.TrackId == 0)
             {
@@ -327,51 +324,58 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            session = new ConstraintPreviewBatch(context);
-            ActiveBatches.Add(session);
+            // Discard the previous graph/rig. Sampling and solving always
+            // reflect the current marker.
+            if (ActiveScopes.TryGetValue(context.PreviewKey, out ConstraintPreviewScope existing))
+                DestroyBatch(existing, repaint: false);
+            batch = new ConstraintPreviewScope(context);
+            ActiveScopes[context.PreviewKey] = batch;
             return true;
         }
 
-        internal static void ReleaseBatch(ConstraintPreviewBatch session)
+        internal static void DestroyBatch(ConstraintPreviewScope session, bool repaint = true)
         {
-            DestroyBatch(session, repaint: true);
+            if (session == null) return;
+            if (ActiveScopes.TryGetValue(session.Context.PreviewKey, out ConstraintPreviewScope active) &&
+                ReferenceEquals(active, session))
+                ActiveScopes.Remove(session.Context.PreviewKey);
+            DestroyBatchEntries(session);
+            session.MarkDisposed();
+            if (repaint) SceneView.RepaintAll();
         }
 
-        private static bool FindActiveBatch(
-            PoseCacheRenderContext context,
-            out ConstraintPreviewBatch session)
+        private static bool TryGetBatch(
+            ConstraintPreviewContext context,
+            out ConstraintPreviewScope session)
         {
-            for (int i = ActiveBatches.Count - 1; i >= 0; i--)
-            {
-                ConstraintPreviewBatch candidate = ActiveBatches[i];
-                if (candidate != null && !candidate.IsDisposed &&
-                    string.Equals(candidate.Context.ContextKey, context.ContextKey, StringComparison.Ordinal))
-                {
-                    session = candidate;
-                    return true;
-                }
-            }
-
-            session = null;
-            return false;
+            return ActiveScopes.TryGetValue(context.PreviewKey, out session) &&
+                session != null && !session.IsDisposed;
         }
 
-        internal static bool RenderBatch(
-            PoseCacheRenderContext context,
-            IReadOnlyList<PoseCacheRenderItem> items,
+        internal static bool RenderPreview(
+            ConstraintPreviewContext context,
+            IReadOnlyList<ConstraintPreviewItem> items,
             out string error,
             string entryPrefix = null)
         {
             error = string.Empty;
+            if (!CreatePreviewScope(context, out ConstraintPreviewScope session, out error))
+            {
+                return false;
+            }
+
+            Dictionary<string, ConstraintPreviewInstance> entries = session.Entries;
+            string normalizedPrefix = entryPrefix ?? string.Empty;
             if (items == null || items.Count == 0)
             {
+                DestroyBatch(session);
                 return true;
             }
 
             bool hasVisible = false;
             for (int i = 0; i < items.Count; i++)
             {
-                PoseCacheRenderItem item = items[i];
+                ConstraintPreviewItem item = items[i];
                 if (item != null && item.Visible && item.SampleData != null)
                 {
                     hasVisible = true;
@@ -381,21 +385,15 @@ namespace KimodoBridge.Editor
 
             if (!hasVisible)
             {
+                DestroyBatch(session);
                 return true;
             }
 
-            if (!CreateBatch(context, out ConstraintPreviewBatch session, out error))
-            {
-                return false;
-            }
-
-            Dictionary<string, ConstraintPosePreviewEntry> entries = session.Entries;
-
-            string normalizedPrefix = entryPrefix ?? string.Empty;
+            var desiredKeys = new HashSet<string>(StringComparer.Ordinal);
             bool changed = false;
             for (int i = 0; i < items.Count; i++)
             {
-                PoseCacheRenderItem item = items[i];
+                ConstraintPreviewItem item = items[i];
                 if (item == null || !item.Visible || item.SampleData == null)
                 {
                     continue;
@@ -403,7 +401,15 @@ namespace KimodoBridge.Editor
 
                 string entryId = normalizedPrefix +
                     (string.IsNullOrWhiteSpace(item.EntryId) ? $"item_{i}" : item.EntryId.Trim());
-                if (!TryGetOrCreateEntry(session, entryId, out ConstraintPosePreviewEntry entry, out error))
+                desiredKeys.Add(entryId);
+
+                if (entries.TryGetValue(entryId, out ConstraintPreviewInstance stale))
+                {
+                    DestroyEntry(stale);
+                    entries.Remove(entryId);
+                }
+
+                if (!CreateInstance(session, entryId, out ConstraintPreviewInstance entry, out error))
                 {
                     return false;
                 }
@@ -426,7 +432,7 @@ namespace KimodoBridge.Editor
                     out error);
                 if (!applied)
                 {
-                    error = $"pose cache render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
+                    error = $"constraint preview render failed for entry '{entryId}' (constraint='{item.ConstraintType ?? string.Empty}', sampleTime={item.SampleData.sampleTime:F3}): {error}";
                     return false;
                 }
 
@@ -435,8 +441,30 @@ namespace KimodoBridge.Editor
                 changed |= SetEntryVisible(entry, true);
             }
 
-            // The newly created session owns exactly this render pass.
-            // Entries are never carried over from a previous pass.
+            List<string> keysToRemove = null;
+            foreach (KeyValuePair<string, ConstraintPreviewInstance> kv in entries)
+            {
+                if (!IsEntryInScope(kv.Value, normalizedPrefix))
+                {
+                    continue;
+                }
+
+                if (!desiredKeys.Contains(kv.Key))
+                {
+                    DestroyEntry(kv.Value);
+                    keysToRemove ??= new List<string>();
+                    keysToRemove.Add(kv.Key);
+                    changed = true;
+                }
+            }
+
+            if (keysToRemove != null)
+            {
+                for (int i = 0; i < keysToRemove.Count; i++)
+                {
+                    entries.Remove(keysToRemove[i]);
+                }
+            }
             if (changed)
             {
                 SceneView.RepaintAll();
@@ -445,25 +473,24 @@ namespace KimodoBridge.Editor
         }
 
         internal static bool RenderConstraintPreview(
-            PoseCacheRenderContext context,
+            ConstraintPreviewContext context,
             ConstraintPreviewRequest request,
             out string error)
         {
-            return RenderBatch(
+            return RenderPreview(
                 context,
-                request == null ? null : new PoseCacheRenderItem[] { request },
-                out error,
-                "edit:");
+                request == null ? null : new ConstraintPreviewItem[] { request },
+                out error);
         }
 
-        internal static void SetGroupState(PoseCacheRenderContext context, bool visible, bool selectable)
+        internal static void SetGroupState(ConstraintPreviewContext context, bool visible, bool selectable)
         {
-            if (!FindActiveBatch(context, out ConstraintPreviewBatch session))
+            if (!TryGetBatch(context, out ConstraintPreviewScope session))
             {
                 return;
             }
 
-            foreach (KeyValuePair<string, ConstraintPosePreviewEntry> kv in session.Entries)
+            foreach (KeyValuePair<string, ConstraintPreviewInstance> kv in session.Entries)
             {
                 ApplyEntryState(kv.Value, visible, selectable);
             }
@@ -471,11 +498,11 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
-        internal static bool TryGetPreviewRoot(PoseCacheRenderContext context, string entryId, out Transform root)
+        internal static bool TryGetPreviewRoot(ConstraintPreviewContext context, string entryId, out Transform root)
         {
             root = null;
-            if (!FindActiveBatch(context, out ConstraintPreviewBatch session) ||
-                !TryGetEntryForContext(session, entryId, out ConstraintPosePreviewEntry entry) ||
+            if (!TryGetBatch(context, out ConstraintPreviewScope session) ||
+                !TryGetEntryForContext(session, entryId, out ConstraintPreviewInstance entry) ||
                 entry?.Root == null)
             {
                 return false;
@@ -485,16 +512,16 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static void DestroyEntry(PoseCacheRenderContext context, string entryId)
+        internal static void DestroyEntry(ConstraintPreviewContext context, string entryId)
         {
             if (string.IsNullOrWhiteSpace(entryId) ||
-                !FindActiveBatch(context, out ConstraintPreviewBatch session))
+                !TryGetBatch(context, out ConstraintPreviewScope session))
             {
                 return;
             }
 
             string key = entryId.Trim();
-            if (!session.Entries.TryGetValue(key, out ConstraintPosePreviewEntry entry))
+            if (!session.Entries.TryGetValue(key, out ConstraintPreviewInstance entry))
             {
                 return;
             }
@@ -504,65 +531,33 @@ namespace KimodoBridge.Editor
             SceneView.RepaintAll();
         }
 
+        internal static void DestroyScope(ConstraintPreviewContext context)
+        {
+            if (ActiveScopes.TryGetValue(context.PreviewKey, out ConstraintPreviewScope scope))
+                DestroyBatch(scope);
+        }
+
         internal static void DestroyAll()
         {
-            var sessions = new List<ConstraintPreviewBatch>(ActiveBatches);
-            ActiveBatches.Clear();
-            for (int i = 0; i < sessions.Count; i++)
+            var batches = new List<ConstraintPreviewScope>(ActiveScopes.Values);
+            ActiveScopes.Clear();
+            for (int i = 0; i < batches.Count; i++)
             {
-                DestroyBatchEntries(sessions[i]);
-                sessions[i]?.MarkDisposed();
+                DestroyBatchEntries(batches[i]);
+                batches[i]?.MarkDisposed();
             }
 
             SceneView.RepaintAll();
         }
 
-        internal static void DestroyEntriesWithPrefix(string entryPrefix)
-        {
-            string normalizedPrefix = entryPrefix ?? string.Empty;
-            for (int i = ActiveBatches.Count - 1; i >= 0; i--)
-            {
-                ConstraintPreviewBatch session = ActiveBatches[i];
-                if (session == null)
-                {
-                    ActiveBatches.RemoveAt(i);
-                    continue;
-                }
-
-                DestroyEntriesInSessionScope(session, normalizedPrefix);
-                if (session.Entries.Count == 0)
-                {
-                    DestroyBatch(session, repaint: false);
-                }
-            }
-            SceneView.RepaintAll();
-        }
-
-        private static void DestroyBatch(ConstraintPreviewBatch session, bool repaint)
+        private static void DestroyBatchEntries(ConstraintPreviewScope session)
         {
             if (session == null)
             {
                 return;
             }
 
-            ActiveBatches.Remove(session);
-
-            DestroyBatchEntries(session);
-            session.MarkDisposed();
-            if (repaint)
-            {
-                SceneView.RepaintAll();
-            }
-        }
-
-        private static void DestroyBatchEntries(ConstraintPreviewBatch session)
-        {
-            if (session == null)
-            {
-                return;
-            }
-
-            foreach (ConstraintPosePreviewEntry entry in session.Entries.Values)
+            foreach (ConstraintPreviewInstance entry in session.Entries.Values)
             {
                 DestroyEntry(entry);
             }
@@ -570,30 +565,7 @@ namespace KimodoBridge.Editor
             session.Entries.Clear();
         }
 
-        private static void DestroyEntriesInSessionScope(
-            ConstraintPreviewBatch session,
-            string entryPrefix)
-        {
-            var keysToRemove = new List<string>();
-            foreach (KeyValuePair<string, ConstraintPosePreviewEntry> kv in session.Entries)
-            {
-                if (IsEntryInScope(kv.Value, entryPrefix))
-                {
-                    keysToRemove.Add(kv.Key);
-                }
-            }
-            for (int i = 0; i < keysToRemove.Count; i++)
-            {
-                string key = keysToRemove[i];
-                if (session.Entries.TryGetValue(key, out ConstraintPosePreviewEntry entry))
-                {
-                    DestroyEntry(entry);
-                    session.Entries.Remove(key);
-                }
-            }
-        }
-
-        private static bool IsEntryInScope(ConstraintPosePreviewEntry entry, string entryPrefix)
+        private static bool IsEntryInScope(ConstraintPreviewInstance entry, string entryPrefix)
         {
             if (entry == null || string.IsNullOrEmpty(entryPrefix))
             {
@@ -608,15 +580,15 @@ namespace KimodoBridge.Editor
             DestroyAll();
         }
 
-        private static bool TryGetOrCreateEntry(
-            ConstraintPreviewBatch session,
+        private static bool CreateInstance(
+            ConstraintPreviewScope session,
             string entryId,
-            out ConstraintPosePreviewEntry entry,
+            out ConstraintPreviewInstance entry,
             out string error)
         {
             entry = null;
             error = string.Empty;
-            PoseCacheRenderContext context = session.Context;
+            ConstraintPreviewContext context = session.Context;
             if (context.ClipId == 0 || context.AnimatorId == 0)
             {
                 error = "invalid clip/animator id";
@@ -624,12 +596,6 @@ namespace KimodoBridge.Editor
             }
 
             string normalizedEntryId = string.IsNullOrWhiteSpace(entryId) ? "default" : entryId.Trim();
-            // Entries are display instances, never reusable pose cache items.
-            if (session.Entries.TryGetValue(normalizedEntryId, out ConstraintPosePreviewEntry previous))
-            {
-                DestroyEntry(previous);
-                session.Entries.Remove(normalizedEntryId);
-            }
 
             if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(
                     context.ModelName,
@@ -642,11 +608,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            entry = new ConstraintPosePreviewEntry
+            entry = new ConstraintPreviewInstance
             {
                 Key = normalizedEntryId,
                 Root = rigInstance.Root != null ? rigInstance.Root.transform : null,
-                TargetCache = rigInstance.TargetCache,
+                TargetSkeleton = rigInstance.TargetCache,
                 GeneratedMaterials = rigInstance.GeneratedMaterials,
                 PickingEnabled = false
             };
@@ -657,11 +623,11 @@ namespace KimodoBridge.Editor
         }
 
         private static bool TryGetFirstEntryForContext(
-            ConstraintPreviewBatch session,
-            out ConstraintPosePreviewEntry entry)
+            ConstraintPreviewScope session,
+            out ConstraintPreviewInstance entry)
         {
             entry = null;
-            foreach (KeyValuePair<string, ConstraintPosePreviewEntry> kv in session.Entries)
+            foreach (KeyValuePair<string, ConstraintPreviewInstance> kv in session.Entries)
             {
                 if (kv.Value != null && kv.Value.Root != null)
                 {
@@ -674,9 +640,9 @@ namespace KimodoBridge.Editor
         }
 
         private static bool TryGetEntryForContext(
-            ConstraintPreviewBatch session,
+            ConstraintPreviewScope session,
             string entryId,
-            out ConstraintPosePreviewEntry entry)
+            out ConstraintPreviewInstance entry)
         {
             if (string.IsNullOrWhiteSpace(entryId))
             {
@@ -686,18 +652,18 @@ namespace KimodoBridge.Editor
             return session.Entries.TryGetValue(entryId.Trim(), out entry) && entry?.Root != null;
         }
 
-        private static void DestroyEntry(ConstraintPosePreviewEntry entry)
+        private static void DestroyEntry(ConstraintPreviewInstance entry)
         {
             if (entry == null)
             {
                 return;
             }
 
-            RetargetSkeleton targetCache = entry.TargetCache;
-            entry.TargetCache = null;
-            targetCache?.Dispose();
+            RetargetSkeleton targetSkeleton = entry.TargetSkeleton;
+            entry.TargetSkeleton = null;
+            targetSkeleton?.Dispose();
 
-            if (targetCache == null && entry.Root != null && entry.Root.gameObject != null)
+            if (targetSkeleton == null && entry.Root != null && entry.Root.gameObject != null)
             {
                 UnityEngine.Object.DestroyImmediate(entry.Root.gameObject);
             }
@@ -716,7 +682,7 @@ namespace KimodoBridge.Editor
             }
         }
 
-        private static bool SetEntryVisible(ConstraintPosePreviewEntry entry, bool visible)
+        private static bool SetEntryVisible(ConstraintPreviewInstance entry, bool visible)
         {
             if (entry?.Root == null || entry.Root.gameObject == null)
             {
@@ -734,7 +700,7 @@ namespace KimodoBridge.Editor
             return changed;
         }
 
-        private static void SetEntrySelectable(ConstraintPosePreviewEntry entry, bool selectable)
+        private static void SetEntrySelectable(ConstraintPreviewInstance entry, bool selectable)
         {
             if (entry?.Root == null || entry.Root.gameObject == null)
             {
@@ -758,7 +724,7 @@ namespace KimodoBridge.Editor
                 : HideFlags.HideInHierarchy | HideFlags.DontSave;
         }
 
-        private static void ApplyEntryState(ConstraintPosePreviewEntry entry, bool visible, bool selectable)
+        private static void ApplyEntryState(ConstraintPreviewInstance entry, bool visible, bool selectable)
         {
             if (entry == null)
             {
@@ -770,7 +736,7 @@ namespace KimodoBridge.Editor
         }
 
         private static void ApplyConstraintColoring(
-            ConstraintPosePreviewEntry entry,
+            ConstraintPreviewInstance entry,
             HashSet<string> highlightedJoints,
             Color previewColor)
         {
@@ -839,7 +805,7 @@ namespace KimodoBridge.Editor
             return false;
         }
 
-        private static void CollectHighlightedJointsFromItem(PoseCacheRenderItem item, string modelName, HashSet<string> output)
+        private static void CollectHighlightedJointsFromItem(ConstraintPreviewItem item, string modelName, HashSet<string> output)
         {
             if (item == null || output == null)
             {
@@ -862,35 +828,35 @@ namespace KimodoBridge.Editor
         private static bool ApplySampleToRig(
             KimodoMarkerSampleResult sample,
             string modelName,
-            ConstraintPosePreviewEntry entry,
+            ConstraintPreviewInstance entry,
             out string error)
         {
             error = string.Empty;
-            if (sample == null || entry?.TargetCache == null)
+            if (sample == null || entry?.TargetSkeleton == null)
             {
-                error = "Constraint target skeleton cache is unavailable.";
+                error = "Constraint target skeleton is unavailable.";
                 return false;
             }
 
-            bool wasActive = entry.TargetCache.root.activeSelf;
-            entry.TargetCache.root.SetActive(true);
+            bool wasActive = entry.TargetSkeleton.root.activeSelf;
+            entry.TargetSkeleton.root.SetActive(true);
             try
             {
                 return KimodoConstraintPosePipeline.TryApply(
                     sample,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                    entry.TargetCache,
+                    entry.TargetSkeleton,
                     out _,
                     out _,
                     out error);
             }
             finally
             {
-                if (entry.TargetCache.animator != null)
+                if (entry.TargetSkeleton.animator != null)
                 {
-                    entry.TargetCache.animator.enabled = false;
+                    entry.TargetSkeleton.animator.enabled = false;
                 }
-                entry.TargetCache.root.SetActive(wasActive);
+                entry.TargetSkeleton.root.SetActive(wasActive);
             }
         }
 
