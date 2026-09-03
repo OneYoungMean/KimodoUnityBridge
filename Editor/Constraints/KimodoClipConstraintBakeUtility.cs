@@ -132,7 +132,7 @@ namespace KimodoBridge.Editor
                 {
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             samplingContext,
-                            frame / fps,
+                            (double)frame / fps,
                             out error))
                     {
                         return false;

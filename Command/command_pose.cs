@@ -344,7 +344,7 @@ namespace KimodoUnityBridge.Command
                     cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
                 }
 
-                float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(
+                double sourceTime = KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(
                     timelineClip,
                     sampleTime);
                 if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
@@ -511,7 +511,7 @@ namespace KimodoUnityBridge.Command
                 for (int index = 0; index < frameCount; index++)
                 {
                     double timelineTime = (startFrame + index) / SessionFrameRate;
-                    float sourceTime = (float)KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(timelineClip, timelineTime);
+                    double sourceTime = KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(timelineClip, timelineTime);
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             session.Context,
                             sourceTime,

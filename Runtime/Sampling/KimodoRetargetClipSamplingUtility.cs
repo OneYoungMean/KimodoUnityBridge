@@ -18,7 +18,7 @@ namespace KimodoBridge
 
         internal delegate bool ClipSampleCallback<TSample>(
             ClipSamplingContext context,
-            float sampleTime,
+            double sampleTime,
             out TSample sample,
             out string error);
 
@@ -31,7 +31,7 @@ namespace KimodoBridge
             public AnimationClipPlayable clipPlayable;
             public bool restoreAnimatorAvatar;
             public Avatar originalAnimatorAvatar;
-            public float evaluatedTime;
+            public double evaluatedTime;
             public bool hasEvaluatedTime;
             public float frameRate;
 
@@ -108,7 +108,7 @@ namespace KimodoBridge
             }
 
             internal bool TrySample<TSample>(
-                float sampleTime,
+                double sampleTime,
                 ClipSampleCallback<TSample> sampleCallback,
                 out TSample sample,
                 out string error)
@@ -312,7 +312,7 @@ namespace KimodoBridge
                     clipPlayable = clipPlayable,
                     restoreAnimatorAvatar = restoreAnimatorAvatar,
                     originalAnimatorAvatar = originalAnimatorAvatar,
-                    evaluatedTime = 0f,
+                    evaluatedTime = 0d,
                     hasEvaluatedTime = false,
                     frameRate = ResolveFrameRate(clip)
                 };
@@ -345,7 +345,7 @@ namespace KimodoBridge
             return playable;
         }
 
-        internal static bool TryEvaluateClipSamplingContext(ClipSamplingContext context, float sampleTime, out string error)
+        internal static bool TryEvaluateClipSamplingContext(ClipSamplingContext context, double sampleTime, out string error)
         {
             error = string.Empty;
 
@@ -357,18 +357,18 @@ namespace KimodoBridge
 
             try
             {
-                float targetTime = sampleTime;
+                double targetTime = sampleTime;
                 if (context.hasEvaluatedTime && targetTime < context.evaluatedTime)
                 {
                     error = $"Clip sampling context does not support backward evaluation: previous={context.evaluatedTime:F6}, target={targetTime:F6}. Rebuild the context before sampling an earlier time.";
                     return false;
                 }
 
-                float deltaTime = context.hasEvaluatedTime
+                double deltaTime = context.hasEvaluatedTime
                     ? targetTime - context.evaluatedTime
                     : targetTime;
 
-                context.graph.Evaluate(deltaTime);
+                context.graph.Evaluate((float)deltaTime);
                 context.evaluatedTime = targetTime;
                 context.hasEvaluatedTime = true;
                 return true;
@@ -446,7 +446,7 @@ namespace KimodoBridge
         internal static bool SampleBoneClipToBoneSample(
             AnimationClip clip,
             RetargetSkeleton cache,
-            float sampleTime,
+            double sampleTime,
             out BoneSample sample,
             out string error)
         {
@@ -462,7 +462,7 @@ namespace KimodoBridge
         internal static bool SampleBoneClipToBoneSample(
             AnimationClip clip,
             RetargetSkeleton cache,
-            float sampleTime,
+            double sampleTime,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample sample,
             out string error)
@@ -480,7 +480,7 @@ namespace KimodoBridge
 
         internal static bool TrySampleBoneClipSession(
             KimodoRetargetClipSamplingUtility.ClipSamplingSession session,
-            float sampleTime,
+            double sampleTime,
             out BoneSample sample,
             out string error)
         {
@@ -1029,7 +1029,7 @@ namespace KimodoBridge
         private static bool TrySampleFromClip<TSample>(
             AnimationClip clip,
             RetargetSkeleton cache,
-            float sampleTime,
+            double sampleTime,
             string rootName,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             KimodoRetargetClipSamplingUtility.ClipSampleCallback<TSample> sampleCallback,
@@ -1093,7 +1093,7 @@ namespace KimodoBridge
                 float frameRate = Mathf.Max(1f, session.FrameRate);
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    float time = frame / frameRate;
+                    double time = frame / frameRate;
                     if (!session.TrySample(time, sampleCallback, out TSample sample, out error))
                     {
                         return false;
@@ -1112,7 +1112,7 @@ namespace KimodoBridge
 
         private static bool TrySampleBoneClipToBoneSampleInternal(
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
-            float sampleTime,
+            double sampleTime,
             out BoneSample sample,
             out string error)
         {
@@ -1130,7 +1130,7 @@ namespace KimodoBridge
 
         private static bool TrySampleMuscleClipToMuscleSampleInternal(
             KimodoRetargetClipSamplingUtility.ClipSamplingContext context,
-            float sampleTime,
+            double sampleTime,
             out MuscleSample sample,
             out string error)
         {

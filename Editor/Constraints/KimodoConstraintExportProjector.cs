@@ -106,9 +106,9 @@ namespace KimodoBridge.Editor
                     hips.rotation,
                     trackOffsetPosition,
                     trackOffsetRotation,
-                    out Vector3 trackHipsPosition,
-                    out Quaternion trackHipsRotation);
-                hips.SetPositionAndRotation(trackHipsPosition, trackHipsRotation);
+                    out Vector3 trackRootPosition,
+                    out Quaternion trackRootRotation);
+                hips.SetPositionAndRotation(trackRootPosition, trackRootRotation);
 
                 if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
                         characterCache,

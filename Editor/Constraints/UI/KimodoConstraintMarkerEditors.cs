@@ -162,15 +162,15 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             // TimelineClip's local evaluation time is only an implementation
             // detail of source animation sampling and must never be shown or
             // written back here.
-            double displayMarkerTime = Math.Round(
+            float displayMarkerTime = (float)Math.Round(
                 GetMarkerTimeForDisplay(marker),
                 4,
                 MidpointRounding.AwayFromZero);
 
-            double editedTime = EditorGUILayout.DoubleField(
+            float editedTime = EditorGUILayout.FloatField(
                 new GUIContent("Marker Time (seconds)", "The Timeline marker time is the only sampling time."),
                 displayMarkerTime);
-            double normalizedEdited = Math.Max(0.0, editedTime);
+            double normalizedEdited = Math.Max(0.0, (double)editedTime);
             if (Math.Abs(normalizedEdited - marker.time) > 1e-9)
             {
                 MoveMarkerToTime(marker, normalizedEdited);
@@ -207,7 +207,7 @@ public static void MoveMarkerToTime(IMarker marker, double globalTime)
             SceneView.RepaintAll();
         }
 
-        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out PoseCacheRenderContext context, out string error)
+        public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker, out ConstraintPreviewContext context, out string error)
         {
             return KimodoConstraintMarkerPosePreview.TryBuildRenderContextForMarker(marker, out context, out error);
         }

@@ -475,8 +475,8 @@ namespace KimodoBridge.Editor
             AnimationClip clip,
             RetargetSkeleton cache,
             int frameCount,
-            float sampleStartTime,
-            float sampleFrameRate,
+            double sampleStartTime,
+            double sampleFrameRate,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample[] samples,
             out string error)
@@ -498,7 +498,7 @@ namespace KimodoBridge.Editor
                 samples = new BoneSample[frameCount];
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    float sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    double sampleTime = sampleStartTime + frame / sampleFrameRate;
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             context,
                             sampleTime,
@@ -521,8 +521,8 @@ namespace KimodoBridge.Editor
             AnimationClip clip,
             RetargetSkeleton cache,
             int frameCount,
-            float sampleStartTime,
-            float sampleFrameRate,
+            double sampleStartTime,
+            double sampleFrameRate,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out MuscleSample[] samples,
             out string error)
@@ -544,7 +544,7 @@ namespace KimodoBridge.Editor
                 samples = new MuscleSample[frameCount];
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    float sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    double sampleTime = sampleStartTime + frame / sampleFrameRate;
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             context,
                             sampleTime,

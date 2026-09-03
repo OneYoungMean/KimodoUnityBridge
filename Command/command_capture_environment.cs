@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using KimodoUnityBridge;
@@ -281,9 +282,23 @@ namespace KimodoUnityBridge.Command
             if (volumeLayerMask != null)
             {
                 volumeLayerMask.SetValue(additionalCameraData, (LayerMask)0);
-                return;
             }
-            additionalCameraDataType.GetProperty("volumeLayerMask")?.SetValue(additionalCameraData, (LayerMask)0);
+            else
+            {
+                additionalCameraDataType.GetProperty("volumeLayerMask")?.SetValue(additionalCameraData, (LayerMask)0);
+            }
+            if (pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Type clearColorModeType = additionalCameraDataType.GetNestedType(
+                    "ClearColorMode", BindingFlags.Public | BindingFlags.NonPublic);
+                if (clearColorModeType != null)
+                {
+                    object colorMode = System.Enum.Parse(clearColorModeType, "Color");
+                    additionalCameraDataType.GetField("clearColorMode")?.SetValue(additionalCameraData, colorMode);
+                    additionalCameraDataType.GetProperty("clearColorMode")?.SetValue(additionalCameraData, colorMode);
+                }
+            }
         }
 
         private static TrajectoryScale BuildTrajectoryScale(IReadOnlyList<SubjectPictureData> subjects, bool includeEndEffectors = false)
