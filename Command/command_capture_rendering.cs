@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using KimodoUnityBridge;
@@ -569,8 +571,160 @@ namespace KimodoUnityBridge.Command
             return texture;
         }
 
+        private sealed class HdrpAovState
+        {
+            public readonly Dictionary<string, object> Handles = new Dictionary<string, object>(StringComparer.Ordinal);
+            public bool Completed;
+        }
+
+        private static bool IsHdrpCapturePipeline()
+        {
+            string pipelineName = GraphicsSettings.currentRenderPipeline == null
+                ? string.Empty
+                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
+            return pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static Type FindLoadedType(string fullName)
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType(fullName, false))
+                .FirstOrDefault(type => type != null);
+        }
+
+        private static object ResolveHdrpAovTarget(object stateObject, object bufferId)
+        {
+            HdrpAovState state = (HdrpAovState)stateObject;
+            string name = bufferId == null ? string.Empty : bufferId.ToString();
+            if (state.Handles.TryGetValue(name, out object handle)) return handle;
+            // HDRP invokes the allocator for every requested buffer. Returning
+            // the color target for an unknown enum keeps this path compatible
+            // with minor AOV enum additions while preserving one allocation.
+            return state.Handles.TryGetValue("Color", out handle) ? handle : null;
+        }
+
+        private static void CompleteHdrpAov(object stateObject, object commandBuffer, object buffers)
+        {
+            ((HdrpAovState)stateObject).Completed = true;
+        }
+
+        private static Delegate CreateHdrpAllocator(Type delegateType, HdrpAovState state)
+        {
+            MethodInfo invoke = delegateType.GetMethod("Invoke");
+            ParameterInfo parameter = invoke.GetParameters()[0];
+            ParameterExpression parameterExpression = Expression.Parameter(parameter.ParameterType, "bufferId");
+            MethodInfo resolver = typeof(command_context).GetMethod(
+                nameof(ResolveHdrpAovTarget), BindingFlags.NonPublic | BindingFlags.Static);
+            Expression body = Expression.Call(
+                resolver,
+                Expression.Constant(state, typeof(object)),
+                Expression.Convert(parameterExpression, typeof(object)));
+            body = Expression.Convert(body, invoke.ReturnType);
+            return Expression.Lambda(delegateType, body, parameterExpression).Compile();
+        }
+
+        private static Delegate CreateHdrpCallback(Type delegateType, HdrpAovState state)
+        {
+            MethodInfo invoke = delegateType.GetMethod("Invoke");
+            ParameterExpression[] parameters = invoke.GetParameters()
+                .Select(parameter => Expression.Parameter(parameter.ParameterType, parameter.Name))
+                .ToArray();
+            MethodInfo complete = typeof(command_context).GetMethod(
+                nameof(CompleteHdrpAov), BindingFlags.NonPublic | BindingFlags.Static);
+            Expression body = Expression.Call(
+                complete,
+                Expression.Constant(state, typeof(object)),
+                Expression.Convert(parameters[0], typeof(object)),
+                Expression.Convert(parameters[1], typeof(object)));
+            return Expression.Lambda(delegateType, body, parameters).Compile();
+        }
+
+        private static RenderTexture RenderHdrpAovToTexture(
+            Camera camera,
+            int width,
+            int height,
+            RenderTextureFormat format,
+            string bufferName)
+        {
+            Type additionalCameraDataType = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData");
+            Type builderType = FindLoadedType("UnityEngine.Rendering.HighDefinition.AOVRequestBuilder");
+            Type requestType = FindLoadedType("UnityEngine.Rendering.HighDefinition.AOVRequest");
+            Type buffersType = FindLoadedType("UnityEngine.Rendering.HighDefinition.AOVBuffers");
+            Type allocatorType = FindLoadedType("UnityEngine.Rendering.HighDefinition.AOVRequestBufferAllocator");
+            Type callbackType = FindLoadedType("UnityEngine.Rendering.HighDefinition.FramePassCallback");
+            Type rtHandlesType = FindLoadedType("UnityEngine.Rendering.RTHandles");
+            if (additionalCameraDataType == null || builderType == null || requestType == null ||
+                buffersType == null || allocatorType == null || callbackType == null || rtHandlesType == null)
+            {
+                throw new InvalidOperationException("HDRP AOV capture types are unavailable.");
+            }
+
+            RenderTexture target = NewAnalysisRenderTexture(width, height, format, false,
+                format == RenderTextureFormat.ARGB32 ? 24 : 0);
+            RenderTexture result = NewAnalysisRenderTexture(width, height, format, false,
+                format == RenderTextureFormat.ARGB32 ? 24 : 0);
+            var state = new HdrpAovState();
+            Rect previousPixelRect = camera.pixelRect;
+            MethodInfo alloc = rtHandlesType.GetMethod(
+                "Alloc", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(RenderTexture) }, null);
+            try
+            {
+                if (alloc == null) throw new InvalidOperationException("HDRP RTHandle allocator is unavailable.");
+                object handle = alloc.Invoke(null, new object[] { target });
+                state.Handles[bufferName] = handle;
+
+                Component additionalCameraData = camera.GetComponent(additionalCameraDataType) ??
+                    camera.gameObject.AddComponent(additionalCameraDataType);
+                object request = requestType.GetMethod("NewDefault", BindingFlags.Public | BindingFlags.Static)
+                    .Invoke(null, null);
+                object builder = Activator.CreateInstance(builderType);
+                MethodInfo add = builderType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(method => method.Name == "Add")
+                    .First(method => method.GetParameters().Length == 5);
+                object buffer = System.Enum.Parse(buffersType, bufferName);
+                Delegate allocator = CreateHdrpAllocator(allocatorType, state);
+                Delegate callback = CreateHdrpCallback(callbackType, state);
+                Array requestedBuffers = Array.CreateInstance(buffersType, 1);
+                requestedBuffers.SetValue(buffer, 0);
+                add.Invoke(builder, new object[] { request, allocator, null, requestedBuffers, callback });
+                object collection = builderType.GetMethod("Build", BindingFlags.Public | BindingFlags.Instance)
+                    .Invoke(builder, null);
+                additionalCameraDataType.GetMethod("SetAOVRequests", BindingFlags.Public | BindingFlags.Instance)
+                    .Invoke(additionalCameraData, new object[] { collection });
+                additionalCameraDataType.GetField("backgroundColorHDR")?.SetValue(additionalCameraData, camera.backgroundColor);
+                additionalCameraDataType.GetProperty("backgroundColorHDR")?.SetValue(additionalCameraData, camera.backgroundColor);
+                camera.targetTexture = null;
+                camera.pixelRect = new Rect(0f, 0f, width, height);
+                camera.Render();
+                camera.pixelRect = previousPixelRect;
+                Graphics.CopyTexture(target, result);
+                additionalCameraDataType.GetMethod("SetAOVRequests", BindingFlags.Public | BindingFlags.Instance)
+                    .Invoke(additionalCameraData, new object[] { null });
+                RenderTexture.ReleaseTemporary(target);
+                target = null;
+                return result;
+            }
+            catch
+            {
+                if (target != null) RenderTexture.ReleaseTemporary(target);
+                if (result != null) RenderTexture.ReleaseTemporary(result);
+                throw;
+            }
+            finally
+            {
+                camera.pixelRect = previousPixelRect;
+            }
+        }
+
         private static RenderTexture RenderCameraToTexture(Camera camera, int width, int height, Color background, RenderTextureFormat format, bool randomWrite)
         {
+            if (IsHdrpCapturePipeline())
+            {
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = background;
+                return RenderHdrpAovToTexture(camera, width, height, format, "Color");
+            }
             RenderTexture target = NewAnalysisRenderTexture(width, height, format, randomWrite);
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = background;
@@ -582,6 +736,12 @@ namespace KimodoUnityBridge.Command
 
         private static RenderTexture RenderCameraDepthToTexture(Camera camera, Shader depthShader, int width, int height)
         {
+            if (IsHdrpCapturePipeline())
+            {
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.clear;
+                return RenderHdrpAovToTexture(camera, width, height, RenderTextureFormat.ARGBFloat, "DepthStencil");
+            }
             RenderTexture target = NewAnalysisRenderTexture(width, height, RenderTextureFormat.ARGBFloat, false, 24);
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = Color.clear;

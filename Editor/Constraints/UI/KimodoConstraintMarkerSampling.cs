@@ -75,19 +75,11 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            float timelineFrameRate = KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(timelineContext);
-            int timelineFrame = KimodoTimelineConstraintSampler.ResolveTimelineSampleFrame(
-                sampleTime,
-                timelineFrameRate);
-            double timelineSampleTime = KimodoTimelineConstraintSampler.ResolveTimelineSampleTime(
-                sampleTime,
-                timelineFrameRate);
+            float sessionFrameRate = KimodoTimelineConstraintSampler.DefaultSessionFrameRate;
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][ConstraintSampleFrame] marker='{marker.ConstraintType}' " +
-                $"markerTime={sampleTime:R}s timelineFps={timelineFrameRate:R} " +
-                $"exactFrame={(sampleTime * timelineFrameRate):R} " +
-                $"zeroBasedFrame={timelineFrame} oneBasedFrame={timelineFrame + 1} " +
-                $"quantizedSampleTime={timelineSampleTime:R}s");
+                $"markerTime={sampleTime:R}s sessionFps={sessionFrameRate:R} " +
+                $"exactFrame={(sampleTime * sessionFrameRate):R}");
 
             sample.sampleTime = sampleTime;
             if (marker is KimodoConstraintMarker)

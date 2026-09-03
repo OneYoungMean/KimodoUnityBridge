@@ -14,10 +14,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoConstraintSelectionPreviewTool
     {
         private const string EntryPrefix = "selection:";
-        private static readonly Dictionary<string, PoseCacheRenderContext> RenderedContexts =
-            new Dictionary<string, PoseCacheRenderContext>();
-        private static readonly Dictionary<string, EditPreviewRegistration> EditPreviews =
-            new Dictionary<string, EditPreviewRegistration>(StringComparer.Ordinal);
+        private static EditPreviewRegistration activeEditPreview;
         private static bool refreshQueued;
         private static readonly Color SelectionPreviewColor = new Color(0.48f, 0.76f, 1f);
 
@@ -62,11 +59,13 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            entryId = KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
-            if (EditPreviews.TryGetValue(context.ContextKey, out EditPreviewRegistration previous))
+            entryId = "edit:" + KimodoConstraintMarkerEditorUtility.GetMarkerEntryId(marker);
+            if (activeEditPreview != null)
             {
-                KimodoConstraintPoseCache.DestroyEntry(context, previous.EntryId);
-                EditPreviews.Remove(context.ContextKey);
+                KimodoConstraintPreviewRenderer.DestroyEntry(
+                    activeEditPreview.Context,
+                    activeEditPreview.EntryId);
+                activeEditPreview = null;
             }
 
             // Populate the marker's canonical SampleResult before the Window
@@ -87,7 +86,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            EditPreviews[context.ContextKey] = new EditPreviewRegistration(context, entryId);
+            activeEditPreview = new EditPreviewRegistration(context, entryId);
             return true;
         }
 
@@ -103,11 +102,15 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            if (!EditPreviews.ContainsKey(context.ContextKey))
+            if (activeEditPreview == null)
             {
                 error = "edit preview is not registered";
                 return false;
             }
+
+            // Rebuild the edit preview from the current marker payload. The
+            // previous display instance is discarded; no entry is reused.
+            KimodoConstraintPreviewRenderer.DestroyEntriesWithPrefix("edit:");
 
             return KimodoConstraintMarkerPosePreview.TryRenderMarkerPreview(
                 marker,
@@ -152,14 +155,15 @@ namespace KimodoBridge.Editor
                 return;
             }
 
-            KimodoConstraintPoseCache.DestroyEntry(context, entryId);
-            EditPreviews.Remove(context.ContextKey);
+            KimodoConstraintPreviewRenderer.DestroyEntry(context, entryId);
+            activeEditPreview = null;
             SceneView.RepaintAll();
         }
 
         private static void UpdateSelectionPreview()
         {
             refreshQueued = false;
+            KimodoConstraintPreviewRenderer.DestroyEntriesWithPrefix(EntryPrefix);
             var groups = new Dictionary<string, List<PoseCacheRenderItem>>(StringComparer.Ordinal);
             var contexts = new Dictionary<string, PoseCacheRenderContext>(StringComparer.Ordinal);
             List<KimodoConstraintMarker> selectedMarkers = CollectSelectedConstraintMarkers();
@@ -191,23 +195,10 @@ namespace KimodoBridge.Editor
                 items.Add(item);
             }
 
-            foreach (KeyValuePair<string, PoseCacheRenderContext> previous in RenderedContexts)
-            {
-                if (!contexts.ContainsKey(previous.Key))
-                {
-                    KimodoConstraintPoseCache.DestroyEntriesInScope(previous.Value, EntryPrefix);
-                }
-            }
-
-            RenderedContexts.Clear();
             foreach (KeyValuePair<string, List<PoseCacheRenderItem>> group in groups)
             {
                 PoseCacheRenderContext context = contexts[group.Key];
-                if (KimodoConstraintPoseCache.RenderBatch(
-                        context, group.Value, out _, EntryPrefix))
-                {
-                    RenderedContexts[group.Key] = context;
-                }
+                KimodoConstraintPreviewRenderer.RenderBatch(context, group.Value, out _, EntryPrefix);
             }
             SceneView.RepaintAll();
         }
@@ -272,17 +263,14 @@ namespace KimodoBridge.Editor
 
         private static void Clear()
         {
-            foreach (KeyValuePair<string, PoseCacheRenderContext> context in RenderedContexts)
+            KimodoConstraintPreviewRenderer.DestroyEntriesWithPrefix(EntryPrefix);
+            if (activeEditPreview != null)
             {
-                KimodoConstraintPoseCache.DestroyEntriesInScope(context.Value, EntryPrefix);
+                KimodoConstraintPreviewRenderer.DestroyEntry(
+                    activeEditPreview.Context,
+                    activeEditPreview.EntryId);
             }
-            RenderedContexts.Clear();
-
-            foreach (EditPreviewRegistration edit in EditPreviews.Values)
-            {
-                KimodoConstraintPoseCache.DestroyEntry(edit.Context, edit.EntryId);
-            }
-            EditPreviews.Clear();
+            activeEditPreview = null;
         }
 
         private sealed class EditPreviewRegistration

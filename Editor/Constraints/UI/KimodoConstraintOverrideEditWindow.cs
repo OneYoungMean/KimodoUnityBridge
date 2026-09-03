@@ -70,7 +70,7 @@ namespace KimodoBridge.Editor
             KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
             if (window.hasEditContext)
             {
-                KimodoConstraintPoseCache.SetGroupState(window.editContext, visible: true, selectable: true);
+                KimodoConstraintPreviewRenderer.SetGroupState(window.editContext, visible: true, selectable: true);
                 FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             }
             QueuePreviewFocus(window, window.selectedConstraint);
@@ -109,7 +109,7 @@ namespace KimodoBridge.Editor
 
                 if (TryGetEditContext(out PoseCacheRenderContext context, out _))
                 {
-                    KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                    KimodoConstraintPreviewRenderer.SetGroupState(context, visible: true, selectable: true);
                     FocusSelectionOnEditTarget(context, editEntryId);
                 }
             }
@@ -141,7 +141,7 @@ namespace KimodoBridge.Editor
             // Hide and deselect the edit preview before destroying its rig.
             if (hasEditContext)
             {
-                KimodoConstraintPoseCache.SetGroupState(editContext, visible: false, selectable: false);
+                KimodoConstraintPreviewRenderer.SetGroupState(editContext, visible: false, selectable: false);
             }
             DestroyEditPreview();
             DestroyConstraintInspectorEditor();
@@ -258,7 +258,7 @@ namespace KimodoBridge.Editor
                 {
                     lastRenderedMarkerTime = marker.time;
                     lastRenderedAutoSample = marker.autoSample;
-                    KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                    KimodoConstraintPreviewRenderer.SetGroupState(context, visible: true, selectable: true);
                     lastError = string.Empty;
                 }
                 else
@@ -273,7 +273,7 @@ namespace KimodoBridge.Editor
             {
                 if (KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(marker, context, out string poseError))
                 {
-                    KimodoConstraintPoseCache.SetGroupState(context, visible: true, selectable: true);
+                    KimodoConstraintPreviewRenderer.SetGroupState(context, visible: true, selectable: true);
                     lastError = string.Empty;
                 }
                 else
@@ -446,7 +446,7 @@ namespace KimodoBridge.Editor
             }
 
             hasEditContext = true;
-            KimodoConstraintPoseCache.SetGroupState(editContext, visible: true, selectable: true);
+            KimodoConstraintPreviewRenderer.SetGroupState(editContext, visible: true, selectable: true);
             FocusSelectionOnEditTarget(editContext, editEntryId);
         }
 
@@ -507,7 +507,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoConstraintPoseCache.TryGetPreviewRoot(
+                if (!KimodoConstraintPreviewRenderer.TryGetPreviewRoot(
                         editContext,
                         editEntryId,
                         out Transform previewRoot) ||
@@ -676,7 +676,7 @@ namespace KimodoBridge.Editor
             // can zoom the Scene view to an unusably large scale. Focus the
             // actual Preview character instead; its hierarchy gives SceneView
             // meaningful bounds.
-            if (KimodoConstraintPoseCache.TryGetPreviewRoot(context, entryId, out Transform previewRoot) &&
+            if (KimodoConstraintPreviewRenderer.TryGetPreviewRoot(context, entryId, out Transform previewRoot) &&
                 previewRoot != null &&
                 previewRoot.gameObject != null)
             {
@@ -736,7 +736,7 @@ namespace KimodoBridge.Editor
                     return;
                 }
 
-                KimodoConstraintPoseCache.SetGroupState(window.editContext, visible: true, selectable: true);
+            KimodoConstraintPreviewRenderer.SetGroupState(window.editContext, visible: true, selectable: true);
                 FocusSelectionOnEditTarget(window.editContext, window.editEntryId);
             };
         }

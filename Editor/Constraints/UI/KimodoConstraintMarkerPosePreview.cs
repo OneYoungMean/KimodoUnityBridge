@@ -160,7 +160,7 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 return false;
             }
             sample = item.SampleData;
-            if (!KimodoConstraintPoseCache.RenderConstraintPreview(context, item, out error))
+            if (!KimodoConstraintPreviewRenderer.RenderConstraintPreview(context, item, out error))
             {
                 return false;
             }
