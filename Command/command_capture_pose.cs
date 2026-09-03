@@ -264,12 +264,34 @@ namespace KimodoUnityBridge.Command
             }
             if (TryGetRoot2DWorld(sample, out Vector3 rootPosition, out Quaternion rootRotation))
             {
-                animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
-                    animator.transform.position,
-                    rootPosition);
-                animator.transform.rotation = KimodoMotionMath.ApplyPlanarHeading(
-                    animator.transform.rotation,
-                    rootRotation);
+                // The root2D override is body(hips)-anchored: its t equals the sampled
+                // hips world pose. Re-anchor the preview so the hips land on the
+                // override pose. Placing the root at the override instead stacked it on
+                // top of the muscle root translation and double-counted the travel,
+                // bending the rendered root2d trajectory away from the real motion.
+                Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+                if (hips == null)
+                {
+                    animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
+                        animator.transform.position,
+                        rootPosition);
+                    animator.transform.rotation = KimodoMotionMath.ApplyPlanarHeading(
+                        animator.transform.rotation,
+                        rootRotation);
+                    return;
+                }
+
+                var rootPose = new Pose(animator.transform.position, animator.transform.rotation);
+                var hipsPose = new Pose(hips.position, hips.rotation);
+                Quaternion relativeRotation = Quaternion.Inverse(rootPose.rotation) * hipsPose.rotation;
+                Vector3 relativePosition = Quaternion.Inverse(rootPose.rotation) * (hipsPose.position - rootPose.position);
+                // Preserve the muscle pelvis tilt; the override only supplies planar heading.
+                Quaternion planarHipsHeading = KimodoMotionMath.ResolvePlanarHeading(hipsPose.rotation);
+                Quaternion pelvisTilt = Quaternion.Inverse(planarHipsHeading) * hipsPose.rotation;
+                Quaternion desiredHipsRotation = rootRotation * pelvisTilt;
+                Quaternion newRootRotation = desiredHipsRotation * Quaternion.Inverse(relativeRotation);
+                Vector3 newRootPosition = rootPosition - newRootRotation * relativePosition;
+                animator.transform.SetPositionAndRotation(newRootPosition, newRootRotation);
             }
         }
 

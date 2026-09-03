@@ -67,12 +67,8 @@ namespace KimodoUnityBridge.Command
             try
             {
                 captureSessionRoot = session?.SessionRoot;
-                // The capture camera renders layer 17 only: hide every session character
-                // root, or idle clones leak into the evidence picture (floor/overlays unaffected).
                 foreach (GameObject characterRoot in subjects
                     .Select(subject => subject.Character?.Root)
-                    .Concat(session?.Characters.Select(character => character.Root)
-                            ?? Enumerable.Empty<GameObject>())
                     .Where(root => root != null)
                     .Distinct())
                 {

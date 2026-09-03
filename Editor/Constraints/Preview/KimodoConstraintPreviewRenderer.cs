@@ -210,7 +210,7 @@ namespace KimodoBridge.Editor
                 ? entry.Root.position.y - value.position.y
                 : 0f;
             Vector3 position = value.position + (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
-            Quaternion rotation = value.rotation;
+            Quaternion rotation = ResolveHandleRotation(entry, bone, value.rotation);
             float size = isRoot
                 ? Mathf.Max(0.1f, HandleUtility.GetHandleSize(position) * 0.1f)
                 : Mathf.Max(EndEffectorTargetSize, HandleUtility.GetHandleSize(position) * 0.09f);
@@ -279,7 +279,7 @@ namespace KimodoBridge.Editor
                 {
                     bool rotationChanged = Quaternion.Angle(previousRotation, rotation) > 1e-4f;
                     value.position = position - (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
-                    value.rotation = rotation.normalized;
+                    value.rotation = ResolveStoredHandRotation(entry, bone, rotation);
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
@@ -287,6 +287,39 @@ namespace KimodoBridge.Editor
 
             Handles.Label(position + Vector3.up * size, label);
         }
+
+        private static Quaternion ResolveHandleRotation(
+            ConstraintPreviewInstance entry,
+            HumanBodyBones bone,
+            Quaternion storedRotation)
+        {
+            if (!IsHand(bone) || entry?.TargetSkeleton == null ||
+                !entry.TargetSkeleton.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            {
+                return storedRotation;
+            }
+
+            // Hand effector rotations are stored as currentWorld * inverse(bindWorld).
+            // Scene handles should display the corresponding absolute bone rotation.
+            return (storedRotation * initialWorld).normalized;
+        }
+
+        private static Quaternion ResolveStoredHandRotation(
+            ConstraintPreviewInstance entry,
+            HumanBodyBones bone,
+            Quaternion handleRotation)
+        {
+            if (!IsHand(bone) || entry?.TargetSkeleton == null ||
+                !entry.TargetSkeleton.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            {
+                return handleRotation.normalized;
+            }
+
+            return (handleRotation * Quaternion.Inverse(initialWorld)).normalized;
+        }
+
+        private static bool IsHand(HumanBodyBones bone) =>
+            bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand;
 
         private static void PromoteHandleChannel(
             KimodoMarkerSampleResult sample,
