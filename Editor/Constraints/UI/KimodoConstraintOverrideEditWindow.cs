@@ -507,15 +507,32 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                if (!KimodoConstraintPreviewRenderer.TryGetPreviewRoot(
-                        editContext,
-                        editEntryId,
-                        out Transform previewRoot) ||
-                    previewRoot == null)
+                bool hasPreviewRoot = KimodoConstraintPreviewRenderer.TryGetPreviewRoot(
+                    editContext,
+                    editEntryId,
+                    out Transform previewRoot) &&
+                    previewRoot != null;
+                if (!hasPreviewRoot)
                 {
-                    context = default;
-                    error = "The edited rig preview was deleted. Reopen the edit window.";
-                    return false;
+                    // Scene/package refreshes can clear the transient preview
+                    // scope while this window remains open. Rebuild lazily
+                    // from the marker payload before treating it as invalid.
+                    if (!KimodoConstraintSelectionPreviewTool.TryRenderEditPreview(
+                            marker,
+                            editContext,
+                            out string previewError) ||
+                        !KimodoConstraintPreviewRenderer.TryGetPreviewRoot(
+                            editContext,
+                            editEntryId,
+                            out previewRoot) ||
+                        previewRoot == null)
+                    {
+                        context = default;
+                        error = string.IsNullOrWhiteSpace(previewError)
+                            ? "The edited rig preview was deleted. Reopen the edit window."
+                            : previewError;
+                        return false;
+                    }
                 }
 
                 context = editContext;
