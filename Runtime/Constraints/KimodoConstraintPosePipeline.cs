@@ -273,7 +273,9 @@ namespace KimodoBridge
                 Quaternion rotation)
             {
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                // human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                //todo :fix this 
+                human.SetGoalWeightRotation(goal,0f);
                 if (!enabled)
                 {
                     return;
