@@ -72,8 +72,10 @@ namespace KimodoBridge
         }
 
         /// <summary>
-        /// Captures the scene-facing targets from the rebuilt skeleton. The
-        /// caller establishes whether that Transform space is world or track.
+        /// Captures complete scene-facing targets from the rebuilt skeleton.
+        /// The caller establishes whether that Transform space is world or track.
+        /// Root2D is an application mode; this method always retains the
+        /// complete Hips position and rotation in rootOverride.
         /// Effector positions follow that Transform space; effector rotations
         /// are always bind-relative IK-goal deltas.
         /// </summary>

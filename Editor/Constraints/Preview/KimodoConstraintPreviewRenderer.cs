@@ -209,14 +209,7 @@ namespace KimodoBridge.Editor
             string label,
             bool isRoot)
         {
-            // Root2D's control point is shown at the preview root node while
-            // the canonical payload remains the Hips/root world position.
-            // Keep this display-only Y offset out of the authored payload.
-            bool root2DHandle = isRoot && entry?.ConstraintMode == KimodoConstraintMode.Root2D;
-            float yOffset = root2DHandle && entry?.Root != null
-                ? entry.Root.position.y - value.position.y
-                : 0f;
-            Vector3 position = value.position + (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
+            Vector3 position = value.position;
             Quaternion rotation = ResolveHandleRotation(entry, bone, value.rotation);
             float size = isRoot
                 ? Mathf.Max(0.1f, HandleUtility.GetHandleSize(position) * 0.1f)
@@ -263,7 +256,7 @@ namespace KimodoBridge.Editor
                 }
                 if (EditorGUI.EndChangeCheck())
                 {
-                    value.position = moved - (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
+                    value.position = moved;
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
@@ -285,7 +278,7 @@ namespace KimodoBridge.Editor
                 if (EditorGUI.EndChangeCheck())
                 {
                     bool rotationChanged = Quaternion.Angle(previousRotation, rotation) > 1e-4f;
-                    value.position = position - (root2DHandle ? Vector3.up * yOffset : Vector3.zero);
+                    value.position = position;
                     value.rotation = ResolveStoredHandRotation(entry, bone, rotation);
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());

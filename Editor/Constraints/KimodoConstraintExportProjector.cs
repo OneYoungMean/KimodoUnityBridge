@@ -164,14 +164,25 @@ namespace KimodoBridge.Editor
                         $"Constraint Character pose capture failed: {error}");
                 }
 
-                return KimodoRuntimeConstraintExportProjector.ProjectSolvedMuscle(
+                KimodoConstraintProjectedPose projected = KimodoRuntimeConstraintExportProjector.ProjectSolvedMuscle(
                     solvedTrackPose,
                     modelName);
+                Vector3 rootDelta = trackRootPosition - projected.profileRootPosition;
+                projected.profileRootPosition = trackRootPosition;
+                if (projected.jointPositions != null)
+                {
+                    for (int i = 0; i < projected.jointPositions.Length; i++)
+                    {
+                        projected.jointPositions[i] += rootDelta;
+                    }
+                }
+                return projected;
             }
             finally
             {
                 characterCache.Dispose();
             }
         }
+
     }
 }

@@ -154,25 +154,42 @@ namespace KimodoBridge.Editor
                     worldForward.Normalize();
                 }
 
-                var sample = new KimodoMarkerSampleResult
+                double sampleTime = timelineClip.start + (durationSeconds * t);
+                if (!KimodoTimelineConstraintMarkerSampler.TrySampleMarker(
+                        context,
+                        sampleTime,
+                        sampleTime,
+                        "fullbody",
+                        context.ModelName,
+                        out KimodoMarkerSampleResult sample,
+                        out error) || sample.rootOverride == null)
                 {
-                    constraintMode = Root2DConstraintType,
-                    sampleTime = timelineClip.start + (durationSeconds * t),
-                    root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
-                    {
-                        t = new Vector3(worldPosition.x, 0f, worldPosition.z),
-                        q = Quaternion.LookRotation(worldForward, Vector3.up)
-                    },
-                    enableMask = new KimodoConstraintMask
-                    {
-                        rootPosition = true,
-                        rootHeading = clip.SplineIncludeHeading
-                    },
-                    validMask = new KimodoConstraintMask
-                    {
-                        rootPosition = true,
-                        rootHeading = clip.SplineIncludeHeading
-                    }
+                    error = string.IsNullOrEmpty(error)
+                        ? "Spline Path could not sample the complete root transform."
+                        : error;
+                    return false;
+                }
+
+                sample.constraintMode = Root2DConstraintType;
+                sample.sampleTime = sampleTime;
+                sample.rootOverride.t = KimodoMotionMath.ApplyPlanarPosition(
+                    sample.rootOverride.t,
+                    worldPosition);
+                if (clip.SplineIncludeHeading)
+                {
+                    sample.rootOverride.q = KimodoMotionMath.ApplyPlanarHeading(
+                        sample.rootOverride.q,
+                        Quaternion.LookRotation(worldForward, Vector3.up));
+                }
+                sample.enableMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    rootHeading = clip.SplineIncludeHeading
+                };
+                sample.validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    rootHeading = clip.SplineIncludeHeading
                 };
                 sample.enableMask.muscle = false;
                 sample.enableMask.rootTQ = false;
@@ -541,8 +558,7 @@ namespace KimodoBridge.Editor
                     context.Director.time = context.SourceClip.start;
                     context.Director.Evaluate();
                     position = context.Animator.rootPosition;
-                    position.y = 0f;
-                    rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(context.Animator.rootRotation);
+                    rotation = context.Animator.rootRotation;
                     return true;
                 }
                 catch (Exception ex)
@@ -561,8 +577,6 @@ namespace KimodoBridge.Editor
                 context.Animator,
                 out position,
                 out rotation);
-            position.y = 0f;
-            rotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(rotation);
             return true;
         }
 

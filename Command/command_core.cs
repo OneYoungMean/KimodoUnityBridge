@@ -181,7 +181,7 @@ namespace KimodoUnityBridge.Command
                             RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
-                        "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata is included only after a generation completes.",
+                        "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata and its project-relative asset path are included only after a generation completes.",
                         Properties(
                             Required("request_id", "string", "Request id returned by kimodo_install_server or kimodo_generate_animation."))),
                     CommandDefinition(CancelGenerationCommand,

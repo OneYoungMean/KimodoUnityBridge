@@ -291,6 +291,7 @@ namespace KimodoBridge
 
         // Source compatibility for older editor/test callers. This alias is
         // not a second serialized value.
+        [Obsolete("Use rootOverride; Root2D is an application mode, not a payload type.")]
         public KimodoRigidTransform root2DOverride
         {
             get => rootOverride;

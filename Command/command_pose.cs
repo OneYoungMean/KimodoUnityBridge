@@ -93,11 +93,11 @@ namespace KimodoUnityBridge.Command
             sample.validMask ??= new KimodoConstraintMask();
             if (root["position"] is JArray position)
             {
-                sample.root2DOverride.t = ReadVector3(position, "root.position");
+                sample.rootOverride.t = ReadVector3(position, "root.position");
             }
             if (root["rotation"] is JArray rotation)
             {
-                sample.root2DOverride.q = ReadQuaternion(rotation, "root.rotation");
+                sample.rootOverride.q = ReadQuaternion(rotation, "root.rotation");
             }
             if (root["position"] == null && root["rotation"] == null)
             {

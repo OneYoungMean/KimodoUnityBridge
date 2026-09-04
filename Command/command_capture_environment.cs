@@ -552,13 +552,13 @@ namespace KimodoUnityBridge.Command
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            if (sample?.validMask?.rootPosition != true || sample.root2DOverride == null)
+            if (sample?.validMask?.rootPosition != true || sample.rootOverride == null)
             {
                 return false;
             }
 
-            position = sample.root2DOverride.t;
-            rotation = sample.root2DOverride.q.normalized;
+            position = sample.rootOverride.t;
+            rotation = sample.rootOverride.q.normalized;
             return true;
         }
 

@@ -350,6 +350,15 @@ namespace KimodoBridge
                 graph.Play();
                 graph.Evaluate(0f);
 
+                // A pure root/full-body sample has no IK goals that could be
+                // displaced by this scene-root correction. Commit the
+                // resolved Hips world pose before capturing local bones.
+                if (!job.solveLeftHand && !job.solveRightHand &&
+                    !job.solveLeftFoot && !job.solveRightFoot &&
+                    IsPureRootOnlySample(sample))
+                {
+                    ApplyResolvedRootToRig(cache, job);
+                }
                 solved = KimodoRetargetSamplingUtility.CaptureBoneSample(cache);
             }
             catch (Exception ex)
@@ -378,6 +387,34 @@ namespace KimodoBridge
                     solved,
                     cache,
                     out error);
+        }
+
+        private static void ApplyResolvedRootToRig(RetargetSkeleton cache, SolveJob job)
+        {
+            if (!job.applyRoot || cache?.animator == null) return;
+            Transform hips = cache.animator.GetBoneTransform(HumanBodyBones.Hips);
+            if (hips == null) return;
+
+            Vector3 desiredPosition = job.rootPlanar
+                ? KimodoMotionMath.ApplyPlanarPosition(hips.position, job.rootPosition)
+                : job.rootPosition;
+            Quaternion desiredRotation = !job.rootHeading
+                ? hips.rotation
+                : job.rootPlanar
+                    ? KimodoMotionMath.ApplyPlanarHeading(hips.rotation, job.rootRotation)
+                    : job.rootRotation;
+            Transform root = cache.animator.transform;
+            Quaternion relativeRotation = Quaternion.Inverse(root.rotation) * hips.rotation;
+            Vector3 relativePosition = Quaternion.Inverse(root.rotation) * (hips.position - root.position);
+            Quaternion rootRotation = desiredRotation * Quaternion.Inverse(relativeRotation);
+            Vector3 rootPosition = desiredPosition - rootRotation * relativePosition;
+            root.SetPositionAndRotation(rootPosition, rootRotation);
+        }
+
+        private static bool IsPureRootOnlySample(KimodoMarkerSampleResult sample)
+        {
+            string mode = KimodoConstraintInternal.NormalizeMode(sample?.constraintMode);
+            return mode == "root2d" || mode == "mix";
         }
 
         private static bool TryBuildJob(

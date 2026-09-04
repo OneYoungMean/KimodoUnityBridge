@@ -1111,6 +1111,10 @@ namespace KimodoBridge
                 }
             };
             sample.sampleData.SetRoot(rootPosition, rootRotation);
+            if (sample.enableMask.rootPosition)
+            {
+                sample.rootOverride = new KimodoUnityBridge.KimodoRigidTransform { t = rootPosition, q = rootRotation };
+            }
             if (!sample.enableMask.rootPosition)
             {
                 sample.enableMask.rootTQ = true;

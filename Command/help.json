@@ -874,7 +874,7 @@
     },
     {
       "name": "kimodo_get_generation",
-      "description": "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata is included only after a generation completes.",
+      "description": "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata and its project-relative asset path are included only after a generation completes.",
       "inputSchema": {
         "type": "object",
         "properties": {

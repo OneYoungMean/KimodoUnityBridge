@@ -212,13 +212,12 @@ namespace KimodoBridge.Editor
             }
 
             targetRootRotation.Normalize();
-            Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
             sample.enableMask.rootPosition = true;
             sample.enableMask.rootHeading = true;
             sample.validMask ??= new KimodoConstraintMask();
             sample.validMask.rootPosition = true;
             sample.validMask.rootHeading = true;
-            sample.root2DOverride = new KimodoRigidTransform { t = targetRootPosition, q = planarRotation };
+            sample.rootOverride = new KimodoRigidTransform { t = targetRootPosition, q = targetRootRotation };
             sample.constraintMode = "root2d";
             sample.sampleTime = exportedSampleTime;
         }

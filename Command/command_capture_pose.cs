@@ -257,57 +257,15 @@ namespace KimodoUnityBridge.Command
 
         private static List<int> BuildGhostFrames(SubjectPictureData subject, out HashSet<int> promotedFrames)
         {
-            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            var keyFrames = new HashSet<int>(subject.KeyFrameSet);
-            var events = keyFrames
-                .Concat(FootTransitionFrames(subject))
-                .Append(0)
-                .Append(lastFrame)
-                .Distinct()
-                .OrderBy(frame => frame)
-                .ToList();
-
-            // Keep a nearby key pose over a foot transition. If neither event
-            // is a key pose, keep the earlier one to preserve time ordering.
-            for (int index = 1; index < events.Count;)
-            {
-                int previous = events[index - 1];
-                int current = events[index];
-                if (current - previous >= 10 || previous == 0 || current == lastFrame)
-                {
-                    index++;
-                    continue;
-                }
-                if (keyFrames.Contains(current) && !keyFrames.Contains(previous))
-                {
-                    events.RemoveAt(index - 1);
-                    if (index > 1) index--;
-                }
-                else
-                {
-                    events.RemoveAt(index);
-                }
-            }
-
-            // Fill only long gaps. The rounded divisions produce evenly spaced
-            // white auxiliary poses and leave no adjacent samples over 20 frames apart.
-            var result = new List<int> { events[0] };
-            for (int index = 1; index < events.Count; index++)
-            {
-                int from = events[index - 1];
-                int to = events[index];
-                int gap = to - from;
-                // A 20-frame gap is allowed as-is. Add helpers only when the
-                // gap is strictly larger, then keep each result below 20 frames.
-                int divisions = gap > 20 ? Mathf.CeilToInt(gap / 19f) : 1;
-                for (int part = 1; part < divisions; part++)
-                {
-                    result.Add(from + Mathf.RoundToInt(gap * part / (float)divisions));
-                }
-                result.Add(to);
-            }
-            var protectedFrames = new HashSet<int>(events);
-            return FilterStationaryBlankFrames(subject, result, protectedFrames, out promotedFrames);
+            // Ghost3D and Track3D must use the same temporal sampling rule:
+            // preserve every authored event and insert auxiliary poses so no
+            // interval exceeds ten session frames. This keeps both views
+            // spatially comparable instead of one appearing half-covered.
+            return BuildTestSampleFrames(
+                subject,
+                new HashSet<int>(subject.KeyFrameSet).Concat(FootTransitionFrames(subject)),
+                preserveAllPrimaryFrames: true,
+                out promotedFrames);
         }
 
         private static List<int> BuildTestSampleFrames(
