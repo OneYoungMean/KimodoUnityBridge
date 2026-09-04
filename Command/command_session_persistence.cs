@@ -263,7 +263,7 @@ namespace KimodoUnityBridge.Command
                 if (character.Track != null)
                 {
                     foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                        .Where(item => item.constraintEnabled && !item.IsExternal))
+                        .Where(item => item.constraintEnabled && item.ParticipatesInGeneration))
                     {
                         ((JArray)characterJson["constraints"]).Add(DescribeTimelineConstraint(marker, 0));
                     }

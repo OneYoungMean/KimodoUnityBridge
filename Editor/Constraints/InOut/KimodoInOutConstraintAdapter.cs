@@ -18,6 +18,11 @@ namespace KimodoBridge.Editor
         public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
         public TimelineClip PreviousTimelineClip;
         public TimelineClip NextTimelineClip;
+        // Frozen before any Timeline evaluation so generation projection uses
+        // the scene origin rather than the animated Animator pose.
+        public Vector3 TrackOffsetPosition;
+        public Quaternion TrackOffsetRotation = Quaternion.identity;
+        public bool HasTrackOffsetSnapshot;
     }
 
     internal static class KimodoInOutConstraintAdapter
@@ -42,6 +47,13 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
+            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
+                context.Track,
+                context.Animator,
+                out context.TrackOffsetPosition,
+                out context.TrackOffsetRotation,
+                out _);
+            context.HasTrackOffsetSnapshot = true;
 
             if (!KimodoTimelineConstraintMarkerSampler.TryBuildMarkerSamplesForExport(
                     context,

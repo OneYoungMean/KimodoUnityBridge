@@ -366,18 +366,18 @@ namespace KimodoUnityBridge.Command
             Bounds allPoseBounds = default;
             bool hasPoseBounds = false;
             double originalTime = session.Director.time;
-            GameObject posePreview = null;
+            EvaluatedPosePreview posePreview = null;
             KimodoMarkerSampleResult[] samples;
             try
             {
                 samples = CaptureSampleResults(subject.Character, subject.StartFrame, frameCount);
-                posePreview = CreateCanonicalPosePreview(subject.Character);
-                Animator poseAnimator = posePreview.GetComponentInChildren<Animator>(true)
+                posePreview = CreatePipelinePosePreview(subject.Character, samples[0]);
+                Animator poseAnimator = posePreview.Animator
                     ?? throw new InvalidOperationException($"Character '{subject.Character.Name}' pose preview has no Animator.");
                 for (int localFrame = 0; localFrame < frameCount; localFrame++)
                 {
                     KimodoMarkerSampleResult sample = samples[localFrame];
-                    ApplyCanonicalPoseToPreview(posePreview, subject.Character, sample);
+                    posePreview.Apply(sample);
 
                     Transform hips = poseAnimator.GetBoneTransform(HumanBodyBones.Hips);
                     if (hips == null)
@@ -394,7 +394,7 @@ namespace KimodoUnityBridge.Command
                     leftKnee[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftLowerLeg, subject.Character.Name);
                     rightKnee[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightLowerLeg, subject.Character.Name);
                     head[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.Head, subject.Character.Name);
-                    Bounds currentBounds = CalculateSkinnedBounds(posePreview);
+                    Bounds currentBounds = CalculateSkinnedBounds(posePreview.Root);
                     if (localFrame == 0) firstBounds = currentBounds;
                     if (localFrame == frameCount - 1) lastBounds = currentBounds;
                     if (!hasPoseBounds)
@@ -410,7 +410,7 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
-                if (posePreview != null) UnityEngine.Object.DestroyImmediate(posePreview);
+                posePreview?.Dispose();
                 session.Director.time = originalTime;
                 session.Director.Evaluate();
             }

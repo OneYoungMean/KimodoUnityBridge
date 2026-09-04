@@ -33,6 +33,12 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException($"ClipConstraint requires Timeline sampling: {error}");
             }
+            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
+                context.Track,
+                context.Animator,
+                out Vector3 trackOffsetPosition,
+                out Quaternion trackOffsetRotation,
+                out _);
             if (!KimodoTimelineSamplingSession.TryCreateForProfileEncoding(
                     context,
                     modelName,
@@ -96,8 +102,18 @@ namespace KimodoBridge.Editor
                         throw new InvalidOperationException(error);
                     }
 
-                    Quaternion rootRotation = rootJoint.rotation.normalized;
-                    roots[frame] = rootJoint.position;
+                    // ClipConstraint payloads are consumed in the generated
+                    // clip's track space. Timeline sampling gives us world
+                    // poses, so convert the profile root once per frame while
+                    // keeping child joint rotations local to that root.
+                    KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
+                        rootJoint.position,
+                        rootJoint.rotation,
+                        trackOffsetPosition,
+                        trackOffsetRotation,
+                        out Vector3 trackRootPosition,
+                        out Quaternion trackRootRotation);
+                    roots[frame] = trackRootPosition;
                     if (footPositions != null)
                     {
                         for (int channel = 0; channel < KimodoFootContactTrackUtility.ChannelCount; channel++)
@@ -109,7 +125,7 @@ namespace KimodoBridge.Editor
                     for (int joint = 0; joint < joints.Length; joint++)
                     {
                         Quaternion value = joint == 0
-                            ? rootRotation
+                            ? trackRootRotation
                             : joints[joint] != null
                                 ? joints[joint].localRotation.normalized
                                 : Quaternion.identity;

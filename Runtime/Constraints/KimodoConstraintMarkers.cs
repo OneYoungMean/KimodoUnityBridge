@@ -47,7 +47,8 @@ namespace KimodoBridge
     {
         Constraint = 0,
         External = 1,
-        ExternalPath = 2
+        ExternalPath = 2,
+        Analysis = 3
     }
 
     [Serializable]

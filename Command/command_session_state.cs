@@ -600,7 +600,7 @@ namespace KimodoUnityBridge.Command
                 KimodoConstraintMarker marker = trace.Character.Track.GetMarkers()
                     .OfType<KimodoConstraintMarker>()
                     .FirstOrDefault(existing =>
-                        !existing.IsExternal &&
+                        existing.ParticipatesInGeneration &&
                         Mathf.RoundToInt((float)(existing.time * frameRate)) == markerFrame);
                 bool createdMarker = marker == null;
                 if (marker != null)
@@ -633,7 +633,7 @@ namespace KimodoUnityBridge.Command
         {
             var names = new HashSet<string>(session.Characters
                 .SelectMany(character => character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                    .Where(marker => !marker.IsExternal))
+                    .Where(marker => marker.ParticipatesInGeneration))
                 .Select(marker => marker.name), StringComparer.OrdinalIgnoreCase);
             string name = requestedName;
             for (int suffix = 1; names.Contains(name); suffix++) name = $"{requestedName}_{suffix}";
@@ -646,7 +646,7 @@ namespace KimodoUnityBridge.Command
             bool changed = false;
             foreach (TimelineCharacterRecord character in session.Characters)
             foreach (KimodoConstraintMarker marker in character.Track.GetMarkers().OfType<KimodoConstraintMarker>()
-                .Where(item => item.constraintEnabled && !item.IsExternal))
+                .Where(item => item.constraintEnabled && item.ParticipatesInGeneration))
             {
                 string prefix = $"{character.Name}.Constraint";
                 if (!string.IsNullOrWhiteSpace(marker.name) &&
@@ -692,15 +692,9 @@ namespace KimodoUnityBridge.Command
             JArray keyframes = analysis?["keyframes"] as JArray ?? new JArray();
             if (keyframes.Count > 0)
             {
-                MarkerTrack analysisTrack = trace.Character.AnalysisTrack;
-                if (analysisTrack == null || analysisTrack.timelineAsset != timelineAsset)
-                {
-                    analysisTrack = timelineAsset.CreateTrack<MarkerTrack>(null, $"Kimodo Analysis - {trace.Character.Name}");
-                    trace.Character.AnalysisTrack = analysisTrack;
-                }
-                WriteAnalysisMarkers(analysisTrack, trace, keyframes);
-                trace.AnalysisTrack = analysisTrack;
-                EditorUtility.SetDirty(analysisTrack);
+                TrackAsset markerTrack = trace.Character.PoseCacheTrack ?? trace.Character.Track;
+                WriteAnalysisMarkers(markerTrack, trace, keyframes);
+                EditorUtility.SetDirty(markerTrack);
             }
 
             EditorUtility.SetDirty(trace.PlayableClip);
@@ -722,16 +716,37 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static void WriteAnalysisMarkers(MarkerTrack track, TimelineGenerationTrace trace, JArray keyframes)
+        private static void WriteAnalysisMarkers(TrackAsset track, TimelineGenerationTrace trace, JArray keyframes)
         {
+            if (track == null || trace == null || keyframes == null)
+            {
+                return;
+            }
+            string sourceClipKey = trace.PlayableClip != null
+                ? GlobalObjectId.GetGlobalObjectIdSlow(trace.PlayableClip).ToString()
+                : string.Empty;
+            foreach (KimodoAnalysisKeyframeMarker old in track.GetMarkers().OfType<KimodoAnalysisKeyframeMarker>()
+                .Where(marker => string.IsNullOrEmpty(sourceClipKey) || marker.sourceClipKey == sourceClipKey).ToArray())
+            {
+                track.DeleteMarker(old);
+            }
             foreach (JToken keyframe in keyframes)
             {
                 double localTime = keyframe.Value<double?>("time") ?? 0.0;
                 localTime = Math.Max(0.0, Math.Min(trace.DurationSeconds, localTime));
                 KimodoAnalysisKeyframeMarker marker = track.CreateMarker<KimodoAnalysisKeyframeMarker>(trace.StartSeconds + localTime);
                 marker.frame = keyframe.Value<int?>("frame") ?? 0;
-                marker.saliency = keyframe.Value<float?>("saliency") ?? keyframe.Value<float?>("score") ?? 0f;
-                marker.reasons = string.Join(", ", (keyframe["reasons"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>());
+                marker.eventKind = "keyframe";
+                float saliency = keyframe.Value<float?>("saliency") ?? keyframe.Value<float?>("score") ?? 0f;
+                string reasons = string.Join(", ", (keyframe["reasons"] as JArray)?.Values<string>() ?? Enumerable.Empty<string>());
+                marker.message = $"Keyframe | frame={marker.frame} | saliency={saliency:F2}" +
+                    (string.IsNullOrWhiteSpace(reasons) ? string.Empty : $" | {reasons}");
+                marker.color = Color.yellow;
+                marker.sourceClipKey = sourceClipKey;
+                marker.sourceRole = "A";
+                marker.MarkerType = KimodoConstraintMarkerType.Analysis;
+                marker.autoSample = false;
+                marker.constraintEnabled = true;
             }
         }
 
@@ -1255,7 +1270,6 @@ namespace KimodoUnityBridge.Command
             }
             if (character?.Track != null) tracks.Add(character.Track);
             if (character?.PoseCacheTrack != null) tracks.Add(character.PoseCacheTrack);
-            if (character?.AnalysisTrack != null) tracks.Add(character.AnalysisTrack);
             return tracks.Where(item => item != null).Distinct();
         }
 
@@ -2351,7 +2365,6 @@ namespace KimodoUnityBridge.Command
             public AnimationTrack Track { get; }
             public AnimationTrack PoseCacheTrack { get; }
             public string AvatarError { get; set; }
-            public MarkerTrack AnalysisTrack { get; set; }
             public double NextStartSeconds { get; set; }
             public List<TimelineAnimationRecord> Animations { get; } = new List<TimelineAnimationRecord>();
             public List<AnimatorImportRecord> AnimatorImports { get; } = new List<AnimatorImportRecord>();
@@ -2493,7 +2506,6 @@ namespace KimodoUnityBridge.Command
             public TimelineClip TimelineClip { get; set; }
             public KimodoPlayableClip PlayableClip { get; set; }
             public TimelineAnimationRecord Animation { get; set; }
-            public MarkerTrack AnalysisTrack { get; set; }
         }
 
         private sealed class BakeBoneFrame

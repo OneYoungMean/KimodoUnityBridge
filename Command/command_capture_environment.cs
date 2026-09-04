@@ -545,43 +545,6 @@ namespace KimodoUnityBridge.Command
         private static string EvidenceFolder(TimelineSessionRecord session) =>
             Path.Combine(GetSessionGeneratedFolder(session), "Pictures");
 
-        private static GameObject CreatePosePreview(
-            TimelineCharacterRecord character,
-            KimodoMarkerSampleResult sample,
-            bool root2DOnly)
-        {
-            const int captureLayer = SessionCaptureLayer;
-            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(character.Root));
-            preview.name = "Kimodo Pose Preview";
-            preview.hideFlags = HideFlags.HideAndDontSave;
-            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
-            {
-                transform.gameObject.layer = captureLayer;
-            }
-            Animator animator = preview.GetComponentInChildren<Animator>(true)
-                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
-            animator.runtimeAnimatorController = null;
-            bool hasPose = sample?.sampleData != null && sample.sampleData.IsValid;
-            bool hasRoot2D = TryGetRoot2DWorld(sample, out Vector3 position, out Quaternion rotation);
-            if (!root2DOnly && hasPose)
-            {
-                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
-                using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
-                {
-                    handler.SetHumanPose(ref pose);
-                }
-                if (hasRoot2D)
-                {
-                    animator.transform.SetPositionAndRotation(position, rotation);
-                }
-            }
-            else
-            {
-                animator.transform.SetPositionAndRotation(position, rotation);
-            }
-            return preview;
-        }
-
         private static bool TryGetRoot2DWorld(
             KimodoMarkerSampleResult sample,
             out Vector3 position,

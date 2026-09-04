@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace KimodoBridge.Editor
 {
-    [CustomEditor(typeof(KimodoConstraintMarker))]
+    [CustomEditor(typeof(KimodoConstraintMarker), true)]
     internal sealed class KimodoConstraintInspectorEditor : UnityEditor.Editor
     {
         private void OnDisable()
@@ -22,6 +22,25 @@ namespace KimodoBridge.Editor
             EditorGUILayout.Space(4f);
             EditorGUILayout.LabelField("Kimodo Constraint Marker (Constraint)", EditorStyles.boldLabel);
             KimodoConstraintMarkerEditorUtility.DrawEnabledField(serializedObject);
+            if (marker.IsAnalysis)
+            {
+                KimodoAnalysisKeyframeMarker analysisMarker = marker as KimodoAnalysisKeyframeMarker;
+                if (analysisMarker == null)
+                {
+                    return false;
+                }
+                EditorGUILayout.LabelField("Analysis", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField("Message", analysisMarker.message ?? string.Empty);
+                EditorGUILayout.ColorField("Color", analysisMarker.color);
+                EditorGUILayout.LabelField("Source Role", analysisMarker.sourceRole ?? string.Empty);
+                EditorGUILayout.LabelField("Frame", analysisMarker.frame.ToString());
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("markerType"), new GUIContent("Marker Type"));
+                if (serializedObject.ApplyModifiedProperties())
+                {
+                    KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
+                }
+                return true;
+            }
             if (!isWindow)
             {
                 KimodoConstraintMarkerEditorUtility.DrawEditButton(serializedObject, marker);

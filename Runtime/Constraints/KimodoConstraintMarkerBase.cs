@@ -6,8 +6,18 @@ using UnityEngine;
 using UnityEngine.Timeline;
 
 [Serializable]
-public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSelectable
+public class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSelectable
 {
+    // Analysis-preview metadata lives on the common marker type so editor
+    // preview/inspector code can read it without down-casting. These fields
+    // are ignored by generation for regular constraint markers.
+    public int frame;
+    public string eventKind = string.Empty;
+    public string message = string.Empty;
+    public Color color = Color.yellow;
+    public string sourceClipKey = string.Empty;
+    public string sourceRole = string.Empty;
+
     [Tooltip("If disabled, this marker is ignored by preview, sampling, and generation.")]
     public bool constraintEnabled = true;
 
@@ -23,14 +33,17 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
     {
         KimodoConstraintMarkerType.External => "external",
         KimodoConstraintMarkerType.ExternalPath => "external-path",
+        KimodoConstraintMarkerType.Analysis => "analysis",
         _ => "constraint"
     };
-    public bool ConstraintPreviewEnabled => constraintEnabled && markerType == KimodoConstraintMarkerType.Constraint;
+    public bool ConstraintPreviewEnabled => constraintEnabled &&
+        (markerType == KimodoConstraintMarkerType.Constraint || markerType == KimodoConstraintMarkerType.Analysis);
     public int ConstraintPreviewPriority => 0;
     public string ConstraintPreviewName => markerType switch
     {
         KimodoConstraintMarkerType.External => "External Pose",
         KimodoConstraintMarkerType.ExternalPath => "External Path",
+        KimodoConstraintMarkerType.Analysis => "Analysis Pose",
         _ => ModeLabel(constraintMode)
     };
 
@@ -40,7 +53,9 @@ public sealed class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSel
         set => markerType = value;
     }
 
-    public bool IsExternal => markerType != KimodoConstraintMarkerType.Constraint;
+    public bool ParticipatesInGeneration => markerType == KimodoConstraintMarkerType.Constraint;
+    public bool IsAnalysis => markerType == KimodoConstraintMarkerType.Analysis;
+    public bool IsExternal => markerType == KimodoConstraintMarkerType.External || markerType == KimodoConstraintMarkerType.ExternalPath;
     public bool IsExternalPath => markerType == KimodoConstraintMarkerType.ExternalPath;
 
     public KimodoRootPathData PathData

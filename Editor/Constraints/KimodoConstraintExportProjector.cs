@@ -9,7 +9,26 @@ namespace KimodoBridge.Editor
         internal static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(
             KimodoTimelineInOutConstraintContext context)
         {
+            if (context != null && context.HasTrackOffsetSnapshot)
+            {
+                return Create(
+                    context,
+                    context.TrackOffsetPosition,
+                    context.TrackOffsetRotation);
+            }
             return sample => ProjectTimelineSample(sample, context);
+        }
+
+        internal static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> Create(
+            KimodoTimelineInOutConstraintContext context,
+            Vector3 trackOffsetPosition,
+            Quaternion trackOffsetRotation)
+        {
+            return sample => ProjectTimelineSample(
+                sample,
+                context,
+                trackOffsetPosition,
+                trackOffsetRotation);
         }
 
         internal static Func<KimodoMarkerSampleResult, KimodoConstraintProjectedPose> CreateProfileNative(
@@ -39,11 +58,37 @@ namespace KimodoBridge.Editor
                     $"Timeline constraint Character Avatar is invalid: {avatarResult.Error}");
             }
 
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
                 context.Track,
                 context.Animator,
                 out Vector3 trackOffsetPosition,
-                out Quaternion trackOffsetRotation);
+                out Quaternion trackOffsetRotation,
+                out _);
+            return ProjectTimelineSample(sample, context, trackOffsetPosition, trackOffsetRotation);
+        }
+
+        private static KimodoConstraintProjectedPose ProjectTimelineSample(
+            KimodoMarkerSampleResult sample,
+            KimodoTimelineInOutConstraintContext context,
+            Vector3 trackOffsetPosition,
+            Quaternion trackOffsetRotation)
+        {
+            if (context?.Animator == null)
+            {
+                throw new InvalidOperationException(
+                    "Timeline constraint projection requires the bound Character Animator.");
+            }
+
+            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(
+                    context.Track,
+                    context.Animator);
+            if (!avatarResult.IsHumanoid ||
+                !KimodoRetargetCoreUtility.IsValidHumanoid(avatarResult.Avatar))
+            {
+                throw new InvalidOperationException(
+                    $"Timeline constraint Character Avatar is invalid: {avatarResult.Error}");
+            }
             return ProjectTimelineSample(
                 sample,
                 context.ModelName,

@@ -4,7 +4,6 @@ using KimodoUnityBridge;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace KimodoBridge.Editor
 {
@@ -12,6 +11,13 @@ namespace KimodoBridge.Editor
     {
         ExistingFullBodyPreview,
         InOutPosePreview
+    }
+
+    internal enum PreviewColorMode
+    {
+        Source,
+        MultiplyTint,
+        Override
     }
 
     internal readonly struct ConstraintPreviewContext
@@ -55,6 +61,7 @@ namespace KimodoBridge.Editor
         public bool HandlesEnabled;
         public List<string> HighlightJoints;
         public Color PreviewColor = Color.white;
+        public PreviewColorMode ColorMode = PreviewColorMode.Source;
         public bool Visible = true;
         public Action<KimodoMarkerSampleResult> OnSampleChanged;
     }
@@ -469,7 +476,7 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
-                ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor);
+                ApplyConstraintColoring(entry, highlightedJoints, item.PreviewColor, item.ColorMode);
                 changed = true;
                 changed |= SetEntryVisible(entry, true);
             }
@@ -691,28 +698,16 @@ namespace KimodoBridge.Editor
             {
                 return;
             }
-
-            RetargetSkeleton targetSkeleton = entry.TargetSkeleton;
-            entry.TargetSkeleton = null;
-            targetSkeleton?.Dispose();
-
-            if (targetSkeleton == null && entry.Root != null && entry.Root.gameObject != null)
+            KimodoConstraintPoseRigFactory.DisposePoseRig(new KimodoConstraintPoseRigFactory.PoseRigInstance
             {
-                UnityEngine.Object.DestroyImmediate(entry.Root.gameObject);
-            }
+                Root = entry.Root != null ? entry.Root.gameObject : null,
+                TargetCache = entry.TargetSkeleton,
+                GeneratedMaterials = entry.GeneratedMaterials
+            });
             entry.Root = null;
+            entry.TargetSkeleton = null;
+            entry.GeneratedMaterials = null;
 
-            if (entry.GeneratedMaterials != null)
-            {
-                for (int i = 0; i < entry.GeneratedMaterials.Count; i++)
-                {
-                    Material m = entry.GeneratedMaterials[i];
-                    if (m != null)
-                    {
-                        UnityEngine.Object.DestroyImmediate(m);
-                    }
-                }
-            }
         }
 
         private static bool SetEntryVisible(ConstraintPreviewInstance entry, bool visible)
@@ -771,7 +766,8 @@ namespace KimodoBridge.Editor
         private static void ApplyConstraintColoring(
             ConstraintPreviewInstance entry,
             HashSet<string> highlightedJoints,
-            Color previewColor)
+            Color previewColor,
+            PreviewColorMode colorMode)
         {
             if (entry == null || entry.Root == null)
             {
@@ -802,19 +798,41 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
-                    if (highlighted)
+                    if (!highlighted && colorMode == PreviewColorMode.Source)
                     {
-                        SetMaterialColor(mat, HighlightColor, HighlightAlpha);
+                        renderer.SetPropertyBlock(null, m);
+                        continue;
                     }
-                    else
-                    {
-                        SetMaterialColor(
-                            mat,
-                            previewColor == default ? NonConstraintColor : previewColor,
-                            NonConstraintAlpha);
-                    }
+
+                    Color sourceColor = ResolveSourceColor(mat);
+                    Color tint = previewColor == default ? NonConstraintColor : previewColor;
+                    Color color = highlighted
+                        ? HighlightColor
+                        : colorMode == PreviewColorMode.Override
+                            ? tint
+                        : new Color(
+                            sourceColor.r * tint.r,
+                            sourceColor.g * tint.g,
+                            sourceColor.b * tint.b,
+                            sourceColor.a * tint.a);
+                    MaterialPropertyBlock block = new MaterialPropertyBlock();
+                    renderer.GetPropertyBlock(block, m);
+                    if (mat.HasProperty("_BaseColor")) block.SetColor("_BaseColor", color);
+                    else if (mat.HasProperty("_Color")) block.SetColor("_Color", color);
+                    else if (mat.HasProperty("_TintColor")) block.SetColor("_TintColor", color);
+                    else continue;
+                    renderer.SetPropertyBlock(block, m);
                 }
             }
+        }
+
+        private static Color ResolveSourceColor(Material material)
+        {
+            if (material == null) return Color.white;
+            if (material.HasProperty("_BaseColor")) return material.GetColor("_BaseColor");
+            if (material.HasProperty("_Color")) return material.GetColor("_Color");
+            if (material.HasProperty("_TintColor")) return material.GetColor("_TintColor");
+            return Color.white;
         }
 
         private static bool IsTransformHighlighted(Transform transform, HashSet<string> highlightedJoints)
@@ -864,93 +882,22 @@ namespace KimodoBridge.Editor
             ConstraintPreviewInstance entry,
             out string error)
         {
-            error = string.Empty;
-            if (sample == null || entry?.TargetSkeleton == null)
-            {
-                error = "Constraint target skeleton is unavailable.";
-                return false;
-            }
-
-            bool wasActive = entry.TargetSkeleton.root.activeSelf;
-            entry.TargetSkeleton.root.SetActive(true);
-            try
-            {
-                return KimodoConstraintPosePipeline.TryApply(
-                    sample,
-                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
-                    entry.TargetSkeleton,
-                    out _,
-                    out _,
-                    out error);
-            }
-            finally
-            {
-                if (entry.TargetSkeleton.animator != null)
+            return KimodoConstraintPoseRigFactory.TryApplyPose(
+                new KimodoConstraintPoseRigFactory.PoseRigInstance
                 {
-                    entry.TargetSkeleton.animator.enabled = false;
-                }
-                entry.TargetSkeleton.root.SetActive(wasActive);
-            }
+                    Root = entry?.Root != null ? entry.Root.gameObject : null,
+                    TargetCache = entry?.TargetSkeleton,
+                    GeneratedMaterials = entry?.GeneratedMaterials
+                },
+                sample,
+                modelName,
+                out error);
         }
 
         private static Color TargetColor(HumanBodyBones bone) =>
             bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.LeftFoot
                 ? LeftTargetColor
                 : RightTargetColor;
-
-        private static void SetMaterialColor(Material mat, Color color, float alpha)
-        {
-            if (mat == null)
-            {
-                return;
-            }
-
-            Color c = new Color(color.r, color.g, color.b, alpha);
-            if (mat.HasProperty("_BaseColor"))
-            {
-                mat.SetColor("_BaseColor", c);
-            }
-
-            if (mat.HasProperty("_Color"))
-            {
-                mat.SetColor("_Color", c);
-            }
-
-            if (mat.HasProperty("_Surface"))
-            {
-                mat.SetFloat("_Surface", 0f);
-            }
-
-            if (mat.HasProperty("_Mode"))
-            {
-                mat.SetFloat("_Mode", 0f);
-            }
-
-            if (mat.HasProperty("_AlphaClip"))
-            {
-                mat.SetFloat("_AlphaClip", 0f);
-            }
-
-            if (mat.HasProperty("_SrcBlend"))
-            {
-                mat.SetInt("_SrcBlend", (int)BlendMode.One);
-            }
-
-            if (mat.HasProperty("_DstBlend"))
-            {
-                mat.SetInt("_DstBlend", (int)BlendMode.Zero);
-            }
-
-            if (mat.HasProperty("_ZWrite"))
-            {
-                mat.SetInt("_ZWrite", 1);
-            }
-
-            mat.SetOverrideTag("RenderType", "Opaque");
-            mat.renderQueue = (int)RenderQueue.Geometry;
-            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            mat.DisableKeyword("_ALPHABLEND_ON");
-        }
 
     }
 }
