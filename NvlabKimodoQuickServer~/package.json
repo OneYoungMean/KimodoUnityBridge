@@ -1,6 +1,6 @@
 {
   "name": "com.nvlab.kimodo.quickserver",
   "displayName": "Kimodo QuickServer",
-  "version": "2.2.17",
+  "version": "2.2.18",
   "description": "Shared motion generation server with safe supervisor endpoint handoff, KMB analysis, and experimental engine-independent retargeting with target-arm A-to-T calibration"
 }

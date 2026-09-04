@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using KimodoUnityBridge;
 using KimodoBridge;
+using KimodoBridge.Editor;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -21,6 +22,47 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
+        private sealed class EvaluatedPosePreview : IDisposable
+        {
+            private KimodoConstraintPoseRigFactory.PoseRigInstance poseRig;
+
+            public EvaluatedPosePreview(
+                GameObject root,
+                KimodoConstraintPoseRigFactory.PoseRigInstance poseRig = null,
+                string modelName = null)
+            {
+                Root = root;
+                this.poseRig = poseRig;
+                ModelName = modelName;
+            }
+
+            public GameObject Root { get; }
+            public Animator Animator => poseRig?.TargetCache?.animator ?? Root?.GetComponentInChildren<Animator>(true);
+            private string ModelName { get; }
+
+            public void Apply(KimodoMarkerSampleResult sample)
+            {
+                if (poseRig == null) throw new InvalidOperationException("Pose preview is not pipeline-backed.");
+                if (!KimodoConstraintPoseRigFactory.TryApplyPose(poseRig, sample, ModelName, out string error))
+                {
+                    throw new InvalidOperationException($"Preview pose evaluation failed: {error}");
+                }
+            }
+
+            public void Dispose()
+            {
+                if (poseRig != null)
+                {
+                    KimodoConstraintPoseRigFactory.DisposePoseRig(poseRig);
+                    poseRig = null;
+                }
+                else if (Root != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(Root);
+                }
+            }
+        }
+
         private sealed class AnalysisSubject
         {
             public AnalysisSubject(
@@ -284,140 +326,109 @@ namespace KimodoUnityBridge.Command
 
         private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)
         {
-            Color flatTint = new Color(tint.r, tint.g, tint.b, 1f);
-            Shader fallbackShader = null;
             foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
             {
                 Material[] sourceMaterials = renderer.sharedMaterials;
-                if (sourceMaterials == null || sourceMaterials.Length == 0)
+                if (sourceMaterials == null)
                 {
-                    sourceMaterials = new[] { (Material)null };
+                    continue;
                 }
-                var replacements = new Material[sourceMaterials.Length];
+
+                Material[] replacements = null;
                 for (int index = 0; index < sourceMaterials.Length; index++)
                 {
                     Material material = sourceMaterials[index];
-                    if (IsUsablePoseMaterial(material))
+                    if (material == null) continue;
+
+                    Shader fallbackShader = ResolvePoseFallbackShader(material.shader);
+                    if (fallbackShader != null)
                     {
-                        Material replacement = UnityEngine.Object.Instantiate(material);
-                        replacement.hideFlags = HideFlags.HideAndDontSave;
-                        SetMaterialTint(replacement, flatTint);
+                        replacements ??= (Material[])sourceMaterials.Clone();
+                        Material replacement = new Material(fallbackShader)
+                        {
+                            hideFlags = HideFlags.HideAndDontSave
+                        };
+                        CopyPoseMaterialProperties(material, replacement);
                         replacements[index] = replacement;
                         transientMaterials?.Add(replacement);
-                        continue;
                     }
-
-                    fallbackShader ??= FindPoseFallbackShader();
-                    if (fallbackShader == null)
-                    {
-                        throw new InvalidOperationException("No compatible pose fallback shader is available.");
-                    }
-
-                    Material fallbackMaterial = new Material(fallbackShader) { hideFlags = HideFlags.HideAndDontSave };
-                    SetMaterialTint(fallbackMaterial, flatTint);
-                    replacements[index] = fallbackMaterial;
-                    transientMaterials?.Add(fallbackMaterial);
                 }
-                renderer.sharedMaterials = replacements;
-            }
-        }
-
-        private static bool IsUsablePoseMaterial(Material material)
-        {
-            if (material == null) return false;
-            Shader shader = material.shader;
-            if (shader == null || string.Equals(shader.name, "Hidden/InternalErrorShader", StringComparison.Ordinal))
-            {
-                return false;
-            }
-            if (!shader.isSupported) return false;
-            string pipelineName = GraphicsSettings.currentRenderPipeline == null
-                ? string.Empty
-                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
-            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (isHdrp && (shader.name.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ||
-                           shader.name.StartsWith("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase))) return false;
-            if (isUrp && (shader.name.StartsWith("Standard", StringComparison.OrdinalIgnoreCase) ||
-                          shader.name.StartsWith("HDRP/", StringComparison.OrdinalIgnoreCase))) return false;
-            if (!isHdrp && !isUrp && (shader.name.StartsWith("HDRP/", StringComparison.OrdinalIgnoreCase) ||
-                                      shader.name.StartsWith("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase))) return false;
-            return !ShaderUtil.ShaderHasError(shader);
-        }
-
-        private static Shader FindPoseFallbackShader()
-        {
-            string pipelineName = GraphicsSettings.currentRenderPipeline == null
-                ? string.Empty
-                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
-            bool isHdrp = pipelineName.IndexOf("HDRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isUrp = pipelineName.IndexOf("UniversalRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("Universal RP", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            string[] preferred = isHdrp
-                ? new[] { "HDRP/Unlit", "HDRP/Lit" }
-                : isUrp
-                    ? new[] { "Universal Render Pipeline/Lit" }
-                    : new[] { "Standard" };
-            foreach (string shaderName in preferred)
-            {
-                Shader shader = Shader.Find(shaderName);
-                if (IsUsablePoseShader(shader)) return shader;
-            }
-
-            // Unlit is retained only as the final compatibility path for a
-            // missing pipeline Lit/Standard shader, never for a valid source.
-            string[] lastResort = isHdrp
-                ? new[] { "HDRP/Unlit", "Sprites/Default" }
-                : isUrp
-                    ? new[] { "Universal Render Pipeline/Unlit", "Sprites/Default" }
-                    : new[] { "Sprites/Default", "Unlit/Color" };
-            foreach (string shaderName in lastResort)
-            {
-                Shader shader = Shader.Find(shaderName);
-                if (IsUsablePoseShader(shader)) return shader;
-            }
-            return null;
-        }
-
-        private static bool IsUsablePoseShader(Shader shader)
-        {
-            if (shader == null || string.Equals(shader.name, "Hidden/InternalErrorShader", StringComparison.Ordinal))
-            {
-                return false;
-            }
-            return shader.isSupported && !ShaderUtil.ShaderHasError(shader);
-        }
-
-        private static void SetMaterialTint(Material material, Color tint)
-        {
-            if (material == null) return;
-            // Keep the source material's colour and apply the evidence tint as
-            // a blend.  Replacing the base colour outright turns all neutral
-            // ghost samples into opaque white silhouettes and causes repeated
-            // alpha compositing to wash out the panel.
-            Color current = tint;
-            if (material.HasProperty("_BaseColor")) current = material.GetColor("_BaseColor");
-            else if (material.HasProperty("_UnlitColor")) current = material.GetColor("_UnlitColor");
-            else if (material.HasProperty("_Color")) current = material.GetColor("_Color");
-            Color blended = Color.Lerp(current, tint, .9f);
-            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", blended);
-            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", blended);
-            if (material.HasProperty("_Color")) material.SetColor("_Color", blended);
-        }
-
-        private static void SetPreviewMaterialRenderQueue(GameObject preview, int renderQueue)
-        {
-            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
-            {
-                foreach (Material material in renderer.materials)
+                if (replacements != null)
                 {
-                    if (material != null) material.renderQueue = renderQueue;
+                    renderer.sharedMaterials = replacements;
                 }
+
+                Material[] materials = renderer.sharedMaterials;
+                for (int index = 0; index < materials.Length; index++)
+                {
+                    Material material = materials[index];
+                    if (material == null) continue;
+                    MaterialPropertyBlock block = new MaterialPropertyBlock();
+                    renderer.GetPropertyBlock(block, index);
+                    Color source = material.HasProperty("_BaseColor")
+                        ? material.GetColor("_BaseColor")
+                        : material.HasProperty("_Color")
+                            ? material.GetColor("_Color")
+                            : material.HasProperty("_TintColor")
+                                ? material.GetColor("_TintColor")
+                                : Color.white;
+                    Color blended = Color.Lerp(source, tint, .9f);
+                    if (material.HasProperty("_BaseColor")) block.SetColor("_BaseColor", blended);
+                    else if (material.HasProperty("_Color")) block.SetColor("_Color", blended);
+                    else if (material.HasProperty("_TintColor")) block.SetColor("_TintColor", blended);
+                    else continue;
+                    renderer.SetPropertyBlock(block, index);
+                }
+            }
+        }
+
+        private static Shader ResolvePoseFallbackShader(Shader sourceShader)
+        {
+            if (sourceShader == null) return null;
+            string sourceName = sourceShader.name ?? string.Empty;
+            bool isStandard = string.Equals(sourceName, "Standard", StringComparison.Ordinal) ||
+                string.Equals(sourceName, "Standard (Specular setup)", StringComparison.Ordinal);
+            bool isUrpLit = string.Equals(sourceName, "Universal Render Pipeline/Lit", StringComparison.Ordinal);
+            bool isHdrpLit = string.Equals(sourceName, "HDRP/Lit", StringComparison.Ordinal);
+
+            RenderPipelineAsset pipeline = GraphicsSettings.currentRenderPipeline;
+            string pipelineName = pipeline?.GetType().FullName ?? string.Empty;
+            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                pipelineName.IndexOf("HDRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            string targetName = null;
+            if (isHdrp && (isStandard || isUrpLit)) targetName = "HDRP/Lit";
+            else if (isUrp && isStandard) targetName = "Universal Render Pipeline/Lit";
+            else if (!isHdrp && !isUrp && (isHdrpLit || isUrpLit)) targetName = "Standard";
+            if (targetName == null) return null;
+
+            Shader target = Shader.Find(targetName);
+            return target != null && target.isSupported ? target : null;
+        }
+
+        private static void CopyPoseMaterialProperties(Material source, Material target)
+        {
+            if (source == null || target == null) return;
+            Texture texture = null;
+            if (source.HasProperty("_BaseColorMap")) texture = source.GetTexture("_BaseColorMap");
+            if (texture == null && source.HasProperty("_BaseMap")) texture = source.GetTexture("_BaseMap");
+            if (texture == null && source.HasProperty("_MainTex")) texture = source.GetTexture("_MainTex");
+            if (texture != null)
+            {
+                if (target.HasProperty("_BaseColorMap")) target.SetTexture("_BaseColorMap", texture);
+                if (target.HasProperty("_BaseMap")) target.SetTexture("_BaseMap", texture);
+                if (target.HasProperty("_MainTex")) target.SetTexture("_MainTex", texture);
+            }
+
+            Color color = source.HasProperty("_BaseColor")
+                ? source.GetColor("_BaseColor")
+                : source.HasProperty("_Color") ? source.GetColor("_Color") : Color.white;
+            if (target.HasProperty("_BaseColor")) target.SetColor("_BaseColor", color);
+            if (target.HasProperty("_Color")) target.SetColor("_Color", color);
+            if (source.HasProperty("_Cutoff") && target.HasProperty("_Cutoff"))
+            {
+                target.SetFloat("_Cutoff", source.GetFloat("_Cutoff"));
             }
         }
 
@@ -435,7 +446,21 @@ namespace KimodoUnityBridge.Command
                 UsesGhostMaterial = usesGhostMaterial;
             }
 
+            public TestVirtualPose(
+                EvaluatedPosePreview preview,
+                IReadOnlyList<Material> transientMaterials,
+                float alpha,
+                bool usesGhostMaterial)
+            {
+                EvaluatedPreview = preview;
+                Preview = preview?.Root;
+                TransientMaterials = transientMaterials;
+                Alpha = alpha;
+                UsesGhostMaterial = usesGhostMaterial;
+            }
+
             public GameObject Preview { get; }
+            private EvaluatedPosePreview EvaluatedPreview { get; }
             public IReadOnlyList<Material> TransientMaterials { get; }
             public float Alpha { get; }
             public bool UsesGhostMaterial { get; }
@@ -449,17 +474,18 @@ namespace KimodoUnityBridge.Command
                         if (material != null) UnityEngine.Object.DestroyImmediate(material);
                     }
                 }
-                if (Preview != null) UnityEngine.Object.DestroyImmediate(Preview);
+                if (EvaluatedPreview != null) EvaluatedPreview.Dispose();
+                else if (Preview != null) UnityEngine.Object.DestroyImmediate(Preview);
             }
         }
 
         private sealed class TestPosePlan : IDisposable
         {
-            private readonly GameObject source;
+            private readonly EvaluatedPosePreview source;
             private readonly Dictionary<int, TestPoseSnapshot> snapshots;
 
             public TestPosePlan(
-                GameObject source,
+                EvaluatedPosePreview source,
                 Dictionary<int, TestPoseSnapshot> snapshots)
             {
                 this.source = source;
@@ -474,7 +500,7 @@ namespace KimodoUnityBridge.Command
 
             public void Dispose()
             {
-                if (source != null) UnityEngine.Object.DestroyImmediate(source);
+                source?.Dispose();
             }
         }
 

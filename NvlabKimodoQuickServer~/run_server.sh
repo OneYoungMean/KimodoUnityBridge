@@ -276,6 +276,17 @@ resolve_python_from_venv() {
   fi
 }
 
+FORCE_SETUP=0
+for arg in "$@"; do
+  if [[ "${arg}" == "--force-setup" || "${arg}" == "--force" ]]; then
+    FORCE_SETUP=1
+  fi
+done
+SKIP_SETUP=0
+if [[ -z "${KIMODO_VENV_PATH:-}" && "${FORCE_SETUP}" -eq 0 && -f "${ROOT_DIR}/.setup.complete" ]]; then
+  SKIP_SETUP=1
+fi
+
 acquire_bootstrap_lock
 
 if [[ -n "${BOOTSTRAP_HOLD_SEC}" ]]; then
@@ -307,7 +318,7 @@ if [[ -n "${CHECKPOINT_DIR:-}" ]]; then
   exit 1
 fi
 
-if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+if [[ "${SKIP_SETUP}" -eq 0 && ( -z "${UV_BIN}" || ! -x "${UV_BIN}" ) ]]; then
   bootstrap_log "[INFO] uv is missing; installing it automatically."
   if ! install_uv_locally; then
     bootstrap_log "[ERROR] uv auto-install failed."
@@ -316,7 +327,7 @@ if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
   UV_BIN="${ROOT_DIR}/program/exe/uv/uv"
 fi
 
-if [[ -z "${UV_BIN}" || ! -x "${UV_BIN}" ]]; then
+if [[ "${SKIP_SETUP}" -eq 0 && ( -z "${UV_BIN}" || ! -x "${UV_BIN}" ) ]]; then
   bootstrap_log "[ERROR] uv is still unavailable after installation attempt."
   exit 1
 fi
@@ -351,15 +362,19 @@ if [[ -n "${KIMODO_VENV_PATH:-}" && "${HAS_VENV_ARG}" -eq 0 ]]; then
   SETUP_ARGS+=("--venv" "${KIMODO_VENV_PATH}")
 fi
 
-bootstrap_log "[INFO] Starting Python setup via uv."
-if "${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"; then
-  setup_rc=0
+if [[ "${SKIP_SETUP}" -eq 1 ]]; then
+  bootstrap_log "[INFO] Existing setup marker found; skipping setup."
 else
-  setup_rc=$?
-fi
-bootstrap_log "[INFO] Python setup exited with code ${setup_rc}."
-if [[ "${setup_rc}" -ne 0 ]]; then
-  exit "${setup_rc}"
+  bootstrap_log "[INFO] Starting Python setup via uv."
+  if "${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"; then
+    setup_rc=0
+  else
+    setup_rc=$?
+  fi
+  bootstrap_log "[INFO] Python setup exited with code ${setup_rc}."
+  if [[ "${setup_rc}" -ne 0 ]]; then
+    exit "${setup_rc}"
+  fi
 fi
 
 if [[ -n "${EXPLICIT_VENV}" ]]; then
@@ -372,12 +387,12 @@ else
 fi
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then
-  bootstrap_log "[ERROR] Failed to resolve QuickServer venv python: ${VENV_PYTHON}"
+  bootstrap_log "[ERROR] QuickServer runtime is missing. Run run_server.sh --force-setup to reinstall it."
   exit 1
 fi
 bootstrap_log "[INFO] Resolved QuickServer venv python: ${VENV_PYTHON}"
 
-bootstrap_log "[INFO] Bootstrap setup complete; waiting for QuickServer CLI to release the bootstrap lock."
+bootstrap_log "[INFO] Starting QuickServer CLI."
 ARDY_SOURCE_ROOT="${ROOT_DIR}/ardy"
 if [[ ! -f "${ARDY_SOURCE_ROOT}/ardy/__init__.py" ]]; then
   bootstrap_log "[ERROR] Bundled ARDY package is missing: ${ARDY_SOURCE_ROOT}/ardy/__init__.py"
@@ -391,4 +406,7 @@ else
 fi
 release_bootstrap_lock
 bootstrap_log "[INFO] QuickServer CLI exited with code ${cli_rc}."
+if [[ "${cli_rc}" -ne 0 ]]; then
+  bootstrap_log "[ERROR] QuickServer failed to start or stopped unexpectedly. Run run_server.sh --force-setup to reinstall the runtime."
+fi
 exit "${cli_rc}"

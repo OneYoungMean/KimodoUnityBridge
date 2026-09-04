@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using KimodoUnityBridge;
 using KimodoBridge;
+using KimodoBridge.Editor;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -83,25 +84,25 @@ namespace KimodoUnityBridge.Command
 
         private static TestPosePlan BuildTestPosePlan(SubjectPictureData subject, IReadOnlyList<int> frames)
         {
-            GameObject source = CreateCanonicalPosePreview(subject.Subject.Character);
+            EvaluatedPosePreview source = CreatePipelinePosePreview(subject.Subject.Character, subject.GetSample(0));
             var snapshots = new Dictionary<int, TestPoseSnapshot>();
             try
             {
                 foreach (int frame in frames.Distinct().OrderBy(item => item))
                 {
                     KimodoMarkerSampleResult sample = subject.GetSample(frame);
-                    ApplyCanonicalPoseToPreview(source, subject.Subject.Character, sample);
-                    snapshots[frame] = TestPoseSnapshot.Capture(source);
+                    source.Apply(sample);
+                    snapshots[frame] = TestPoseSnapshot.Capture(source.Root);
                 }
                 // The source is only a transform snapshot template. Keep it
                 // out of the capture layer so each pose is rendered exactly
                 // once by its dedicated virtual-pose instance.
-                SetPreviewRenderersEnabled(source, false);
+                SetPreviewRenderersEnabled(source.Root, false);
                 return new TestPosePlan(source, snapshots);
             }
             catch
             {
-                UnityEngine.Object.DestroyImmediate(source);
+                source.Dispose();
                 throw;
             }
         }
@@ -132,11 +133,11 @@ namespace KimodoUnityBridge.Command
             Color tint,
             float alpha)
         {
-            GameObject preview = CreateAnalysisPosePreview(subject, frame);
+            EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, frame);
             var transientMaterials = new List<Material>();
-            bool usesGhostMaterial = ConfigureTestGhostMaterial(preview, tint, alpha, transientMaterials);
-            if (!usesGhostMaterial) TintPreview(preview, tint, transientMaterials);
-            SetPreviewRenderersEnabled(preview, false);
+            bool usesGhostMaterial = ConfigureTestGhostMaterial(preview.Root, tint, alpha, transientMaterials);
+            if (!usesGhostMaterial) TintPreview(preview.Root, tint, transientMaterials);
+            SetPreviewRenderersEnabled(preview.Root, false);
             return new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
         }
 
@@ -156,34 +157,27 @@ namespace KimodoUnityBridge.Command
 
         private static Bounds CalculatePreviewPoseBounds(SubjectPictureData subject, int localFrame)
         {
-            GameObject preview = CreateAnalysisPosePreview(subject, localFrame);
-            try
+            using (EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, localFrame))
             {
-                Bounds bounds = CalculateSkinnedBounds(preview);
-                bounds.Encapsulate(PreviewRootPosition(preview));
+                Bounds bounds = CalculateSkinnedBounds(preview.Root);
+                bounds.Encapsulate(PreviewRootPosition(preview.Root));
                 bounds.Expand(new Vector3(1.5f, .5f, 1.5f));
                 if (bounds.size.x < 3f) bounds.Expand(new Vector3(3f - bounds.size.x, 0f, 0f));
                 if (bounds.size.z < 3f) bounds.Expand(new Vector3(0f, 0f, 3f - bounds.size.z));
                 return bounds;
             }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(preview);
-            }
         }
 
-        private static GameObject CreateAnalysisPosePreview(SubjectPictureData subject, int localFrame)
+        private static EvaluatedPosePreview CreateAnalysisPosePreview(SubjectPictureData subject, int localFrame)
         {
             if (!IsHumanoidCharacter(subject.Subject.Character))
             {
-                return CreateMeshPosePreview(subject.Subject, localFrame);
+                return new EvaluatedPosePreview(CreateMeshPosePreview(subject.Subject, localFrame));
             }
 
             TimelineCharacterRecord character = subject.Subject.Character;
-            GameObject preview = CreateCanonicalPosePreview(character);
             KimodoMarkerSampleResult sample = subject.GetSample(localFrame);
-            ApplyCanonicalPoseToPreview(preview, character, sample);
-            return preview;
+            return CreatePipelinePosePreview(character, sample);
         }
 
         private static GameObject CreateMeshPosePreview(AnalysisSubject subject, int localFrame)
@@ -223,9 +217,29 @@ namespace KimodoUnityBridge.Command
             return preview;
         }
 
-        private static GameObject CreateCanonicalPosePreview(TimelineCharacterRecord character)
+        private static EvaluatedPosePreview CreatePipelinePosePreview(
+            TimelineCharacterRecord character,
+            KimodoMarkerSampleResult sample)
         {
-            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(character.Root));
+            string error = string.Empty;
+            if (character?.Animator == null ||
+                !KimodoConstraintPoseRigFactory.TryCreatePoseRig(
+                    ResolveModelName(null),
+                    character.Animator,
+                    character.Avatar,
+                    out KimodoConstraintPoseRigFactory.PoseRigInstance poseRig,
+                    out error))
+            {
+                throw new InvalidOperationException($"Character '{character?.Name}' preview rig creation failed: {error}");
+            }
+
+            if (!KimodoConstraintPoseRigFactory.TryApplyPose(poseRig, sample, ResolveModelName(null), out error))
+            {
+                KimodoConstraintPoseRigFactory.DisposePoseRig(poseRig);
+                throw new InvalidOperationException($"Character '{character.Name}' preview pose evaluation failed: {error}");
+            }
+
+            GameObject preview = MoveToAnalysisSessionRoot(poseRig.Root);
             preview.name = "Kimodo Pose Preview";
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
@@ -233,85 +247,12 @@ namespace KimodoUnityBridge.Command
                 transform.gameObject.layer = SessionCaptureLayer;
             }
 
-            Animator animator = preview.GetComponentInChildren<Animator>(true)
-                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
-            // The preview must use the same humanoid Avatar as the Session
-            // character before applying canonical HumanPose snapshots.
-            if (KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
-            {
-                animator.avatar = character.Avatar;
-                animator.runtimeAnimatorController = null;
-                animator.applyRootMotion = true;
-                animator.enabled = true;
-                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
-                animator.Rebind();
-            }
-            return preview;
-        }
-
-        private static void ApplyCanonicalPoseToPreview(
-            GameObject preview,
-            TimelineCharacterRecord character,
-            KimodoMarkerSampleResult sample)
-        {
-            if (sample?.sampleData == null || !sample.sampleData.IsValid) return;
-            Animator animator = preview.GetComponentInChildren<Animator>(true);
-            if (animator == null || !KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar)) return;
-            HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
-            using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
-            {
-                handler.SetHumanPose(ref pose);
-            }
-            if (TryGetRoot2DWorld(sample, out Vector3 rootPosition, out Quaternion rootRotation))
-            {
-                // The root2D override is body(hips)-anchored: its t equals the sampled
-                // hips world pose. Re-anchor the preview so the hips land on the
-                // override pose. Placing the root at the override instead stacked it on
-                // top of the muscle root translation and double-counted the travel,
-                // bending the rendered root2d trajectory away from the real motion.
-                Transform hips = animator.GetBoneTransform(HumanBodyBones.Hips);
-                if (hips == null)
-                {
-                    animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
-                        animator.transform.position,
-                        rootPosition);
-                    animator.transform.rotation = KimodoMotionMath.ApplyPlanarHeading(
-                        animator.transform.rotation,
-                        rootRotation);
-                    return;
-                }
-
-                var rootPose = new Pose(animator.transform.position, animator.transform.rotation);
-                var hipsPose = new Pose(hips.position, hips.rotation);
-                Quaternion relativeRotation = Quaternion.Inverse(rootPose.rotation) * hipsPose.rotation;
-                Vector3 relativePosition = Quaternion.Inverse(rootPose.rotation) * (hipsPose.position - rootPose.position);
-                // Preserve the muscle pelvis tilt; the override only supplies planar heading.
-                Quaternion planarHipsHeading = KimodoMotionMath.ResolvePlanarHeading(hipsPose.rotation);
-                Quaternion pelvisTilt = Quaternion.Inverse(planarHipsHeading) * hipsPose.rotation;
-                Quaternion desiredHipsRotation = rootRotation * pelvisTilt;
-                Quaternion newRootRotation = desiredHipsRotation * Quaternion.Inverse(relativeRotation);
-                Vector3 newRootPosition = rootPosition - newRootRotation * relativePosition;
-                animator.transform.SetPositionAndRotation(newRootPosition, newRootRotation);
-            }
+            return new EvaluatedPosePreview(preview, poseRig, ResolveModelName(null));
         }
 
         private static void TintPreview(GameObject preview, Color tint)
         {
-            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
-            {
-                foreach (Material material in renderer.materials)
-                {
-                    if (material != null)
-                    {
-                        Color current = material.HasProperty("_BaseColor")
-                            ? material.GetColor("_BaseColor")
-                            : material.color;
-                        Color result = Color.Lerp(current, tint, .9f);
-                        if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", result);
-                        if (material.HasProperty("_Color")) material.SetColor("_Color", result);
-                    }
-                }
-            }
+            TintPreview(preview, tint, null);
         }
 
         private static List<int> BuildGhostFrames(SubjectPictureData subject, out HashSet<int> promotedFrames)

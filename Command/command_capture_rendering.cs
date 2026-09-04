@@ -188,17 +188,17 @@ namespace KimodoUnityBridge.Command
             float alpha,
             bool useTestGhostMaterial = false)
         {
-            GameObject preview = CreateAnalysisPosePreview(subject, localFrame);
+            EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, localFrame);
             var transientMaterials = new List<Material>();
             try
             {
                 if (useTestGhostMaterial)
                 {
-                    ConfigureTestGhostMaterial(preview, tint, alpha, transientMaterials);
+                    ConfigureTestGhostMaterial(preview.Root, tint, alpha, transientMaterials);
                 }
                 else
                 {
-                    TintPreview(preview, tint);
+                    TintPreview(preview.Root, tint, transientMaterials);
                 }
                 SetEvidenceVisualsEnabled(environment, false);
                 Texture2D layer = RenderCamera(camera, destination.width, new Color(0f, 0f, 0f, 0f));
@@ -220,7 +220,7 @@ namespace KimodoUnityBridge.Command
                 {
                     if (material != null) UnityEngine.Object.DestroyImmediate(material);
                 }
-                UnityEngine.Object.DestroyImmediate(preview);
+                preview.Dispose();
             }
         }
 
