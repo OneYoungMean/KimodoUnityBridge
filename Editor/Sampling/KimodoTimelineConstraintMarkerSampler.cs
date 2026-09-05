@@ -385,7 +385,9 @@ namespace KimodoBridge.Editor
             IReadOnlyList<double> timelineTimes,
             out MuscleSample[] samples,
             out string error,
-            Func<AnimationClip, string, string> writebackClip = null)
+            Func<AnimationClip, string, string> writebackClip = null,
+            Vector3? trackPosition = null,
+            Quaternion? trackRotation = null)
         {
             samples = null;
             error = string.Empty;
@@ -427,6 +429,17 @@ namespace KimodoBridge.Editor
                             out error))
                     {
                         return false;
+                    }
+
+                    if (trackPosition.HasValue && trackRotation.HasValue)
+                    {
+                        KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
+                            poseSamples[i].localPositions[0],
+                            poseSamples[i].localRotations[0],
+                            trackPosition.Value,
+                            trackRotation.Value,
+                            out poseSamples[i].localPositions[0],
+                            out poseSamples[i].localRotations[0]);
                     }
                 }
                 for (int i = sampleCount; i < clipSampleCount; i++)
@@ -492,7 +505,9 @@ namespace KimodoBridge.Editor
             float targetFrameRate,
             out BoneSample[] samples,
             out string error,
-            Func<AnimationClip, string, string> writebackClip = null)
+            Func<AnimationClip, string, string> writebackClip = null,
+            Vector3? trackPosition = null,
+            Quaternion? trackRotation = null)
         {
             samples = null;
             float effectiveFrameRate = targetFrameRate > 0f
@@ -502,7 +517,9 @@ namespace KimodoBridge.Editor
                     timelineTimes,
                     out MuscleSample[] muscleSamples,
                     out error,
-                    writebackClip))
+                    writebackClip,
+                    trackPosition,
+                    trackRotation))
             {
                 return false;
             }

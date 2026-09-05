@@ -287,6 +287,7 @@ if [[ -z "${KIMODO_VENV_PATH:-}" && "${FORCE_SETUP}" -eq 0 && -f "${ROOT_DIR}/.s
   SKIP_SETUP=1
 fi
 
+bootstrap_log "[PHASE] bootstrap begin root=${ROOT_DIR}"
 acquire_bootstrap_lock
 
 if [[ -n "${BOOTSTRAP_HOLD_SEC}" ]]; then
@@ -363,9 +364,9 @@ if [[ -n "${KIMODO_VENV_PATH:-}" && "${HAS_VENV_ARG}" -eq 0 ]]; then
 fi
 
 if [[ "${SKIP_SETUP}" -eq 1 ]]; then
-  bootstrap_log "[INFO] Existing setup marker found; skipping setup."
+  bootstrap_log "[PHASE] setup skipped reason=existing_marker"
 else
-  bootstrap_log "[INFO] Starting Python setup via uv."
+  bootstrap_log "[PHASE] setup begin"
   if "${UV_BIN}" run --python 3.12 --no-project python "${ROOT_DIR}/quickserver.py" "${SETUP_ARGS[@]}"; then
     setup_rc=0
   else
@@ -375,6 +376,7 @@ else
   if [[ "${setup_rc}" -ne 0 ]]; then
     exit "${setup_rc}"
   fi
+  bootstrap_log "[PHASE] setup complete"
 fi
 
 if [[ -n "${EXPLICIT_VENV}" ]]; then
@@ -392,7 +394,7 @@ if [[ ! -x "${VENV_PYTHON}" ]]; then
 fi
 bootstrap_log "[INFO] Resolved QuickServer venv python: ${VENV_PYTHON}"
 
-bootstrap_log "[INFO] Starting QuickServer CLI."
+bootstrap_log "[PHASE] bootstrap complete; starting supervisor"
 ARDY_SOURCE_ROOT="${ROOT_DIR}/ardy"
 if [[ ! -f "${ARDY_SOURCE_ROOT}/ardy/__init__.py" ]]; then
   bootstrap_log "[ERROR] Bundled ARDY package is missing: ${ARDY_SOURCE_ROOT}/ardy/__init__.py"

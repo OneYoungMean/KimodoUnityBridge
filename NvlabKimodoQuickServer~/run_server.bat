@@ -10,7 +10,7 @@ if not exist "%SOURCE_ROOT%\pyproject.toml" set "SOURCE_ROOT=%ROOT_DIR%"
 set "LOG_DIR=%ROOT_DIR%\log"
 set "BOOTSTRAP_LOG=%LOG_DIR%\bootstrap.log"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
-call :bootstrap_log "[INFO] QuickServer bootstrap started. root=%ROOT_DIR%"
+call :bootstrap_log "[PHASE] bootstrap begin root=%ROOT_DIR%"
 set "BOOTSTRAP_LOCK=%ROOT_DIR%\.bootstrap.lock"
 set "UV_TOOL_DIR=%ROOT_DIR%\program\exe\uv"
 set "UV_BIN="
@@ -72,7 +72,7 @@ goto parse_args
 :after_parse
 if defined EXPLICIT_VENV goto acquire_launch_lock
 if exist "%ROOT_DIR%\.setup.complete" if not defined FORCE_SETUP (
-  call :bootstrap_log "[INFO] Existing setup marker found; skipping setup."
+  call :bootstrap_log "[PHASE] setup skipped reason=existing_marker"
   goto acquire_launch_lock
 )
 
@@ -100,11 +100,12 @@ if not defined UV_BIN (
   call :bootstrap_log "[ERROR] uv is still unavailable after the download attempt."
   goto cleanup_fail
 )
-call :bootstrap_log "[INFO] Starting Python setup via uv."
+call :bootstrap_log "[PHASE] setup begin"
 "%UV_BIN%" run --isolated --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
 set "SETUP_RC=%ERRORLEVEL%"
 call :bootstrap_log "[INFO] Python setup exited with code !SETUP_RC!."
 if not "!SETUP_RC!"=="0" goto cleanup_fail
+call :bootstrap_log "[PHASE] setup complete"
 
 :acquire_launch_lock
 if not defined BOOTSTRAP_PID call :acquire_bootstrap_lock
@@ -120,7 +121,7 @@ if not defined VENV_PYTHON (
 )
 call :bootstrap_log "[INFO] Resolved QuickServer venv python: !VENV_PYTHON!"
 
-call :bootstrap_log "[INFO] Starting QuickServer CLI."
+call :bootstrap_log "[PHASE] bootstrap complete; starting supervisor"
 set "ARDY_SOURCE_ROOT=%ROOT_DIR%\ardy"
 if not exist "%ARDY_SOURCE_ROOT%\ardy\__init__.py" (
   call :bootstrap_log "[ERROR] Bundled ARDY package is missing: %ARDY_SOURCE_ROOT%\ardy\__init__.py"
@@ -147,6 +148,7 @@ if not "!CLI_RC!"=="0" (
 exit /b !CLI_RC!
 
 :cleanup_fail
+call :bootstrap_log "[PHASE] bootstrap failed"
 call :bootstrap_log "[ERROR] Bootstrap failed; releasing lock."
 call :release_bootstrap_lock
 exit /b 1

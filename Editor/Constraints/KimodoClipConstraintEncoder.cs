@@ -73,7 +73,9 @@ namespace KimodoBridge.Editor
                         timelineTimes,
                         frameRate,
                         out BoneSample[] samples,
-                        out error))
+                        out error,
+                        trackPosition: trackOffsetPosition,
+                        trackRotation: trackOffsetRotation))
                 {
                     throw new InvalidOperationException(error);
                 }
@@ -102,18 +104,11 @@ namespace KimodoBridge.Editor
                         throw new InvalidOperationException(error);
                     }
 
-                    // ClipConstraint payloads are consumed in the generated
-                    // clip's track space. Timeline sampling gives us world
-                    // poses, so convert the profile root once per frame while
-                    // keeping child joint rotations local to that root.
-                    KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
-                        rootJoint.position,
-                        rootJoint.rotation,
-                        trackOffsetPosition,
-                        trackOffsetRotation,
-                        out Vector3 trackRootPosition,
-                        out Quaternion trackRootRotation);
-                    roots[frame] = trackRootPosition;
+                    // The Character pose was converted to Track space before
+                    // retargeting. The profile skeleton is already in that
+                    // space, so do not apply the Track conversion a second time.
+                    Quaternion trackRootRotation = rootJoint.rotation.normalized;
+                    roots[frame] = rootJoint.position;
                     if (footPositions != null)
                     {
                         for (int channel = 0; channel < KimodoFootContactTrackUtility.ChannelCount; channel++)

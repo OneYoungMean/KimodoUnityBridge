@@ -588,6 +588,7 @@ def _setup_buildenv(paths: ProjectPaths, setup_mode: str, logger: SetupLogger) -
     default_index = _select_uv_default_index()
     python_spec = _python_spec()
 
+    logger.log(f"[PHASE] setup begin mode={setup_mode}")
     logger.log("[STEP] Build env (single-thread)...")
     logger.log(f"[INFO] setup mode: {setup_mode}")
     logger.log(f"[INFO] Selected uv default index: {default_index}")
@@ -777,6 +778,9 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
 
     sentinel = _read_sentinel(paths.setup_sentinel)
     if sentinel.get("setup_mode", "").lower() == requested_mode and paths.venv_python.exists():
+        log_path = Path(options.log_path).resolve() if options.log_path else paths.default_setup_log_path
+        with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
+            logger.log(f"[PHASE] setup skipped reason=existing_marker mode={requested_mode}")
         return SetupCliResult(ok=True, exit_code=0, venv_python=str(paths.venv_python))
     if paths.setup_sentinel.exists():
         archive_path(paths.setup_sentinel, paths.recycle_dir)
@@ -787,13 +791,16 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
             _setup_buildenv(paths, requested_mode, logger)
             torch_runtime = _torch_runtime(paths)
             _write_sentinel(paths, requested_mode, torch_runtime)
+            logger.log("[PHASE] setup complete")
             logger.log("[OK] setup complete.")
     except SetupError as exc:
         with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
+            logger.log(f"[PHASE] setup failed error={exc}")
             logger.log(f"[ERROR] {exc}")
         return SetupCliResult(ok=False, exit_code=1, venv_python="")
     except Exception as exc:
         with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
+            logger.log(f"[PHASE] setup failed error={exc}")
             logger.log(f"[ERROR] Unexpected setup failure: {exc}")
         return SetupCliResult(ok=False, exit_code=1, venv_python="")
     return SetupCliResult(ok=True, exit_code=0, venv_python=str(paths.venv_python))

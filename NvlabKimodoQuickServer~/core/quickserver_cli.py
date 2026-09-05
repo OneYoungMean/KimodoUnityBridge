@@ -629,6 +629,10 @@ def _replace_text_encoder(
     recovery_flag_dir = Path(kimodo_root).resolve() / "archive" / "recovery_flags"
     force_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
     download_counter = [0]
+    logger.log(
+        f"[PHASE] download begin action=text_encoder_provision "
+        f"models_root={models_root} layout={layout.layout_id}"
+    )
     for encoder_asset in layout.download_assets:
         assets.ensure_asset_present(
             encoder_asset,
@@ -639,6 +643,9 @@ def _replace_text_encoder(
             force_site=force_site,
             cancel_event=cancel_event,
         )
+    logger.log(
+        f"[PHASE] download complete action=text_encoder_provision downloads={download_counter[0]}"
+    )
     assets.raise_if_download_cancelled(cancel_event)
     old_encoder = getattr(model, "text_encoder", None)
     new_encoder = instantiate_from_dict(
@@ -843,6 +850,10 @@ def _ensure_runtime(
         download_counter = [0]
         recovery_flag_dir = Path(kimodo_root).resolve() / "archive" / "recovery_flags"
         force_download_site = assets.DownloadSite.HUGGINGFACE if config["force_hf_download"] else None
+        logger.log(
+            f"[PHASE] download begin action=ardy_text_encoder_provision "
+            f"models_root={models_root} layout={encoder_layout.layout_id}"
+        )
         for encoder_asset in encoder_layout.download_assets:
             assets.ensure_asset_present(
                 encoder_asset,
@@ -853,6 +864,9 @@ def _ensure_runtime(
                 force_site=force_download_site,
                 cancel_event=cancel_event,
             )
+        logger.log(
+            f"[PHASE] download complete action=ardy_text_encoder_provision downloads={download_counter[0]}"
+        )
         logger.log(
             f"[INFO] ARDY reusing Kimodo text encoder: route={encoder_route} "
             f"layout={encoder_layout.layout_id} models_root={models_root} downloads={download_counter[0]}"
@@ -1325,7 +1339,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
 
     def capture_task_runtime_progress(message: str) -> None:
         text = str(message or "").strip()
-        if not text.startswith(("[INFO]", "[OK]", "[STEP]", "[DOWNLOAD]")):
+        if not text.startswith(("[INFO]", "[OK]", "[STEP]", "[DOWNLOAD]", "[PHASE]")):
             return
         task = state["tasks"].get(str(getattr(task_context, "task_id", "") or ""))
         if task is not None:
@@ -1732,6 +1746,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 publish_state("generating")
 
             task_context.task_id = task_id
+            task_started = time.monotonic()
+            logger.log(
+                f"[PHASE] generate begin task_id={task_id} session_id={session_id} "
+                f"model={task['runtime_config']['model']}"
+            )
             try:
                 def execute_task() -> tuple[dict[str, Any], bytes | None]:
                     encoder_key = _build_text_encoder_execution_key(task["runtime_config"])
@@ -1739,6 +1758,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     try:
                         publish_state("loading_runtime")
                         _update_task_progress(task, "Preparing motion runtime...")
+                        logger.log(f"[PHASE] runtime begin task_id={task_id}")
                         task["eta_seconds"] = max(60.0, float(state.get("runtime_load_seconds") or 0.0) * 2.0)
                         task["loading_started_at"] = time.monotonic()
                         if task["cancel_event"].is_set():
@@ -1753,10 +1773,15 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             raise runtime_helpers.GenerateCancelledError(str(exc)) from exc
                         if task["cancel_event"].is_set():
                             raise runtime_helpers.GenerateCancelledError("Generation canceled.")
+                        logger.log(
+                            f"[PHASE] runtime complete task_id={task_id} model={runtime['model']} "
+                            f"device={runtime['device']} reused={runtime['reused']}"
+                        )
                         _update_task_progress(task, "Generating motion...")
                         task["phase"] = "generating"
                         task["eta_seconds"] = None
                         publish_state("generating")
+                        logger.log(f"[PHASE] generate model begin task_id={task_id}")
                         task_response, task_binary = run_one_shot(task, runtime, session)
                         return _attach_runtime_metadata(
                             task_response,
@@ -1812,6 +1837,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 if task["cancel_event"].is_set():
                     response = {"status": "cancelled", "message": "Generation canceled."}
                     binary_payload = None
+                logger.log(
+                    f"[PHASE] generate complete task_id={task_id} "
+                    f"status={response.get('status', 'unknown')} "
+                    f"bytes={len(binary_payload) if binary_payload is not None else 0} "
+                    f"elapsed={time.monotonic() - task_started:.2f}s"
+                )
                 finish_task_locked(session, task, response, binary_payload)
                 state["last_activity"] = time.time()
                 state["active_worker_count"] = max(0, int(state.get("active_worker_count") or 0) - 1)
