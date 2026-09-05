@@ -237,34 +237,14 @@ namespace KimodoUnityBridge.Command
                 {
                     result.Add(CreateRootOverrideSample(
                         frame,
-                        new Vector3(position.x, targetRootHeight + EvaluatePathVerticalOffset(knots, pathTime), position.y),
+                        // Root paths constrain the planar trajectory and heading.
+                        // Vertical placement remains the canonical hips height;
+                        // path data never carries a separate delta-Y channel.
+                        new Vector3(position.x, targetRootHeight, position.y),
                         new Vector3(tangent.x, 0f, tangent.y).normalized));
                 }
             }
             return result;
-        }
-
-        // Compatibility entry retained for older reflection-based callers.
-        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
-            KimodoRootPathData path,
-            int constraintIndex,
-            int startFrame,
-            int durationFrames,
-            float targetRootHeight,
-            float targetHumanScale,
-            ISet<int> explicitRootFrames,
-            ISet<int> occupiedPathFrames)
-        {
-            return BuildRootPathConstraintsSparse(
-                path,
-                constraintIndex,
-                startFrame,
-                durationFrames,
-                targetRootHeight,
-                targetHumanScale,
-                explicitRootFrames,
-                new HashSet<int>(Enumerable.Range(startFrame, Math.Max(0, durationFrames - startFrame))),
-                occupiedPathFrames);
         }
 
         private static Vector2 EvaluatePathHeading(IReadOnlyList<KimodoRootPathKnot> knots, float time)
@@ -278,15 +258,6 @@ namespace KimodoUnityBridge.Command
             float t = segment == knots.Count - 2 && time >= 1f ? 1f : scaled - segment;
             Vector2 heading = Vector2.Lerp(knots[segment].heading, knots[segment + 1].heading, t);
             return heading.sqrMagnitude > 1e-8f ? heading.normalized : Vector2.up;
-        }
-
-        private static float EvaluatePathVerticalOffset(IReadOnlyList<KimodoRootPathKnot> knots, float time)
-        {
-            if (knots.Count == 1) return knots[0].deltaY;
-            float scaled = Mathf.Clamp01(time) * (knots.Count - 1);
-            int segment = Mathf.Min(Mathf.FloorToInt(scaled), knots.Count - 2);
-            float t = segment == knots.Count - 2 && time >= 1f ? 1f : scaled - segment;
-            return Mathf.Lerp(knots[segment].deltaY, knots[segment + 1].deltaY, t);
         }
 
         private static float EstimatePathLength(IReadOnlyList<KimodoRootPathKnot> knots)

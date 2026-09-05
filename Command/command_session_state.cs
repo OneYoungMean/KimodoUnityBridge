@@ -1103,7 +1103,15 @@ namespace KimodoUnityBridge.Command
 
                 string level = NormalizeAnalysisPictureLevel(arguments.Value<string>("level"));
                 int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
-                JObject analysisOptions = BuildEffectiveAnalysisOptions(level);
+                JObject requestedAnalysisOptions = null;
+                string requestedAnalysisOptionsJson = ParseAnalysisOptionsJson(arguments);
+                if (!string.IsNullOrWhiteSpace(requestedAnalysisOptionsJson))
+                {
+                    requestedAnalysisOptions = JObject.Parse(requestedAnalysisOptionsJson);
+                }
+                JObject analysisOptions = BuildEffectiveAnalysisOptions(
+                    level,
+                    requestedAnalysisOptions);
                 var subjects = new List<AnalysisSubject>(requestedClips.Count);
                 var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int index = 0; index < requestedClips.Count; index++)
@@ -1151,10 +1159,15 @@ namespace KimodoUnityBridge.Command
                         }
                         else
                         {
-                            analysis = BuildMeshAnalysis(animation);
+                            analysis = BuildMeshAnalysis(animation, ResolveAnalysisKeyframeCount(analysisOptions));
                             analysisMotionBytes = null;
                         }
-                        NormalizeAnalysisContract(analysis, startFrame, endFrame);
+                        analysis["keyframe_count"] = ResolveAnalysisKeyframeCount(analysisOptions);
+                        NormalizeAnalysisContract(
+                            analysis,
+                            startFrame,
+                            endFrame,
+                            ResolveAnalysisKeyframeCount(analysisOptions));
                         if (!IsHumanoidCharacter(character)) analysis["source"] = "mesh_only_pose_sampling";
                         string id = CacheAnalysisResult(
                             session, character, startFrame / SessionFrameRate, endFrame / SessionFrameRate,
@@ -1365,8 +1378,6 @@ namespace KimodoUnityBridge.Command
             var knots = new List<KimodoRootPathKnot>(samples.Length);
             var jsonSamples = new JArray();
             float pathLength = 0f;
-            float minDeltaY = 0f;
-            float maxDeltaY = 0f;
             float minPitchDelta = 0f;
             float maxPitchDelta = 0f;
             float minRollDelta = 0f;
@@ -1389,12 +1400,9 @@ namespace KimodoUnityBridge.Command
                 var position = new Vector2(localDelta.x, localDelta.z);
                 var heading = new Vector2(localForward.x, localForward.z);
                 heading = heading.sqrMagnitude > 1e-8f ? heading.normalized : finalHeading;
-                float deltaY = worldPosition.y - startPosition.y;
                 Vector3 rootRotationDelta = KimodoMotionMath.RelativeEulerDegrees(startRotation, worldRotation);
                 if (frame > 0) pathLength += Vector2.Distance(previousPosition, position);
                 if (frame == 0) firstHeading = heading;
-                minDeltaY = Mathf.Min(minDeltaY, deltaY);
-                maxDeltaY = Mathf.Max(maxDeltaY, deltaY);
                 minPitchDelta = Mathf.Min(minPitchDelta, rootRotationDelta.x);
                 maxPitchDelta = Mathf.Max(maxPitchDelta, rootRotationDelta.x);
                 minRollDelta = Mathf.Min(minRollDelta, rootRotationDelta.z);
@@ -1407,15 +1415,13 @@ namespace KimodoUnityBridge.Command
                     frame = frame,
                     position = position,
                     hasHeading = true,
-                    heading = heading,
-                    deltaY = deltaY
+                    heading = heading
                 });
                 jsonSamples.Add(new JObject
                 {
                     ["frame"] = frame,
                     ["position_xz"] = new JArray(position.x, position.y),
                     ["heading_xz"] = new JArray(heading.x, heading.y),
-                    ["delta_y"] = deltaY,
                     ["root_rotation_delta_euler_degrees"] = new JArray(
                         rootRotationDelta.x,
                         rootRotationDelta.y,
@@ -1454,7 +1460,6 @@ namespace KimodoUnityBridge.Command
                 ["net_distance_xz"] = finalPosition.magnitude,
                 ["average_speed_xz"] = sampleSpanSeconds > 1e-6f ? pathLength / sampleSpanSeconds : 0f,
                 ["heading_change_degrees"] = signedHeadingChange,
-                ["delta_y_range"] = new JArray(minDeltaY, maxDeltaY),
                 ["root_pitch_delta_range_degrees"] = new JArray(minPitchDelta, maxPitchDelta),
                 ["root_roll_delta_range_degrees"] = new JArray(minRollDelta, maxRollDelta),
                 ["source_human_scale"] = sourceHumanScale,
@@ -1485,9 +1490,7 @@ namespace KimodoUnityBridge.Command
         {
             if (record?.Analysis == null || endFrameExclusive <= startFrame) return;
             if (record.Analysis["endpoint_pose_comparison"] is JObject existing &&
-                existing["root_transform_included"]?.Value<bool>() == true &&
-                record.Analysis["motion_profile"] is JObject existingProfile &&
-                existingProfile["vertical_motion_range"] != null)
+                existing["root_transform_included"]?.Value<bool>() == true)
             {
                 return;
             }
@@ -1540,12 +1543,6 @@ namespace KimodoUnityBridge.Command
                 Mathf.Abs(rootHeightDelta) <= 0.03f &&
                 Mathf.Abs(rootPitchDelta) <= 5f &&
                 Mathf.Abs(rootRollDelta) <= 5f;
-            float verticalRange = 0f;
-            if (trajectory["delta_y_range"] is JArray deltaYRange && deltaYRange.Count == 2)
-            {
-                verticalRange = (deltaYRange[1]?.Value<float>() ?? 0f) -
-                    (deltaYRange[0]?.Value<float>() ?? 0f);
-            }
             record.Analysis["motion_profile"] = new JObject
             {
                 ["clip_loop_time"] = animation?.Clip != null && animation.Clip.isLooping,
@@ -1557,7 +1554,6 @@ namespace KimodoUnityBridge.Command
                 ["net_distance_xz"] = netDistance,
                 ["heading_change_degrees"] = headingChange,
                 ["heading_consistent"] = Mathf.Abs(headingChange) <= 8f,
-                ["vertical_motion_range"] = verticalRange,
                 ["root_pitch_delta_range_degrees"] = trajectory["root_pitch_delta_range_degrees"]?.DeepClone() ?? new JArray(),
                 ["root_roll_delta_range_degrees"] = trajectory["root_roll_delta_range_degrees"]?.DeepClone() ?? new JArray(),
                 ["should_override_path"] = "defer_to_task_semantics",
@@ -1613,9 +1609,14 @@ namespace KimodoUnityBridge.Command
             return resolution;
         }
 
-        private static void NormalizeAnalysisContract(JObject analysis, int startFrame, int endFrame)
+        private static void NormalizeAnalysisContract(
+            JObject analysis,
+            int startFrame,
+            int endFrame,
+            int requestedKeyframeCount)
         {
             analysis ??= new JObject();
+            int keyframeCount = Mathf.Clamp(requestedKeyframeCount, 1, 128);
             var keyframes = new JArray();
             foreach (JObject keyframe in (analysis?["keyframes"] as JArray ?? new JArray()).OfType<JObject>())
             {
@@ -1648,27 +1649,85 @@ namespace KimodoUnityBridge.Command
                 });
             }
             analysis.RemoveAll();
-            analysis["keyframes"] = keyframes;
+            analysis["keyframes"] = SelectAnalysisKeyframes(keyframes, keyframeCount, Math.Max(1, endFrame - startFrame));
+            analysis["keyframe_count"] = keyframeCount;
             analysis["foot_contacts"] = normalizedContacts;
             analysis["source"] = "quickserver_analysis_only";
         }
 
-        private static JObject BuildEffectiveAnalysisOptions(string level)
+        private static JArray SelectAnalysisKeyframes(JArray candidates, int count, int frameCount)
         {
-            const int keyframeCount = 8;
-            return new JObject
+            int target = Mathf.Clamp(count, 1, Math.Max(1, frameCount));
+            var scored = candidates.OfType<JObject>()
+                .Select((item, order) => new
+                {
+                    Item = item,
+                    Frame = Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, frameCount - 1),
+                    Score = item.Value<float?>("saliency") ?? item.Value<float?>("score") ?? 0f,
+                    Order = order
+                })
+                .GroupBy(item => item.Frame)
+                .Select(group => group.OrderByDescending(item => item.Score).ThenBy(item => item.Order).First())
+                .ToList();
+            var selected = new HashSet<int>();
+            for (int segment = 0; segment < target; segment++)
             {
-                ["keyframe_count"] = keyframeCount,
-                ["keyframes"] = new JObject { ["enabled"] = true, ["max_count"] = keyframeCount }
-            };
+                int start = Mathf.FloorToInt(segment * frameCount / (float)target);
+                int end = Mathf.Min(frameCount - 1,
+                    Mathf.FloorToInt((segment + 1) * frameCount / (float)target) - 1);
+                var candidate = scored.Where(item => item.Frame >= start && item.Frame <= end)
+                    .OrderByDescending(item => item.Score)
+                    .ThenBy(item => Mathf.Abs(item.Frame - Mathf.RoundToInt((start + end) * .5f)))
+                    .ThenBy(item => item.Order)
+                    .FirstOrDefault();
+                selected.Add(candidate != null
+                    ? candidate.Frame
+                    : Mathf.RoundToInt((start + end) * .5f));
+            }
+            if (target > 1)
+            {
+                selected.Add(0);
+                selected.Add(frameCount - 1);
+            }
+            return new JArray(selected.OrderBy(frame => frame).Take(target).Select(frame =>
+            {
+                var item = scored.FirstOrDefault(value => value.Frame == frame)?.Item;
+                JObject result = item != null ? (JObject)item.DeepClone() : new JObject();
+                result["frame"] = frame;
+                return result;
+            }));
         }
 
-        private static JObject BuildMeshAnalysis(TimelineAnimationRecord animation)
+        private static JObject BuildEffectiveAnalysisOptions(string level, JObject requested)
+        {
+            const int defaultKeyframeCount = 8;
+            JObject result = requested != null
+                ? (JObject)requested.DeepClone()
+                : new JObject();
+            JObject keyframes = result["keyframes"] as JObject ?? new JObject();
+            int keyframeCount = result.Value<int?>("keyframe_count") ??
+                keyframes.Value<int?>("max_count") ?? defaultKeyframeCount;
+            keyframeCount = Mathf.Clamp(keyframeCount, 1, 128);
+            result["keyframe_count"] = keyframeCount;
+            keyframes["enabled"] = keyframes.Value<bool?>("enabled") ?? true;
+            keyframes["max_count"] = keyframeCount;
+            result["keyframes"] = keyframes;
+            return result;
+        }
+
+        private static int ResolveAnalysisKeyframeCount(JObject options)
+        {
+            int count = options?.Value<int?>("keyframe_count") ??
+                (options?["keyframes"] as JObject)?.Value<int?>("max_count") ?? 8;
+            return Mathf.Clamp(count, 1, 128);
+        }
+
+        private static JObject BuildMeshAnalysis(TimelineAnimationRecord animation, int keyframeCount)
         {
             int frameCount = Math.Max(1, animation?.EndFrameExclusive > animation?.StartFrame
                 ? animation.EndFrameExclusive - animation.StartFrame
                 : Mathf.Max(1, Mathf.RoundToInt((float)((animation?.TimelineDurationSeconds ?? 0.0) * SessionFrameRate))));
-            int count = Math.Min(AnalysisKeyframeCount, frameCount);
+            int count = Math.Min(Mathf.Max(1, keyframeCount), frameCount);
             var keyframes = new JArray();
             for (int index = 0; index < count; index++)
             {

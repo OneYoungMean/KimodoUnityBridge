@@ -546,7 +546,7 @@ namespace KimodoUnityBridge.Command
         {
             if (!IsHumanoidCharacter(subject.Subject.Character))
             {
-                return SelectKeyFrames(subject, AnalysisKeyframeCount)
+                return SelectKeyFrames(subject, subject.KeyframeCount)
                     .Select(frame => PictureTile.MeshPose(subject, frame, "mesh_pose"))
                     .ToList();
             }
@@ -562,7 +562,7 @@ namespace KimodoUnityBridge.Command
                 if (level == "middle" || level == "high")
                 {
                     result.Insert(0, PictureTile.TestRoot2D(subject, new Vector3(0f, 1f, 0f)));
-                    foreach (int frame in SelectKeyFrames(subject, AnalysisKeyframeCount).OrderBy(frame => frame))
+                    foreach (int frame in SelectKeyFrames(subject, subject.KeyframeCount).OrderBy(frame => frame))
                     {
                         result.Add(PictureTile.TestPose(subject, frame, "keyframe", new Vector3(1f, .75f, -1f)));
                     }
@@ -591,18 +591,49 @@ namespace KimodoUnityBridge.Command
 
         private static List<int> SelectKeyFrames(SubjectPictureData subject, int count)
         {
-            var frames = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            int targetCount = Mathf.Clamp(count, 1, lastFrame + 1);
+            var candidates = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
                 .OfType<JObject>()
-                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, subject.Pelvis.Length - 1))
-                .Distinct()
-                .Take(Math.Max(0, count))
+                .Select((item, order) => new
+                {
+                    Frame = Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, lastFrame),
+                    Score = item.Value<float?>("saliency") ?? item.Value<float?>("score") ?? 0f,
+                    Order = order
+                })
+                .GroupBy(item => item.Frame)
+                .Select(group => group.OrderByDescending(item => item.Score).ThenBy(item => item.Order).First())
                 .ToList();
-            for (int index = 0; frames.Count < count && index < count; index++)
+
+            var frames = new HashSet<int>();
+            for (int segment = 0; segment < targetCount; segment++)
             {
-                frames.Add(Mathf.RoundToInt(Mathf.Lerp(0, subject.Pelvis.Length - 1, count <= 1 ? 0f : index / (float)(count - 1))));
-                frames = frames.Distinct().ToList();
+                int start = Mathf.FloorToInt(segment * (lastFrame + 1f) / targetCount);
+                int end = Mathf.Min(lastFrame,
+                    Mathf.FloorToInt((segment + 1) * (lastFrame + 1f) / targetCount) - 1);
+                var inSegment = candidates
+                    .Where(item => item.Frame >= start && item.Frame <= end)
+                    .OrderByDescending(item => item.Score)
+                    .ThenBy(item => Mathf.Abs(item.Frame - Mathf.RoundToInt((start + end) * .5f)))
+                    .ThenBy(item => item.Order)
+                    .FirstOrDefault();
+                frames.Add(inSegment != null
+                    ? inSegment.Frame
+                    : Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(start, end, .5f)), 0, lastFrame));
             }
-            return frames.Count > 0 ? frames : new List<int> { 0 };
+            if (targetCount > 1)
+            {
+                frames.Add(0);
+                frames.Add(lastFrame);
+            }
+            var ordered = frames.OrderBy(frame => frame).ToList();
+            while (ordered.Count > targetCount)
+            {
+                int removeIndex = ordered.Count - 2;
+                if (removeIndex <= 0) break;
+                ordered.RemoveAt(removeIndex);
+            }
+            return ordered;
         }
 
     }

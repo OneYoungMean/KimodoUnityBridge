@@ -372,7 +372,7 @@
           },
           "analysis_option": {
             "type": "object",
-            "description": "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."
+            "description": "Optional analysis object; set keyframes.enabled=true and keyframes.max_count (or keyframe_count) to control keyframe sampling."
           },
           "path_begin_angle_degrees": {
             "type": "number",

@@ -610,8 +610,7 @@ namespace KimodoUnityBridge.Command
                 var result = new JObject
                 {
                     ["frame"] = knot.frame,
-                    ["position"] = new JArray(knot.position.x, knot.position.y),
-                    ["delta_y"] = knot.deltaY
+                    ["position"] = new JArray(knot.position.x, knot.position.y)
                 };
                 if (knot.hasHeading) result["heading"] = new JArray(knot.heading.x, knot.heading.y);
                 if (knot.hasTangentIn) result["tangent_in"] = new JArray(knot.tangentIn.x, knot.tangentIn.y);

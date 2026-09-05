@@ -124,7 +124,7 @@ namespace KimodoBridge.Editor.Tests
             {
                 marker.autoSample = false;
                 marker.ConstraintMode = KimodoConstraintMode.Root2D;
-                marker.SampleData.root2DOverride = new KimodoUnityBridge.KimodoRigidTransform
+                marker.SampleData.rootOverride = new KimodoUnityBridge.KimodoRigidTransform
                 {
                     position = new Vector3(1f, 2f, 3f),
                     rotation = Quaternion.Euler(0f, 15f, 0f)
@@ -133,17 +133,17 @@ namespace KimodoBridge.Editor.Tests
                 marker.SampleData.validMask.rootPosition = true;
 
                 KimodoMarkerSampleResult dragged = marker.SampleData.Clone();
-                dragged.root2DOverride.position = new Vector3(8f, 9f, 10f);
-                dragged.root2DOverride.rotation = Quaternion.Euler(10f, 25f, 30f);
+                dragged.rootOverride.position = new Vector3(8f, 9f, 10f);
+                dragged.rootOverride.rotation = Quaternion.Euler(10f, 25f, 30f);
 
                 Assert.That(
                     KimodoBridge.Editor.KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
                         marker, dragged, out string error),
                     Is.True,
                     error);
-                Assert.That(marker.SampleData.root2DOverride.position, Is.EqualTo(new Vector3(8f, 9f, 10f)));
+                Assert.That(marker.SampleData.rootOverride.position, Is.EqualTo(new Vector3(8f, 9f, 10f)));
                 Assert.That(
-                    Quaternion.Angle(marker.SampleData.root2DOverride.rotation, Quaternion.Euler(10f, 25f, 30f)),
+                    Quaternion.Angle(marker.SampleData.rootOverride.rotation, Quaternion.Euler(10f, 25f, 30f)),
                     Is.LessThan(1e-4f));
             }
             finally
@@ -162,7 +162,7 @@ namespace KimodoBridge.Editor.Tests
             sample.validMask.rootPosition = true;
             sample.validMask.rootHeading = true;
             EnableAllEffectors(sample);
-            sample.root2DOverride.t = new Vector3(3f, 0f, 4f);
+            sample.rootOverride.t = new Vector3(3f, 0f, 4f);
             sample = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
                 new[] { sample }, 30.0)[0];
 
