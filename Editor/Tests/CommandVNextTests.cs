@@ -106,18 +106,18 @@ namespace KimodoUnityBridge.Command.Tests
             };
             MethodInfo method = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context")
-                ?.GetMethod("BuildRootPathConstraints", BindingFlags.NonPublic | BindingFlags.Static);
+                ?.GetMethod("BuildRootPathConstraintsSparse", BindingFlags.NonPublic | BindingFlags.Static);
 
             Assert.That(method, Is.Not.Null);
             var samples = ((IEnumerable<KimodoMarkerSampleResult>)method.Invoke(null, new object[]
             {
-                path, 0, 0, 3, 1f, 1f, new HashSet<int>(), new HashSet<int>()
+                path, 0, 0, 3, 1f, 1f, new HashSet<int>(), new HashSet<int>(), new HashSet<int>()
             })).ToList();
 
             Assert.That(samples, Has.Count.EqualTo(3));
-            Assert.That(samples[0].root2DOverride.t.z, Is.EqualTo(expectedStart).Within(0.001f));
-            Assert.That(samples[2].root2DOverride.t.z, Is.EqualTo(expectedEnd).Within(0.001f));
-            Assert.That((samples[0].root2DOverride.q * Vector3.forward).z,
+            Assert.That(samples[0].rootOverride.t.z, Is.EqualTo(expectedStart).Within(0.001f));
+            Assert.That(samples[2].rootOverride.t.z, Is.EqualTo(expectedEnd).Within(0.001f));
+            Assert.That((samples[0].rootOverride.q * Vector3.forward).z,
                 Is.EqualTo(expectedHeading).Within(0.001f));
         }
 
@@ -137,16 +137,16 @@ namespace KimodoUnityBridge.Command.Tests
             };
             MethodInfo method = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context")
-                ?.GetMethod("BuildRootPathConstraints", BindingFlags.NonPublic | BindingFlags.Static);
+                ?.GetMethod("BuildRootPathConstraintsSparse", BindingFlags.NonPublic | BindingFlags.Static);
             Assert.That(method, Is.Not.Null);
 
             var samples = ((IEnumerable<KimodoMarkerSampleResult>)method.Invoke(null, new object[]
             {
-                path, 0, 0, 3, 1f, 4f, new HashSet<int>(), new HashSet<int>()
+                path, 0, 0, 3, 1f, 4f, new HashSet<int>(), new HashSet<int>(), new HashSet<int>()
             })).ToList();
 
-            Assert.That(samples[2].root2DOverride.t.z, Is.EqualTo(4f).Within(0.001f));
-            Assert.That((samples[1].root2DOverride.q * Vector3.forward).x, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(samples[2].rootOverride.t.z, Is.EqualTo(4f).Within(0.001f));
+            Assert.That((samples[1].rootOverride.q * Vector3.forward).x, Is.EqualTo(1f).Within(0.001f));
         }
 
         [Test]
@@ -164,16 +164,16 @@ namespace KimodoUnityBridge.Command.Tests
             };
             MethodInfo method = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context")
-                ?.GetMethod("BuildRootPathConstraints", BindingFlags.NonPublic | BindingFlags.Static);
+                ?.GetMethod("BuildRootPathConstraintsSparse", BindingFlags.NonPublic | BindingFlags.Static);
             Assert.That(method, Is.Not.Null);
 
             var samples = ((IEnumerable<KimodoMarkerSampleResult>)method.Invoke(null, new object[]
             {
-                path, 0, 0, 2, 1f, 1f, new HashSet<int>(), new HashSet<int>()
+                path, 0, 0, 2, 1f, 1f, new HashSet<int>(), new HashSet<int>(), new HashSet<int>()
             })).ToList();
 
             Assert.That(samples, Has.Count.EqualTo(2));
-            Assert.That(samples.All(sample => sample.root2DOverride.t == new Vector3(0f, 1f, 0f)), Is.True);
+            Assert.That(samples.All(sample => sample.rootOverride.t == new Vector3(0f, 1f, 0f)), Is.True);
         }
 
         [Test]

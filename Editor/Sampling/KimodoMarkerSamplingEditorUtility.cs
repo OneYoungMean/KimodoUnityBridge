@@ -132,7 +132,7 @@ namespace KimodoBridge.Editor
             return string.Equals(left.constraintMode ?? string.Empty, right.constraintMode ?? string.Empty, System.StringComparison.Ordinal) &&
                 string.Equals(SampleDataSignature(left), SampleDataSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(EffectorsSignature(left), EffectorsSignature(right), System.StringComparison.Ordinal) &&
-                string.Equals(Root2DOverrideSignature(left), Root2DOverrideSignature(right), System.StringComparison.Ordinal) &&
+                string.Equals(RootOverrideSignature(left), RootOverrideSignature(right), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.enableMask), MaskSignature(right.enableMask), System.StringComparison.Ordinal) &&
                 string.Equals(MaskSignature(left.validMask), MaskSignature(right.validMask), System.StringComparison.Ordinal);
         }
@@ -145,10 +145,10 @@ namespace KimodoBridge.Editor
         private static string MaskSignature(KimodoConstraintMask mask) =>
             mask != null ? JsonUtility.ToJson(mask) : string.Empty;
 
-        private static string Root2DOverrideSignature(KimodoMarkerSampleResult sample)
+        private static string RootOverrideSignature(KimodoMarkerSampleResult sample)
         {
             return KimodoConstraintMask.IsActive(sample, "rootposition")
-                ? JsonUtility.ToJson(sample.root2DOverride)
+                ? JsonUtility.ToJson(sample.rootOverride)
                 : string.Empty;
         }
 

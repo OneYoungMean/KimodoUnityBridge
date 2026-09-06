@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -183,6 +184,7 @@ namespace KimodoBridge.Editor
             SyncRequestHandleState();
             serializedObject.UpdateIfRequiredOrScript();
             DrawGenerationSection();
+            DrawAnalysisSection();
             DrawBakeSection();
             DrawErrorSection();
             DrawGeneratedInfo();
@@ -363,6 +365,34 @@ namespace KimodoBridge.Editor
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
+        }
+
+        private void DrawAnalysisSection()
+        {
+            if (!KimodoPlayableClipGenerationSettings.instance.EnableDebugMode)
+            {
+                return;
+            }
+
+            EditorGUILayout.Space(4f);
+            if (!GUILayout.Button("Analyze Selected Clip(s)"))
+            {
+                return;
+            }
+
+            if (!KimodoClipAnalysisService.TryAnalyzeSelected(clip, out List<KimodoClipAnalysisResult> results, out string error))
+            {
+                Debug.LogError("[Kimodo Analysis] " + error);
+                return;
+            }
+            if (!KimodoClipAnalysisService.TryRebuildMarkers(results, out int markerCount, out error))
+            {
+                Debug.LogError("[Kimodo Analysis] " + error);
+                return;
+            }
+            int totalFrames = results.Sum(item => item.FrameSamples?.Count ?? 0);
+            int keyframeCount = results.Sum(item => (item.Analysis?["keyframes"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0);
+            Debug.Log($"[Kimodo Analysis] clips={results.Count}, frames={totalFrames}, keyframes={keyframeCount}, markers={markerCount}");
         }
 
         public override bool RequiresConstantRepaint()

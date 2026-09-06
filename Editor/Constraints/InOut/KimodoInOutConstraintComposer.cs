@@ -179,15 +179,8 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            // AutoBegin is a pure Root2D anchor. Keep the evaluated Hips X/Z
-            // world-space position, preserve the planar Root2D contract, and
-            // do not advertise the sampled FK payload as an active channel.
-            sample.rootOverride.t = new Vector3(
-                sample.rootOverride.t.x,
-                0f,
-                sample.rootOverride.t.z);
-            sample.rootOverride.q = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(
-                sample.rootOverride.q);
+            // Root2D is an application mode, not a reduced payload format.
+            // AutoBegin therefore retains the sampled complete root transform.
             sample.constraintMode = Root2DConstraintType;
             sample.sampleTime = 0.0;
             sample.enableMask = new KimodoConstraintMask

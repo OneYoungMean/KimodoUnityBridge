@@ -47,7 +47,8 @@ namespace KimodoBridge
     {
         Constraint = 0,
         External = 1,
-        ExternalPath = 2
+        ExternalPath = 2,
+        Analysis = 3
     }
 
     [Serializable]
@@ -57,7 +58,6 @@ namespace KimodoBridge
         public Vector2 position;
         public bool hasHeading;
         public Vector2 heading;
-        public float deltaY;
         public bool hasTangentIn;
         public Vector2 tangentIn;
         public bool hasTangentOut;
@@ -69,7 +69,6 @@ namespace KimodoBridge
             position = position,
             hasHeading = hasHeading,
             heading = heading,
-            deltaY = deltaY,
             hasTangentIn = hasTangentIn,
             tangentIn = tangentIn,
             hasTangentOut = hasTangentOut,
@@ -280,7 +279,6 @@ namespace KimodoBridge
         // Complete hips override in the same explicit-target space. For a
         // root2d/mix constraint, consumers project only X/Z and heading;
         // sampled root Y, pitch and roll remain motion channels.
-        [UnityEngine.Serialization.FormerlySerializedAs("root2DOverride")]
         public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
 
         // Local pose-pipeline option. It is intentionally not a bridge
@@ -288,13 +286,6 @@ namespace KimodoBridge
         // skeleton placement.
         public bool rootOverrideAfterEffectors;
 
-        // Source compatibility for older editor/test callers. This alias is
-        // not a second serialized value.
-        public KimodoRigidTransform root2DOverride
-        {
-            get => rootOverride;
-            set => rootOverride = value;
-        }
         // One mode is the only persisted constraint semantic. Wire-family
         // selection is centralized in KimodoConstraintInternal.
         public string constraintMode = "constraint";

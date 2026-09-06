@@ -50,6 +50,7 @@ namespace KimodoBridge.Editor
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;
         public PlayableDirector TimelineDirectorSnapshot;
+        internal KimodoTimelineInOutConstraintContext TimelineContextSnapshot;
         public ArdyEditorHistorySource InitialArdyHistorySource;
         public double? ArdyHistoryWeight;
         public double? ArdyMaxSpeed;

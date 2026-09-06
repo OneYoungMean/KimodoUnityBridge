@@ -53,6 +53,13 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Build pose constraint target failed: {cacheError}");
                 }
 
+                float targetRootHeight = 0f;
+                if (targetCache != null &&
+                    targetCache.GetBonePose(HumanBodyBones.Hips, out Vector3 initialHipsPosition, out _))
+                {
+                    targetRootHeight = initialHipsPosition.y;
+                }
+
                 var explicitRootFrames = new HashSet<int>(constraints
                     .OfType<JObject>()
                     .Where(item => item["root2d"] is JObject)
@@ -79,6 +86,7 @@ namespace KimodoUnityBridge.Command
                             i,
                             startFrame,
                             durationFrames,
+                            targetRootHeight,
                             targetCache != null ? Mathf.Max(1e-6f, targetCache.humanScale) : 1f,
                             explicitRootFrames,
                             existingConstraintFrames,
@@ -162,6 +170,7 @@ namespace KimodoUnityBridge.Command
             int constraintIndex,
             int startFrame,
             int durationFrames,
+            float targetRootHeight,
             float targetHumanScale,
             ISet<int> explicitRootFrames,
             ISet<int> existingConstraintFrames,
@@ -226,34 +235,16 @@ namespace KimodoUnityBridge.Command
                 }
                 if (!explicitRootFrames.Contains(frame))
                 {
-                    result.Add(CreateRoot2DSample(
+                    result.Add(CreateRootOverrideSample(
                         frame,
-                        new Vector3(position.x, 0f, position.y),
+                        // Root paths constrain the planar trajectory and heading.
+                        // Vertical placement remains the canonical hips height;
+                        // path data never carries a separate delta-Y channel.
+                        new Vector3(position.x, targetRootHeight, position.y),
                         new Vector3(tangent.x, 0f, tangent.y).normalized));
                 }
             }
             return result;
-        }
-
-        // Compatibility entry retained for older reflection-based callers.
-        private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraints(
-            KimodoRootPathData path,
-            int constraintIndex,
-            int startFrame,
-            int durationFrames,
-            float targetHumanScale,
-            ISet<int> explicitRootFrames,
-            ISet<int> occupiedPathFrames)
-        {
-            return BuildRootPathConstraintsSparse(
-                path,
-                constraintIndex,
-                startFrame,
-                durationFrames,
-                targetHumanScale,
-                explicitRootFrames,
-                new HashSet<int>(Enumerable.Range(startFrame, Math.Max(0, durationFrames - startFrame))),
-                occupiedPathFrames);
         }
 
         private static Vector2 EvaluatePathHeading(IReadOnlyList<KimodoRootPathKnot> knots, float time)
@@ -312,7 +303,7 @@ namespace KimodoUnityBridge.Command
             if (tangent.sqrMagnitude <= 1e-8f) tangent = chord;
         }
 
-        private static KimodoMarkerSampleResult CreateRoot2DSample(
+        private static KimodoMarkerSampleResult CreateRootOverrideSample(
             int frame,
             Vector3 position,
             Vector3 heading)
@@ -321,7 +312,7 @@ namespace KimodoUnityBridge.Command
             {
                 constraintMode = "root2d",
                 sampleTime = frame / SessionFrameRate,
-                root2DOverride = new KimodoRigidTransform
+                rootOverride = new KimodoRigidTransform
                 {
                     t = position,
                     q = Quaternion.LookRotation(heading, Vector3.up)
@@ -379,10 +370,12 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException($"constraints[{constraintIndex}].root2d.heading must be non-zero.");
                 }
-                // Root2D owns only XZ and heading. Its Y payload is ignored by
-                // the shared pose pipeline, which keeps authored vertical motion.
-                rootPosition = new Vector3(position.x, 0f, position.y);
-                rootRotation = Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
+                rootPosition = KimodoMotionMath.ApplyPlanarPosition(
+                    rootPosition,
+                    new Vector3(position.x, 0f, position.y));
+                rootRotation = KimodoMotionMath.ApplyPlanarHeading(
+                    rootRotation,
+                    Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up));
             }
             else if (value?["pose"] == null)
             {
@@ -393,7 +386,7 @@ namespace KimodoUnityBridge.Command
             {
                 constraintMode = "root2d",
                 sampleTime = sampleTime,
-                root2DOverride = new KimodoRigidTransform
+                rootOverride = new KimodoRigidTransform
                 {
                     t = rootPosition,
                     q = rootRotation
@@ -463,6 +456,16 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException($"Convert pose constraint failed: {convertError}");
             }
             converted.sampleData = targetMuscleSample?.Clone() ?? new MuscleSample();
+            // Root overrides are canonical world-space targets. Retargeting
+            // the body payload must not replace the authored root transform
+            // with the temporary cache's bind-space Hips value.
+            if (solveInput.rootOverride != null &&
+                KimodoConstraintMask.IsActive(solveInput, "rootposition"))
+            {
+                converted.rootOverride = solveInput.rootOverride.Clone();
+                converted.validMask.rootPosition = true;
+                converted.validMask.rootHeading = KimodoConstraintMask.IsActive(solveInput, "rootheading");
+            }
             ConfigureConstraintIntent(converted, constraintType, sampleTime);
             return converted;
         }

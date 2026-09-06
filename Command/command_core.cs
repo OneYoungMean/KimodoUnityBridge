@@ -152,7 +152,7 @@ namespace KimodoUnityBridge.Command
                             Enum("output_mode", "humanoid_muscle", "character_bone", "model_bone"),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
-                            Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true to return screenshot keyframes."),
+                            Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true and keyframes.max_count (or keyframe_count) to control keyframe sampling."),
                             Optional("path_begin_angle_degrees", "number", "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
                             Optional("path_end_angle_degrees", "number", "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
                             Optional("override_heading_degrees", "number", "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."),
@@ -181,7 +181,7 @@ namespace KimodoUnityBridge.Command
                             RequiredPoseReference("pose"),
                             Required("muscles", "object", "Map of muscle channel names to values."))),
                     CommandDefinition(GetGenerationCommand,
-                        "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata is included only after a generation completes.",
+                        "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata and its project-relative asset path are included only after a generation completes.",
                         Properties(
                             Required("request_id", "string", "Request id returned by kimodo_install_server or kimodo_generate_animation."))),
                     CommandDefinition(CancelGenerationCommand,

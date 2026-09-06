@@ -545,43 +545,6 @@ namespace KimodoUnityBridge.Command
         private static string EvidenceFolder(TimelineSessionRecord session) =>
             Path.Combine(GetSessionGeneratedFolder(session), "Pictures");
 
-        private static GameObject CreatePosePreview(
-            TimelineCharacterRecord character,
-            KimodoMarkerSampleResult sample,
-            bool root2DOnly)
-        {
-            const int captureLayer = SessionCaptureLayer;
-            GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(character.Root));
-            preview.name = "Kimodo Pose Preview";
-            preview.hideFlags = HideFlags.HideAndDontSave;
-            foreach (Transform transform in preview.GetComponentsInChildren<Transform>(true))
-            {
-                transform.gameObject.layer = captureLayer;
-            }
-            Animator animator = preview.GetComponentInChildren<Animator>(true)
-                ?? throw new InvalidOperationException($"Character '{character.Name}' preview has no Animator.");
-            animator.runtimeAnimatorController = null;
-            bool hasPose = sample?.sampleData != null && sample.sampleData.IsValid;
-            bool hasRoot2D = TryGetRoot2DWorld(sample, out Vector3 position, out Quaternion rotation);
-            if (!root2DOnly && hasPose)
-            {
-                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
-                using (var handler = new HumanPoseHandler(character.Avatar, animator.transform))
-                {
-                    handler.SetHumanPose(ref pose);
-                }
-                if (hasRoot2D)
-                {
-                    animator.transform.SetPositionAndRotation(position, rotation);
-                }
-            }
-            else
-            {
-                animator.transform.SetPositionAndRotation(position, rotation);
-            }
-            return preview;
-        }
-
         private static bool TryGetRoot2DWorld(
             KimodoMarkerSampleResult sample,
             out Vector3 position,
@@ -589,13 +552,13 @@ namespace KimodoUnityBridge.Command
         {
             position = Vector3.zero;
             rotation = Quaternion.identity;
-            if (sample?.validMask?.rootPosition != true || sample.root2DOverride == null)
+            if (sample?.validMask?.rootPosition != true || sample.rootOverride == null)
             {
                 return false;
             }
 
-            position = sample.root2DOverride.t;
-            rotation = sample.root2DOverride.q.normalized;
+            position = sample.rootOverride.t;
+            rotation = sample.rootOverride.q.normalized;
             return true;
         }
 
@@ -610,9 +573,9 @@ namespace KimodoUnityBridge.Command
             bool isBuiltIn = IsBuiltInCapturePipeline();
             foreach (var setup in new[]
             {
-                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? .375f : 1.1f),
-                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .175f : .55f),
-                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .10f : .35f)
+                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? 1.125f : 3.3f),
+                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .525f : 1.65f),
+                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .30f : 1.05f)
             })
             {
                 GameObject lightObject = MoveToAnalysisSessionRoot(

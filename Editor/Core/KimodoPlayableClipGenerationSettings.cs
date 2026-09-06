@@ -26,6 +26,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool keepCpuForceExperimental;
         [SerializeField] private bool writeResampledTimelineCacheClips;
         [SerializeField] private bool enableDebugLog;
+        [SerializeField] private bool enableDebugMode;
         [SerializeField] private bool enableKimodoStaticGraph;
         [SerializeField] private bool enableSplineExperimental;
         [SerializeField] private bool setupWizardCompleted;
@@ -110,6 +111,12 @@ namespace KimodoBridge.Editor
         {
             get => enableDebugLog;
             set => enableDebugLog = value;
+        }
+
+        internal bool EnableDebugMode
+        {
+            get => enableDebugMode;
+            set => enableDebugMode = value;
         }
 
         internal bool EnableKimodoStaticGraph

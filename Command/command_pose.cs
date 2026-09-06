@@ -93,11 +93,11 @@ namespace KimodoUnityBridge.Command
             sample.validMask ??= new KimodoConstraintMask();
             if (root["position"] is JArray position)
             {
-                sample.root2DOverride.t = ReadVector3(position, "root.position");
+                sample.rootOverride.t = ReadVector3(position, "root.position");
             }
             if (root["rotation"] is JArray rotation)
             {
-                sample.root2DOverride.q = ReadQuaternion(rotation, "root.rotation");
+                sample.rootOverride.q = ReadQuaternion(rotation, "root.rotation");
             }
             if (root["position"] == null && root["rotation"] == null)
             {
@@ -610,8 +610,7 @@ namespace KimodoUnityBridge.Command
                 var result = new JObject
                 {
                     ["frame"] = knot.frame,
-                    ["position"] = new JArray(knot.position.x, knot.position.y),
-                    ["delta_y"] = knot.deltaY
+                    ["position"] = new JArray(knot.position.x, knot.position.y)
                 };
                 if (knot.hasHeading) result["heading"] = new JArray(knot.heading.x, knot.heading.y);
                 if (knot.hasTangentIn) result["tangent_in"] = new JArray(knot.tangentIn.x, knot.tangentIn.y);

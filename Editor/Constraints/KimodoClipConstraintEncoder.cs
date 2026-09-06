@@ -33,7 +33,7 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException($"ClipConstraint requires Timeline sampling: {error}");
             }
-            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
                 context.Track,
                 context.Animator,
                 out Vector3 trackOffsetPosition,

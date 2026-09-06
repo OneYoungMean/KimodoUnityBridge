@@ -196,13 +196,13 @@ namespace KimodoBridge
             public bool rootHeading;
             public Vector3 rootPosition;
             public Quaternion rootRotation;
-            public float humanScale;
+            public TransformStreamHandle hips;
 
             public void ProcessRootMotion(AnimationStream stream)
             {
                 if (applyRoot && !rootAfterEffectors && stream.isHumanStream)
                 {
-                    ApplyRoot(stream.AsHuman());
+                    ApplyRoot(stream);
                 }
             }
 
@@ -230,39 +230,34 @@ namespace KimodoBridge
 
                 if (applyRoot && rootAfterEffectors)
                 {
-                    ApplyRoot(human);
+                    ApplyRoot(stream);
                 }
             }
 
-            private void ApplyRoot(AnimationHumanStream human)
+            private void ApplyRoot(AnimationStream stream)
             {
                 Vector3 position = rootPosition;
                 Quaternion rotation = rootRotation;
-                float scale = Mathf.Max(1e-6f, humanScale);
                 if (rootPlanar)
                 {
-                    Vector3 currentWorldPosition = human.bodyPosition * scale;
-                    position = KimodoMotionMath.ApplyPlanarPosition(currentWorldPosition, rootPosition) / scale;
+                    Vector3 currentWorldPosition = hips.GetPosition(stream);
+                    position = KimodoMotionMath.ApplyPlanarPosition(currentWorldPosition, rootPosition);
                     if (rootHeading)
                     {
-                        rotation = KimodoMotionMath.ApplyPlanarHeading(human.bodyRotation, rootRotation);
+                        rotation = KimodoMotionMath.ApplyPlanarHeading(hips.GetRotation(stream), rootRotation);
                     }
                     else
                     {
-                        rotation = human.bodyRotation;
+                        rotation = hips.GetRotation(stream);
                     }
                 }
-                else
+                else if (!rootHeading)
                 {
-                    position /= scale;
-                    if (!rootHeading)
-                    {
-                        rotation = human.bodyRotation;
-                    }
+                    rotation = hips.GetRotation(stream);
                 }
 
-                human.bodyPosition = position;
-                human.bodyRotation = rotation.normalized;
+                hips.SetPosition(stream, position);
+                hips.SetRotation(stream, rotation.normalized);
             }
 
             private static void ApplyGoal(
@@ -273,7 +268,9 @@ namespace KimodoBridge
                 Quaternion rotation)
             {
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                // human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                //todo :fix this 
+                human.SetGoalWeightRotation(goal,0f);
                 if (!enabled)
                 {
                     return;
@@ -408,7 +405,15 @@ namespace KimodoBridge
                 job.rootHeading = KimodoConstraintMask.IsActive(sample, "rootheading");
                 job.rootPosition = sample.rootOverride.t;
                 job.rootRotation = sample.rootOverride.q.normalized;
-                job.humanScale = cache.humanScale;
+                Transform hips = cache.animator != null
+                    ? cache.animator.GetBoneTransform(HumanBodyBones.Hips)
+                    : null;
+                if (hips == null)
+                {
+                    error = "Constraint root override requires a Hips transform.";
+                    return false;
+                }
+                job.hips = cache.animator.BindStreamTransform(hips);
                 any = true;
             }
 

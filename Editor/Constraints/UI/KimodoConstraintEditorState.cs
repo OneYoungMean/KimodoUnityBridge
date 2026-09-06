@@ -44,15 +44,15 @@ namespace KimodoBridge.Editor
             switch ((KimodoConstraintMode)mode.enumValueIndex)
             {
                 case KimodoConstraintMode.Root2D:
-                    DrawRoot2D(so);
+                    DrawRootOverride(so);
                     break;
                 case KimodoConstraintMode.Effector:
-                    DrawRoot2D(so);
+                    DrawRootOverride(so);
                     DrawEffectors(so, "sampleData");
                     break;
                 default:
                     DrawFullBody(so);
-                    DrawRoot2D(so);
+                    DrawRootOverride(so);
                     DrawEffectorPanels(so, "sampleData", "Effectors", IsAutoSample(so), showEnable: false);
                     break;
             }
@@ -67,7 +67,7 @@ namespace KimodoBridge.Editor
             EditorGUILayout.EndVertical();
         }
 
-        private static void DrawRoot2D(SerializedObject so)
+        private static void DrawRootOverride(SerializedObject so)
         {
             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
             SerializedProperty allowHeading = so.FindProperty("sampleData.enableMask.rootHeading");
@@ -79,7 +79,7 @@ namespace KimodoBridge.Editor
             {
                 if (DrawTransform(
                         so.FindProperty("sampleData.rootOverride"),
-                        "Root Position / Rotation"))
+                        "Root Override (World Transform)"))
                 {
                     if (positionEnabled != null) positionEnabled.boolValue = true;
                     if (positionValid != null) positionValid.boolValue = true;
@@ -105,7 +105,7 @@ namespace KimodoBridge.Editor
                         rootOverrideAfterEffectors,
                         new GUIContent(
                             "Root Override After Effectors",
-                            "Apply Root2D after local effector IK. The final root target wins, so effectors move with it."));
+                            "Apply the complete Root override after local effector IK. The final root target wins, so effectors move with it."));
                 }
             }
             EditorGUILayout.EndVertical();

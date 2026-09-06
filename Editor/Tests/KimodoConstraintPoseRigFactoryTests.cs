@@ -73,6 +73,36 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void PreviewRootRotation_UsesFullHipsForFullBodyAndHeadingForRoot2D()
+        {
+            Quaternion evaluatedHips = Quaternion.Euler(12f, 35f, -8f);
+            Quaternion capturedHips = Quaternion.Euler(-16f, 70f, 11f);
+            var fullBody = new KimodoMarkerSampleResult
+            {
+                constraintMode = "fullbody",
+                rootOverride = new KimodoUnityBridge.KimodoRigidTransform { q = capturedHips },
+                validMask = new KimodoConstraintMask { rootHeading = true }
+            };
+            var root2D = new KimodoMarkerSampleResult
+            {
+                constraintMode = "root2d",
+                rootOverride = new KimodoUnityBridge.KimodoRigidTransform { q = capturedHips },
+                validMask = new KimodoConstraintMask { rootHeading = true }
+            };
+
+            Assert.That(
+                Quaternion.Angle(
+                    KimodoConstraintPoseRigFactory.ResolvePreviewHipsRotation(fullBody, evaluatedHips),
+                    capturedHips),
+                Is.LessThan(0.01f));
+            Assert.That(
+                Quaternion.Angle(
+                    KimodoConstraintPoseRigFactory.ResolvePreviewHipsRotation(root2D, evaluatedHips),
+                    KimodoMotionMath.ApplyPlanarHeading(evaluatedHips, capturedHips)),
+                Is.LessThan(0.01f));
+        }
+
+        [Test]
         public void ModelNativeConstraintPipeline_AppliesExplicitRootAndCommandMask()
         {
             const string modelName = KimodoMotionModelProfiles.DefaultModelName;
@@ -287,7 +317,9 @@ namespace KimodoBridge.Editor.Tests
                 sourceVisual.name = "StaticVisual";
                 sourceVisual.transform.SetParent(source.animator.transform, false);
                 Mesh sourceMesh = sourceVisual.GetComponent<MeshFilter>().sharedMesh;
-                sourceVisual.GetComponent<MeshRenderer>().sortingOrder = 7;
+                MeshRenderer sourceRenderer = sourceVisual.GetComponent<MeshRenderer>();
+                sourceRenderer.sortingOrder = 7;
+                Material sourceMaterial = sourceRenderer.sharedMaterial;
 
                 Assert.That(
                     KimodoConstraintPoseRigFactory.TryCreatePoseRig(
@@ -306,6 +338,11 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(cloneRenderer, Is.Not.Null);
                 Assert.That(cloneVisual.GetComponent<MeshFilter>().sharedMesh, Is.SameAs(sourceMesh));
                 Assert.That(cloneRenderer.sortingOrder, Is.EqualTo(7));
+                if (sourceMaterial != null)
+                {
+                    Assert.That(cloneRenderer.sharedMaterial, Is.Not.SameAs(sourceMaterial));
+                    Assert.That(cloneRenderer.sharedMaterial.shader, Is.SameAs(sourceMaterial.shader));
+                }
             }
             finally
             {

@@ -10,7 +10,7 @@ if not exist "%SOURCE_ROOT%\pyproject.toml" set "SOURCE_ROOT=%ROOT_DIR%"
 set "LOG_DIR=%ROOT_DIR%\log"
 set "BOOTSTRAP_LOG=%LOG_DIR%\bootstrap.log"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%" >nul 2>nul
-call :bootstrap_log "[INFO] QuickServer bootstrap started. root=%ROOT_DIR%"
+call :bootstrap_log "[PHASE] bootstrap begin root=%ROOT_DIR%"
 set "BOOTSTRAP_LOCK=%ROOT_DIR%\.bootstrap.lock"
 set "UV_TOOL_DIR=%ROOT_DIR%\program\exe\uv"
 set "UV_BIN="
@@ -32,34 +32,10 @@ set "BOOTSTRAP_HOLD_SEC="
 if defined KIMODO_BOOTSTRAP_HOLD_SEC set "BOOTSTRAP_HOLD_SEC=%KIMODO_BOOTSTRAP_HOLD_SEC%"
 set "BOOTSTRAP_WAIT_LOG=%ROOT_DIR%\log\bootstrap_wait.log"
 
-call :acquire_bootstrap_lock
-if errorlevel 1 (
-  call :bootstrap_log "[ERROR] Failed to acquire bootstrap lock."
-  exit /b 1
-)
-call :bootstrap_log "[INFO] Bootstrap lock acquired."
-if defined BOOTSTRAP_HOLD_SEC (
-  call :bootstrap_log "[INFO] Bootstrap hold: sleeping for %BOOTSTRAP_HOLD_SEC%s before setup..."
-  timeout /t %BOOTSTRAP_HOLD_SEC% /nobreak >nul
-)
-call :resolve_uv_bin
-if defined UV_BIN (
-  call :bootstrap_log "[INFO] Found uv before install: !UV_BIN!"
-)
-if not defined UV_BIN (
-  call :bootstrap_log "[INFO] uv is missing; installing it automatically."
-  call :install_uv
-  if errorlevel 1 goto cleanup_fail
-  call :resolve_uv_bin
-)
-if not defined UV_BIN (
-  call :bootstrap_log "[ERROR] uv is still unavailable after the download attempt."
-  goto cleanup_fail
-)
-
 :parse_args
 if "%~1"=="" goto after_parse
 if /I "%~1"=="--force-setup" (
+  set "FORCE_SETUP=1"
   set "SETUP_ARGS=%SETUP_ARGS% --force-setup"
   set "CLI_ARGS=%CLI_ARGS% --force-setup"
   shift
@@ -94,23 +70,58 @@ shift
 goto parse_args
 
 :after_parse
-if defined EXPLICIT_VENV (
-  set "SETUP_ARGS=%SETUP_ARGS% --venv ""%EXPLICIT_VENV%"""
+if defined EXPLICIT_VENV goto acquire_launch_lock
+if exist "%ROOT_DIR%\.setup.complete" if not defined FORCE_SETUP (
+  call :bootstrap_log "[PHASE] setup skipped reason=existing_marker"
+  goto acquire_launch_lock
 )
-call :bootstrap_log "[INFO] Starting Python setup via uv."
+
+call :acquire_bootstrap_lock
+if errorlevel 1 (
+  call :bootstrap_log "[ERROR] Failed to acquire bootstrap lock."
+  exit /b 1
+)
+call :bootstrap_log "[INFO] Bootstrap lock acquired."
+if defined BOOTSTRAP_HOLD_SEC (
+  call :bootstrap_log "[INFO] Bootstrap hold: sleeping for %BOOTSTRAP_HOLD_SEC%s before setup..."
+  timeout /t %BOOTSTRAP_HOLD_SEC% /nobreak >nul
+)
+call :resolve_uv_bin
+if defined UV_BIN (
+  call :bootstrap_log "[INFO] Found uv before install: !UV_BIN!"
+)
+if not defined UV_BIN (
+  call :bootstrap_log "[INFO] uv is missing; installing it automatically."
+  call :install_uv
+  if errorlevel 1 goto cleanup_fail
+  call :resolve_uv_bin
+)
+if not defined UV_BIN (
+  call :bootstrap_log "[ERROR] uv is still unavailable after the download attempt."
+  goto cleanup_fail
+)
+call :bootstrap_log "[PHASE] setup begin"
 "%UV_BIN%" run --isolated --python 3.12 --no-project python "%ROOT_DIR%\quickserver.py" %SETUP_ARGS%
 set "SETUP_RC=%ERRORLEVEL%"
 call :bootstrap_log "[INFO] Python setup exited with code !SETUP_RC!."
 if not "!SETUP_RC!"=="0" goto cleanup_fail
+call :bootstrap_log "[PHASE] setup complete"
 
+:acquire_launch_lock
+if not defined BOOTSTRAP_PID call :acquire_bootstrap_lock
+if errorlevel 1 (
+  call :bootstrap_log "[ERROR] Failed to acquire bootstrap lock."
+  exit /b 1
+)
+:launch_runtime
 call :resolve_venv_python
 if not defined VENV_PYTHON (
-  call :bootstrap_log "[ERROR] Failed to resolve QuickServer venv python."
+  call :bootstrap_log "[ERROR] QuickServer runtime is missing. Run run_server.bat --force-setup to reinstall it."
   goto cleanup_fail
 )
 call :bootstrap_log "[INFO] Resolved QuickServer venv python: !VENV_PYTHON!"
 
-call :bootstrap_log "[INFO] Bootstrap setup complete; waiting for QuickServer CLI to release the bootstrap lock."
+call :bootstrap_log "[PHASE] bootstrap complete; starting supervisor"
 set "ARDY_SOURCE_ROOT=%ROOT_DIR%\ardy"
 if not exist "%ARDY_SOURCE_ROOT%\ardy\__init__.py" (
   call :bootstrap_log "[ERROR] Bundled ARDY package is missing: %ARDY_SOURCE_ROOT%\ardy\__init__.py"
@@ -131,9 +142,13 @@ if defined HOLD_CLI (
 set "CLI_RC=%ERRORLEVEL%"
 >> "%ROOT_DIR%\log\run_server_cli_launch.log" echo CLI_RC=!CLI_RC!
 call :release_bootstrap_lock
+if not "!CLI_RC!"=="0" (
+  call :bootstrap_log "[ERROR] QuickServer failed to start or stopped unexpectedly. Run run_server.bat --force-setup to reinstall the runtime."
+)
 exit /b !CLI_RC!
 
 :cleanup_fail
+call :bootstrap_log "[PHASE] bootstrap failed"
 call :bootstrap_log "[ERROR] Bootstrap failed; releasing lock."
 call :release_bootstrap_lock
 exit /b 1

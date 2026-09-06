@@ -24,6 +24,15 @@ namespace KimodoBridge.Editor
         {
             bool includeTimeline = externalConstraint?.Enabled != true ||
                 externalConstraint.IncludeTimelineConstraints;
+            KimodoTimelineInOutConstraintContext generationContext = null;
+            if (timelineClip != null)
+            {
+                KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                    timelineClip,
+                    out generationContext,
+                    out _);
+                CaptureTrackOffset(generationContext);
+            }
             KimodoInOutConstraintResult result;
             if (includeTimeline)
             {
@@ -75,7 +84,7 @@ namespace KimodoBridge.Editor
             {
                 result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.CombinedSamples,
-                    ResolveExportContext(timelineClip),
+                    ResolveExportContext(timelineClip, generationContext),
                     0.0,
                     runtimeLengthSeconds,
                     frameRate,
@@ -98,6 +107,13 @@ namespace KimodoBridge.Editor
             {
                 return new KimodoInOutConstraintResult();
             }
+
+            KimodoTimelineInOutConstraintContext generationContext = null;
+            KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                sourceClip,
+                out generationContext,
+                out _);
+            CaptureTrackOffset(generationContext);
 
             int generationFrames = generationFramesOverride ?? clip.generationFrames;
             var splinePathSamples = new List<KimodoMarkerSampleResult>();
@@ -140,7 +156,7 @@ namespace KimodoBridge.Editor
                 result.DenseRootPath = denseSplinePath;
                 result.ConstraintsJson = KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.CombinedSamples,
-                    ResolveExportContext(sourceClip),
+                    ResolveExportContext(sourceClip, generationContext),
                     clipStartSeconds: 0.0,
                     clipDurationSeconds: KimodoInOutConstraintTools.ResolveConstraintClipDurationSeconds(generationFrames, frameRate),
                     exportFps: frameRate,
@@ -198,20 +214,45 @@ namespace KimodoBridge.Editor
 
             return null;
         }
-            private static KimodoConstraintExportContext ResolveExportContext(TimelineClip timelineClip)
+        private static KimodoConstraintExportContext ResolveExportContext(
+            TimelineClip timelineClip,
+            KimodoTimelineInOutConstraintContext resolvedContext = null)
         {
-            if (timelineClip != null &&
-                KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out KimodoTimelineInOutConstraintContext context, out _) &&
-                context != null)
+            KimodoTimelineInOutConstraintContext context = resolvedContext;
+            if (context == null && timelineClip != null)
             {
-                return new KimodoConstraintExportContext
-                {
-                    projectedPoseProjector = KimodoConstraintExportProjector.Create(context)
-                };
+                KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                    timelineClip,
+                    out context,
+                    out _);
             }
-            return new KimodoConstraintExportContext();
+            if (context == null)
+            {
+                return new KimodoConstraintExportContext();
+            }
+
+            return new KimodoConstraintExportContext
+            {
+                projectedPoseProjector = KimodoConstraintExportProjector.Create(context)
+            };
         }
-}
+
+        private static void CaptureTrackOffset(KimodoTimelineInOutConstraintContext context)
+        {
+            if (context == null)
+            {
+                return;
+            }
+
+            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
+                context.Track,
+                context.Animator,
+                out context.TrackOffsetPosition,
+                out context.TrackOffsetRotation,
+                out _);
+            context.HasTrackOffsetSnapshot = true;
+        }
+    }
 
 }
 //touch 7ec98321-518c-4133-8a2b-0e9dcc4436b4

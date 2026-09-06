@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace KimodoBridge.Editor
 {
@@ -12,7 +11,8 @@ namespace KimodoBridge.Editor
         {
             public GameObject Root;
             public RetargetSkeleton TargetCache;
-            public List<Material> GeneratedMaterials;
+            // Preview-only material instances; never reuse source/shared materials.
+            public List<Material> GeneratedMaterials = new List<Material>();
         }
 
         internal static bool TryCreatePoseRig(
@@ -31,6 +31,30 @@ namespace KimodoBridge.Editor
                 error = "Timeline binding Animator is missing.";
                 return false;
             }
+            if (!TryCreatePoseRig(modelName, sourceAnimator, sourceAvatar, out instance, out error))
+            {
+                return false;
+            }
+
+            instance.Root.name = $"__KimodoConstraintAvatar_{clipId}_{animatorId}";
+            return true;
+        }
+
+        internal static bool TryCreatePoseRig(
+            string modelName,
+            Animator sourceAnimator,
+            Avatar sourceAvatar,
+            out PoseRigInstance instance,
+            out string error)
+        {
+            instance = null;
+            error = string.Empty;
+            if (sourceAnimator == null)
+            {
+                error = "Timeline binding Animator is missing.";
+                return false;
+            }
+
             Avatar resolvedSourceAvatar = KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar)
                 ? sourceAvatar
                 : sourceAnimator.avatar;
@@ -47,8 +71,8 @@ namespace KimodoBridge.Editor
                 if (!TryCreateVisualClone(
                         sourceAnimator,
                         resolvedSourceAvatar,
-                        clipId,
-                        animatorId,
+                        0,
+                        sourceAnimator.GetInstanceID(),
                         out GameObject targetRoot,
                         out Animator targetAnimator,
                         out generatedMaterials,
@@ -66,8 +90,6 @@ namespace KimodoBridge.Editor
                     return false;
                 }
                 targetAnimator.enabled = false;
-
-                targetCache.root.name = $"__KimodoConstraintAvatar_{clipId}_{animatorId}";
                 targetCache.root.hideFlags = HideFlags.HideInHierarchy | HideFlags.DontSave;
                 instance = new PoseRigInstance
                 {
@@ -89,6 +111,103 @@ namespace KimodoBridge.Editor
                 targetCache?.Dispose();
                 DestroyMaterials(generatedMaterials);
             }
+        }
+
+        internal static bool TryApplyPose(
+            PoseRigInstance instance,
+            KimodoMarkerSampleResult sample,
+            string modelName,
+            out string error)
+        {
+            error = string.Empty;
+            if (sample == null || instance?.TargetCache == null)
+            {
+                error = "Constraint target skeleton is unavailable.";
+                return false;
+            }
+
+            try
+            {
+                ApplySampleToPreviewRig(instance.TargetCache, sample);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private static void ApplySampleToPreviewRig(RetargetSkeleton cache, KimodoMarkerSampleResult sample)
+        {
+            if (cache?.animator == null || cache.avatar == null ||
+                sample?.sampleData == null || !sample.sampleData.IsValid)
+            {
+                throw new InvalidOperationException("Preview pose input is invalid.");
+            }
+
+            using (var handler = new HumanPoseHandler(cache.avatar, cache.animator.transform))
+            {
+                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
+                handler.SetHumanPose(ref pose);
+            }
+
+            if (sample.validMask?.rootPosition != true || sample.rootOverride == null)
+            {
+                return;
+            }
+
+            Transform hips = cache.animator.GetBoneTransform(HumanBodyBones.Hips);
+            if (hips == null)
+            {
+                cache.animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
+                    cache.animator.transform.position,
+                    sample.rootOverride.t);
+                cache.animator.transform.rotation = ResolvePreviewHipsRotation(
+                    sample,
+                    cache.animator.transform.rotation);
+                return;
+            }
+
+            Pose rootPose = new Pose(cache.animator.transform.position, cache.animator.transform.rotation);
+            Pose hipsPose = new Pose(hips.position, hips.rotation);
+            Quaternion relativeRotation = Quaternion.Inverse(rootPose.rotation) * hipsPose.rotation;
+            Vector3 relativePosition = Quaternion.Inverse(rootPose.rotation) * (hipsPose.position - rootPose.position);
+            Quaternion desiredHipsRotation = ResolvePreviewHipsRotation(sample, hipsPose.rotation);
+            Quaternion newRootRotation = desiredHipsRotation * Quaternion.Inverse(relativeRotation);
+            Vector3 newRootPosition = sample.rootOverride.t - newRootRotation * relativePosition;
+            cache.animator.transform.SetPositionAndRotation(newRootPosition, newRootRotation);
+        }
+
+        // FullBody samples capture a complete Hips world rotation. Root2D and
+        // Mix samples intentionally supply only a planar heading.
+        internal static Quaternion ResolvePreviewHipsRotation(
+            KimodoMarkerSampleResult sample,
+            Quaternion evaluatedHipsRotation)
+        {
+            if (sample?.validMask?.rootHeading != true || sample.rootOverride == null)
+            {
+                return evaluatedHipsRotation;
+            }
+
+            string mode = KimodoConstraintInternal.NormalizeMode(sample.constraintMode);
+            return mode == "root2d" || mode == "mix"
+                ? KimodoMotionMath.ApplyPlanarHeading(evaluatedHipsRotation, sample.rootOverride.q)
+                : sample.rootOverride.q.normalized;
+        }
+
+        internal static void DisposePoseRig(PoseRigInstance instance)
+        {
+            if (instance == null) return;
+            RetargetSkeleton targetSkeleton = instance.TargetCache;
+            instance.TargetCache = null;
+            targetSkeleton?.Dispose();
+            if (targetSkeleton == null && instance.Root != null)
+            {
+                UnityEngine.Object.DestroyImmediate(instance.Root);
+            }
+            instance.Root = null;
+            DestroyMaterials(instance.GeneratedMaterials);
         }
 
         private static bool TryCreateVisualClone(
@@ -116,12 +235,7 @@ namespace KimodoBridge.Editor
                 root.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
                 root.transform.localScale = Vector3.one;
 
-                Material previewMaterial = CreatePreviewMaterial();
-                if (previewMaterial != null)
-                {
-                    generatedMaterials.Add(previewMaterial);
-                }
-                CopyMeshes(sourceAnimator.transform, transformMap, previewMaterial, out error);
+                CopyMeshes(sourceAnimator.transform, transformMap, generatedMaterials, out error);
                 if (!string.IsNullOrEmpty(error))
                 {
                     UnityEngine.Object.DestroyImmediate(root);
@@ -178,7 +292,7 @@ namespace KimodoBridge.Editor
         private static void CopyMeshes(
             Transform sourceRoot,
             Dictionary<Transform, Transform> transformMap,
-            Material previewMaterial,
+            List<Material> generatedMaterials,
             out string error)
         {
             error = string.Empty;
@@ -209,7 +323,7 @@ namespace KimodoBridge.Editor
                 target.updateWhenOffscreen = true;
                 target.skinnedMotionVectors = false;
                 target.probeAnchor = ResolveCloneTransform(source.probeAnchor, transformMap);
-                target.sharedMaterials = ResolvePreviewMaterials(source.sharedMaterials, previewMaterial);
+                target.sharedMaterials = CloneMaterials(source.sharedMaterials, generatedMaterials);
 
                 Mesh mesh = source.sharedMesh;
                 if (mesh != null)
@@ -245,18 +359,8 @@ namespace KimodoBridge.Editor
                 }
                 EditorUtility.CopySerialized(source, target);
                 target.probeAnchor = ResolveCloneTransform(source.probeAnchor, transformMap);
-                target.sharedMaterials = ResolvePreviewMaterials(source.sharedMaterials, previewMaterial);
+                target.sharedMaterials = CloneMaterials(source.sharedMaterials, generatedMaterials);
             }
-        }
-
-        private static Material[] ResolvePreviewMaterials(Material[] sourceMaterials, Material previewMaterial)
-        {
-            var materials = new Material[sourceMaterials != null ? sourceMaterials.Length : 0];
-            for (int i = 0; i < materials.Length; i++)
-            {
-                materials[i] = previewMaterial != null ? previewMaterial : sourceMaterials[i];
-            }
-            return materials;
         }
 
         private static Transform ResolveCloneTransform(
@@ -268,65 +372,31 @@ namespace KimodoBridge.Editor
                 : null;
         }
 
-        private static Material CreatePreviewMaterial()
+        private static Material[] CloneMaterials(Material[] sourceMaterials, List<Material> generatedMaterials)
         {
-            Shader shader = Shader.Find("HDRP/Lit");
-            if (shader == null)
+            if (sourceMaterials == null)
             {
-                shader = Shader.Find("Universal Render Pipeline/Lit");
-            }
-            if (shader == null)
-            {
-                shader = Shader.Find("Standard");
-            }
-            if (shader == null)
-            {
-                return null;
+                return Array.Empty<Material>();
             }
 
-            var material = new Material(shader)
+            var result = new Material[sourceMaterials.Length];
+            for (int i = 0; i < sourceMaterials.Length; i++)
             {
-                hideFlags = HideFlags.HideAndDontSave,
-                name = "__KimodoConstraintAvatarPreview"
-            };
-            SetMaterialColor(material, Color.white);
-            return material;
-        }
+                Material source = sourceMaterials[i];
+                if (source == null)
+                {
+                    continue;
+                }
 
-        private static void SetMaterialColor(Material material, Color color)
-        {
-            if (material.HasProperty("_BaseColor"))
-            {
-                material.SetColor("_BaseColor", color);
+                Material clone = new Material(source)
+                {
+                    hideFlags = HideFlags.HideAndDontSave,
+                    name = source.name + " (Kimodo Preview)"
+                };
+                result[i] = clone;
+                generatedMaterials?.Add(clone);
             }
-            if (material.HasProperty("_Color"))
-            {
-                material.SetColor("_Color", color);
-            }
-            if (material.HasProperty("_Surface"))
-            {
-                material.SetFloat("_Surface", 0f);
-            }
-            if (material.HasProperty("_Mode"))
-            {
-                material.SetFloat("_Mode", 0f);
-            }
-            if (material.HasProperty("_SrcBlend"))
-            {
-                material.SetInt("_SrcBlend", (int)BlendMode.One);
-            }
-            if (material.HasProperty("_DstBlend"))
-            {
-                material.SetInt("_DstBlend", (int)BlendMode.Zero);
-            }
-            if (material.HasProperty("_ZWrite"))
-            {
-                material.SetInt("_ZWrite", 1);
-            }
-            material.SetOverrideTag("RenderType", "Opaque");
-            material.renderQueue = (int)RenderQueue.Geometry;
-            material.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            material.DisableKeyword("_ALPHABLEND_ON");
+            return result;
         }
 
         private static void DestroyMaterials(List<Material> materials)
@@ -342,6 +412,8 @@ namespace KimodoBridge.Editor
                     UnityEngine.Object.DestroyImmediate(materials[i]);
                 }
             }
+            materials.Clear();
         }
+
     }
 }

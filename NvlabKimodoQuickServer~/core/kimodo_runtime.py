@@ -305,6 +305,10 @@ def _provision_bridge_assets(
         plan.models_root.mkdir(parents=True, exist_ok=True)
 
     logger.log(
+        f"[PHASE] download begin action=asset_provision model={plan.resolved_model.local_name} "
+        f"models_root={plan.models_root}"
+    )
+    logger.log(
         f"[bridge] asset plan: model={plan.resolved_model.local_name} "
         f"models_root={plan.models_root} encoder_route={plan.encoder_route} "
         f"encoder_device={plan.runtime_decision.encoder_device} "
@@ -365,6 +369,9 @@ def _provision_bridge_assets(
         f"[bridge] asset plan complete: model={plan.resolved_model.local_name} "
         f"encoder_route={plan.encoder_route} encoder_layout={plan.text_encoder_layout.layout_id} "
         f"downloads={download_counter[0]}"
+    )
+    logger.log(
+        f"[PHASE] download complete action=asset_provision downloads={download_counter[0]}"
     )
     return plan
 

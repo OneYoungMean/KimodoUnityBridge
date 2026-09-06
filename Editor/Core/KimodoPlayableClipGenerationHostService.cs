@@ -59,6 +59,21 @@ namespace KimodoBridge.Editor
             runtimeSampleOffsetSeconds += loopPaddingFrames / (double)targetFrameRate;
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
+            KimodoInOutConstraintAdapter.TryResolveTimelineContext(
+                timelineClip,
+                out KimodoTimelineInOutConstraintContext timelineContextSnapshot,
+                out _);
+            if (timelineContextSnapshot != null)
+            {
+                KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
+                    timelineContextSnapshot.Track,
+                    timelineContextSnapshot.Animator,
+                    out timelineContextSnapshot.TrackOffsetPosition,
+                    out timelineContextSnapshot.TrackOffsetRotation,
+                    out _);
+                timelineContextSnapshot.HasTrackOffsetSnapshot = true;
+            }
+
             KimodoInOutConstraintResult constraintResult =
                 ConstraintProvider.BuildGenerationConstraintsOrThrow(
                     clip,
@@ -158,6 +173,7 @@ namespace KimodoBridge.Editor
                     (clip.enableInConstraint || clip.enableOutConstraint) &&
                     !Mathf.Approximately((float)timelineClip.timeScale, 1f),
                 TimelineDirectorSnapshot = outputDirector,
+                TimelineContextSnapshot = timelineContextSnapshot,
                 InitialArdyHistorySource = initialHistorySource,
                 ArdyHistoryWeight = isArdy && !clip.ardyAutoHistory
                     ? Mathf.Clamp01(clip.ardyHistoryWeight)

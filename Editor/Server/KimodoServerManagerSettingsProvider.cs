@@ -281,6 +281,16 @@ namespace KimodoBridge.Editor
                 }
 
                 EditorGUI.BeginChangeCheck();
+                bool enableDebugMode = EditorGUILayout.Toggle(
+                    new GUIContent("Debug Mode", "Show editor-only diagnostic actions such as clip analysis."),
+                    settings.EnableDebugMode);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    settings.EnableDebugMode = enableDebugMode;
+                    settings.SaveSettings();
+                }
+
+                EditorGUI.BeginChangeCheck();
                 bool enableKimodoStaticGraph = EditorGUILayout.Toggle(
                     new GUIContent(
                         "Kimodo Static Graph",

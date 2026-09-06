@@ -11,6 +11,54 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoTimelineTrackOffsetUtility
     {
+        // Capture the track's world-space origin before Timeline evaluation.
+        // Scene offsets are represented by the bound Animator's scene transform;
+        // AnimationTrack.sceneOffsetPosition is an editor preview cache and is
+        // not stable during generation (or before preview has been opened).
+        internal static void CaptureWorldOffset(
+            TrackAsset track,
+            Animator animator,
+            out Vector3 position,
+            out Quaternion rotation,
+            out bool isSceneOffset)
+        {
+            position = Vector3.zero;
+            rotation = Quaternion.identity;
+            isSceneOffset = false;
+            if (track is not AnimationTrack animationTrack)
+            {
+                return;
+            }
+
+            bool useTransformOffset = animationTrack.trackOffset == TrackOffset.ApplyTransformOffsets ||
+                (animationTrack.trackOffset == TrackOffset.Auto &&
+                 (animator == null || animator.runtimeAnimatorController == null));
+            isSceneOffset = !useTransformOffset;
+            if (useTransformOffset)
+            {
+                position = animationTrack.position;
+                rotation = animationTrack.rotation;
+                rotation.Normalize();
+
+                Transform parent = animator != null ? animator.transform.parent : null;
+                if (parent != null)
+                {
+                    position = parent.TransformPoint(position);
+                    rotation = (parent.rotation * rotation).normalized;
+                }
+                return;
+            }
+
+            if (animator != null)
+            {
+                // Animator transform is the actual scene-space origin used by
+                // Timeline's ApplySceneOffsets mode.
+                position = animator.transform.position;
+                rotation = animator.transform.rotation;
+                rotation.Normalize();
+            }
+        }
+
         internal static void ResolveWorldOffset(
             TrackAsset track,
             Animator animator,
@@ -34,7 +82,7 @@ namespace KimodoBridge.Editor
             {
                 return;
             }
-            KimodoTimelinePreviewRefreshUtility.ResolveAnimationTrackOffset(
+            CaptureWorldOffset(
                 animationTrack,
                 animator,
                 out position,
@@ -164,13 +212,12 @@ namespace KimodoBridge.Editor
             }
 
             targetRootRotation.Normalize();
-            Quaternion planarRotation = KimodoConstraintNormalizationUtility.ResolvePlanarRotation(targetRootRotation);
             sample.enableMask.rootPosition = true;
             sample.enableMask.rootHeading = true;
             sample.validMask ??= new KimodoConstraintMask();
             sample.validMask.rootPosition = true;
             sample.validMask.rootHeading = true;
-            sample.root2DOverride = new KimodoRigidTransform { t = targetRootPosition, q = planarRotation };
+            sample.rootOverride = new KimodoRigidTransform { t = targetRootPosition, q = targetRootRotation };
             sample.constraintMode = "root2d";
             sample.sampleTime = exportedSampleTime;
         }
@@ -922,7 +969,7 @@ namespace KimodoBridge.Editor
             {
                 if (marker is KimodoConstraintMarker kimodoMarker)
                 {
-                    if (!kimodoMarker.constraintEnabled || kimodoMarker.IsExternal)
+                    if (!kimodoMarker.constraintEnabled || !kimodoMarker.ParticipatesInGeneration)
                     {
                         continue;
                     }
