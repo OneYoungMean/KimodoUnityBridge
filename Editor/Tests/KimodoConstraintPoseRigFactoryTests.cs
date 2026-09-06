@@ -103,6 +103,150 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void CarryEffectorsWithRoot_AppliesTheRootRigidTransformDelta()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                carryEffectorsWithRoot = true,
+                rootOverride = new KimodoUnityBridge.KimodoRigidTransform
+                {
+                    t = new Vector3(1f, 0f, 2f),
+                    q = Quaternion.identity
+                },
+                effectors = new KimodoConstraintEffectors
+                {
+                    leftHand = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(2f, 0f, 2f),
+                        q = Quaternion.identity
+                    },
+                    rightFoot = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(1f, 0f, 1f),
+                        q = Quaternion.Euler(10f, 20f, 30f)
+                    }
+                },
+                enableMask = new KimodoConstraintMask { leftHand = true, rightFoot = true },
+                validMask = new KimodoConstraintMask { leftHand = true, rightFoot = true }
+            };
+            var entry = new ConstraintPreviewInstance
+            {
+                ConstraintMode = KimodoConstraintMode.Mix,
+                SampleData = sample
+            };
+            Vector3 nextRoot = new Vector3(4f, 0f, 5f);
+            Quaternion nextRotation = Quaternion.Euler(0f, 90f, 0f);
+
+            KimodoConstraintPreviewRenderer.CarryEffectorsWithRoot(
+                entry,
+                sample.rootOverride.t,
+                sample.rootOverride.q,
+                nextRoot,
+                nextRotation);
+
+            Assert.That(
+                Vector3.Distance(sample.effectors.leftHand.t, nextRoot + Vector3.back),
+                Is.LessThan(0.001f));
+            Assert.That(
+                Quaternion.Angle(sample.effectors.leftHand.q, nextRotation),
+                Is.LessThan(0.001f));
+            Assert.That(
+                Quaternion.Angle(
+                    sample.effectors.rightFoot.q,
+                    nextRotation * Quaternion.Euler(10f, 20f, 30f)),
+                Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void CarryEffectorsWithRoot_FullBodyPromotesFootGoalsForSolveIk()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                carryEffectorsWithRoot = true,
+                rootOverride = KimodoUnityBridge.KimodoRigidTransform.Identity,
+                effectors = new KimodoConstraintEffectors
+                {
+                    leftHand = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(0.5f, 1f, 0.5f),
+                        q = Quaternion.identity
+                    },
+                    leftFoot = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(-0.1f, 0f, 0f),
+                        q = Quaternion.identity
+                    },
+                    rightFoot = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(0.1f, 0f, 0f),
+                        q = Quaternion.identity
+                    }
+                },
+                enableMask = KimodoConstraintMask.ForType("fullbody"),
+                validMask = new KimodoConstraintMask()
+            };
+            var entry = new ConstraintPreviewInstance
+            {
+                ConstraintMode = KimodoConstraintMode.FullBody,
+                SampleData = sample
+            };
+            Vector3 originalHandPosition = sample.effectors.leftHand.t;
+
+            KimodoConstraintPreviewRenderer.CarryEffectorsWithRoot(
+                entry,
+                Vector3.zero,
+                Quaternion.identity,
+                Vector3.forward,
+                Quaternion.identity);
+
+            Assert.That(sample.effectors.leftFoot.t.z, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(sample.effectors.rightFoot.t.z, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(sample.effectors.leftHand.t, Is.EqualTo(originalHandPosition));
+            Assert.That(sample.enableMask.leftHand, Is.False);
+            Assert.That(KimodoConstraintMask.IsActive(sample, "leftfoot"), Is.True);
+            Assert.That(KimodoConstraintMask.IsActive(sample, "rightfoot"), Is.True);
+        }
+
+        [Test]
+        public void CarryEffectorsWithRoot_DisabledLeavesTargetsUnchanged()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                carryEffectorsWithRoot = false,
+                rootOverride = KimodoUnityBridge.KimodoRigidTransform.Identity,
+                effectors = new KimodoConstraintEffectors
+                {
+                    leftHand = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(1f, 2f, 3f),
+                        q = Quaternion.Euler(10f, 20f, 30f)
+                    }
+                },
+                enableMask = new KimodoConstraintMask { leftHand = true },
+                validMask = new KimodoConstraintMask { leftHand = true }
+            };
+            var entry = new ConstraintPreviewInstance
+            {
+                ConstraintMode = KimodoConstraintMode.Mix,
+                SampleData = sample
+            };
+            Vector3 originalPosition = sample.effectors.leftHand.t;
+            Quaternion originalRotation = sample.effectors.leftHand.q;
+
+            KimodoConstraintPreviewRenderer.CarryEffectorsWithRoot(
+                entry,
+                Vector3.zero,
+                Quaternion.identity,
+                Vector3.one,
+                Quaternion.Euler(0f, 90f, 0f));
+
+            Assert.That(sample.effectors.leftHand.t, Is.EqualTo(originalPosition));
+            Assert.That(
+                Quaternion.Angle(sample.effectors.leftHand.q, originalRotation),
+                Is.LessThan(0.001f));
+        }
+
+        [Test]
         public void ModelNativeConstraintPipeline_AppliesExplicitRootAndCommandMask()
         {
             const string modelName = KimodoMotionModelProfiles.DefaultModelName;

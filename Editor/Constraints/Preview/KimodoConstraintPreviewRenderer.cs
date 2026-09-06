@@ -150,11 +150,15 @@ namespace KimodoBridge.Editor
                 "Selected Handle: " + (selectedHandleKey ?? "<none>"));
             Handles.EndGUI();
 
-            foreach (ConstraintPreviewScope session in ActiveScopes.Values)
+            // Handle callbacks can synchronously rebuild the edit preview.
+            // Iterate snapshots so that replacing its scope cannot invalidate
+            // this Scene GUI pass midway through a drag.
+            foreach (ConstraintPreviewScope session in new List<ConstraintPreviewScope>(ActiveScopes.Values))
             {
                 if (session?.IsDisposed == true) continue;
-                foreach (ConstraintPreviewInstance entry in session.Entries.Values)
+                foreach (ConstraintPreviewInstance entry in new List<ConstraintPreviewInstance>(session.Entries.Values))
                 {
+                    if (session.IsDisposed) break;
                     if (entry == null || !entry.HandlesEnabled || !entry.Visible || entry.SampleData == null)
                     {
                         continue;
@@ -210,7 +214,11 @@ namespace KimodoBridge.Editor
             bool isRoot)
         {
             Vector3 position = value.position;
-            Quaternion rotation = ResolveHandleRotation(entry, bone, value.rotation);
+            // Effector rotation is stored in the bind-pose-normalized rig
+            // orientation space. Keep the handle in that same space so the
+            // forward (handle -> SampleResult) and backward (SampleResult ->
+            // solve) paths do not introduce a display-only conversion.
+            Quaternion rotation = value.rotation;
             float size = isRoot
                 ? Mathf.Max(0.1f, HandleUtility.GetHandleSize(position) * 0.1f)
                 : Mathf.Max(EndEffectorTargetSize, HandleUtility.GetHandleSize(position) * 0.09f);
@@ -256,6 +264,10 @@ namespace KimodoBridge.Editor
                 }
                 if (EditorGUI.EndChangeCheck())
                 {
+                    if (isRoot)
+                    {
+                        CarryEffectorsWithRoot(entry, position, rotation, moved, rotation);
+                    }
                     value.position = moved;
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged: false);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
@@ -278,8 +290,17 @@ namespace KimodoBridge.Editor
                 if (EditorGUI.EndChangeCheck())
                 {
                     bool rotationChanged = Quaternion.Angle(previousRotation, rotation) > 1e-4f;
+                    if (isRoot)
+                    {
+                        CarryEffectorsWithRoot(
+                            entry,
+                            value.position,
+                            previousRotation,
+                            position,
+                            rotation);
+                    }
                     value.position = position;
-                    value.rotation = ResolveStoredHandRotation(entry, bone, rotation);
+                    value.rotation = rotation.normalized;
                     PromoteHandleChannel(entry.SampleData, bone, rotationChanged);
                     entry.OnSampleChanged?.Invoke(entry.SampleData.Clone());
                 }
@@ -288,38 +309,95 @@ namespace KimodoBridge.Editor
             Handles.Label(position + Vector3.up * size, label);
         }
 
-        private static Quaternion ResolveHandleRotation(
+        internal static void CarryEffectorsWithRoot(
             ConstraintPreviewInstance entry,
-            HumanBodyBones bone,
-            Quaternion storedRotation)
+            Vector3 previousRootPosition,
+            Quaternion previousRootRotation,
+            Vector3 currentRootPosition,
+            Quaternion currentRootRotation)
         {
-            if (!IsHand(bone) || entry?.TargetSkeleton == null ||
-                !entry.TargetSkeleton.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            if (entry?.SampleData?.rootOverride == null ||
+                !entry.SampleData.carryEffectorsWithRoot ||
+                entry.SampleData.effectors == null)
             {
-                return storedRotation;
+                return;
             }
 
-            // Hand effector rotations are stored as currentWorld * inverse(bindWorld).
-            // Scene handles should display the corresponding absolute bone rotation.
-            return (storedRotation * initialWorld).normalized;
+            Quaternion deltaRotation =
+                (currentRootRotation * Quaternion.Inverse(previousRootRotation)).normalized;
+            KimodoConstraintEffectors effectors = entry.SampleData.effectors;
+            CarryEffector(entry, HumanBodyBones.LeftHand, effectors.leftHand,
+                deltaRotation, previousRootPosition, currentRootPosition);
+            CarryEffector(entry, HumanBodyBones.RightHand, effectors.rightHand,
+                deltaRotation, previousRootPosition, currentRootPosition);
+            CarryEffector(entry, HumanBodyBones.LeftFoot, effectors.leftFoot,
+                deltaRotation, previousRootPosition, currentRootPosition);
+            CarryEffector(entry, HumanBodyBones.RightFoot, effectors.rightFoot,
+                deltaRotation, previousRootPosition, currentRootPosition);
+
+            // FullBody displays all four target handles even though its
+            // default mask only advertises the muscle/root channels. Once the
+            // root is used to carry targets, promote those targets so the
+            // canonical SolveJob feeds all four goals into SolveIK.
+            PromoteCarriedChannel(entry, HumanBodyBones.LeftHand);
+            PromoteCarriedChannel(entry, HumanBodyBones.RightHand);
+            PromoteCarriedChannel(entry, HumanBodyBones.LeftFoot);
+            PromoteCarriedChannel(entry, HumanBodyBones.RightFoot);
         }
 
-        private static Quaternion ResolveStoredHandRotation(
+        private static void PromoteCarriedChannel(
             ConstraintPreviewInstance entry,
-            HumanBodyBones bone,
-            Quaternion handleRotation)
+            HumanBodyBones bone)
         {
-            if (!IsHand(bone) || entry?.TargetSkeleton == null ||
-                !entry.TargetSkeleton.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            if (ShouldCarryEffector(entry, bone))
             {
-                return handleRotation.normalized;
+                PromoteHandleChannel(entry.SampleData, bone, false);
+            }
+        }
+
+        private static bool ShouldCarryEffector(ConstraintPreviewInstance entry, HumanBodyBones bone)
+        {
+            if (entry?.SampleData == null)
+            {
+                return false;
+            }
+            if (entry.ConstraintMode == KimodoConstraintMode.FullBody)
+            {
+                return true;
             }
 
-            return (handleRotation * Quaternion.Inverse(initialWorld)).normalized;
+            string channel = bone switch
+            {
+                HumanBodyBones.LeftHand => "lefthand",
+                HumanBodyBones.RightHand => "righthand",
+                HumanBodyBones.LeftFoot => "leftfoot",
+                HumanBodyBones.RightFoot => "rightfoot",
+                _ => string.Empty
+            };
+            return KimodoConstraintMask.IsActive(entry.SampleData, channel);
         }
 
-        private static bool IsHand(HumanBodyBones bone) =>
-            bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand;
+        private static void CarryEffector(
+            ConstraintPreviewInstance entry,
+            HumanBodyBones bone,
+            KimodoRigidTransform value,
+            Quaternion deltaRotation,
+            Vector3 previousRootPosition,
+            Vector3 currentRootPosition)
+        {
+            if (!ShouldCarryEffector(entry, bone) || value == null)
+            {
+                return;
+            }
+
+            value.position = currentRootPosition +
+                deltaRotation * (value.position - previousRootPosition);
+            // Effector rotations are bind-pose-normalized orientation values
+            // (worldRotation * inverse(bindRotation)). A world-space root
+            // delta therefore propagates directly on the left; expanding to
+            // an absolute rotation and packing it again only adds noise.
+            value.rotation = (deltaRotation * value.rotation).normalized;
+        }
 
         private static void PromoteHandleChannel(
             KimodoMarkerSampleResult sample,

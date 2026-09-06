@@ -128,55 +128,19 @@ namespace KimodoBridge.Editor
 
             try
             {
-                ApplySampleToPreviewRig(instance.TargetCache, sample);
-                return true;
+                return KimodoConstraintPosePipeline.TryApply(
+                    sample,
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),
+                    instance.TargetCache,
+                    out _,
+                    out _,
+                    out error);
             }
             catch (Exception ex)
             {
                 error = ex.Message;
                 return false;
             }
-        }
-
-        private static void ApplySampleToPreviewRig(RetargetSkeleton cache, KimodoMarkerSampleResult sample)
-        {
-            if (cache?.animator == null || cache.avatar == null ||
-                sample?.sampleData == null || !sample.sampleData.IsValid)
-            {
-                throw new InvalidOperationException("Preview pose input is invalid.");
-            }
-
-            using (var handler = new HumanPoseHandler(cache.avatar, cache.animator.transform))
-            {
-                HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample.sampleData);
-                handler.SetHumanPose(ref pose);
-            }
-
-            if (sample.validMask?.rootPosition != true || sample.rootOverride == null)
-            {
-                return;
-            }
-
-            Transform hips = cache.animator.GetBoneTransform(HumanBodyBones.Hips);
-            if (hips == null)
-            {
-                cache.animator.transform.position = KimodoMotionMath.ApplyPlanarPosition(
-                    cache.animator.transform.position,
-                    sample.rootOverride.t);
-                cache.animator.transform.rotation = ResolvePreviewHipsRotation(
-                    sample,
-                    cache.animator.transform.rotation);
-                return;
-            }
-
-            Pose rootPose = new Pose(cache.animator.transform.position, cache.animator.transform.rotation);
-            Pose hipsPose = new Pose(hips.position, hips.rotation);
-            Quaternion relativeRotation = Quaternion.Inverse(rootPose.rotation) * hipsPose.rotation;
-            Vector3 relativePosition = Quaternion.Inverse(rootPose.rotation) * (hipsPose.position - rootPose.position);
-            Quaternion desiredHipsRotation = ResolvePreviewHipsRotation(sample, hipsPose.rotation);
-            Quaternion newRootRotation = desiredHipsRotation * Quaternion.Inverse(relativeRotation);
-            Vector3 newRootPosition = sample.rootOverride.t - newRootRotation * relativePosition;
-            cache.animator.transform.SetPositionAndRotation(newRootPosition, newRootRotation);
         }
 
         // FullBody samples capture a complete Hips world rotation. Root2D and

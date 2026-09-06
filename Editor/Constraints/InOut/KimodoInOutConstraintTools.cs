@@ -110,6 +110,11 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
+            if (request.EnableBegin)
+            {
+                LogBoundaryRoot("In", beginSample, request.Mode,
+                    ResolveTimelineBoundaryTime(request, isBegin: true));
+            }
 
             if (request.EnableEnd &&
                 !KimodoTimelineConstraintSampler.TrySampleMarker(
@@ -125,12 +130,28 @@ namespace KimodoBridge.Editor
             {
                 return false;
             }
+            if (request.EnableEnd)
+            {
+                LogBoundaryRoot("Out", endSample, request.Mode,
+                    ResolveTimelineBoundaryTime(request, isBegin: false));
+            }
 
             if (!request.EnableBegin && !request.EnableEnd)
             {
                 warning = "InOut constraint request has no enabled boundary segments.";
             }
             return true;
+        }
+
+        private static void LogBoundaryRoot(
+            string boundary,
+            KimodoMarkerSampleResult sample,
+            KimodoInOutConstraintMode mode,
+            double timelineTime)
+        {
+            if (sample?.rootOverride == null) return;
+            Debug.Log($"[Kimodo][InOutConstraint] {boundary} mode={mode} " +
+                $"timelineTime={timelineTime:F6}s worldRoot={sample.rootOverride.t}");
         }
 
         internal static double ResolveTimelineBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)

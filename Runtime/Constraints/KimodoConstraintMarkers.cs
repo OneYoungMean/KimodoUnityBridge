@@ -281,10 +281,11 @@ namespace KimodoBridge
         // sampled root Y, pitch and roll remain motion channels.
         public KimodoRigidTransform rootOverride = KimodoRigidTransform.Identity;
 
-        // Local pose-pipeline option. It is intentionally not a bridge
-        // protocol field: after IK, reapply this root target as the final
-        // skeleton placement.
-        public bool rootOverrideAfterEffectors;
+        // Preview/editor option. It is intentionally not a bridge protocol
+        // field: dragging the root handle carries enabled effector targets
+        // by the same rigid transform delta.
+        [UnityEngine.Serialization.FormerlySerializedAs("rootOverrideAfterEffectors")]
+        public bool carryEffectorsWithRoot;
 
         // One mode is the only persisted constraint semantic. Wire-family
         // selection is centralized in KimodoConstraintInternal.
@@ -300,7 +301,7 @@ namespace KimodoBridge
             creationOrder = creationOrder,
             effectors = effectors?.Clone() ?? new KimodoConstraintEffectors(),
             rootOverride = rootOverride?.Clone() ?? KimodoRigidTransform.Identity,
-            rootOverrideAfterEffectors = rootOverrideAfterEffectors,
+            carryEffectorsWithRoot = carryEffectorsWithRoot,
             constraintMode = this.constraintMode,
             sampleTime = sampleTime
         };

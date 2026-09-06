@@ -176,6 +176,9 @@ namespace KimodoBridge.Editor
                         projected.jointPositions[i] += rootDelta;
                     }
                 }
+                Debug.Log($"[Kimodo][ConstraintExport] sampleTime={sample.sampleTime:F6}s " +
+                    $"worldRoot={sample.rootOverride?.t} trackOrigin={trackOffsetPosition} " +
+                    $"trackRoot={trackRootPosition} profileRoot={projected.profileRootPosition}");
                 return projected;
             }
             finally

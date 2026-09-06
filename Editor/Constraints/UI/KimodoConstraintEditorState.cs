@@ -74,7 +74,7 @@ namespace KimodoBridge.Editor
             SerializedProperty positionEnabled = so.FindProperty("sampleData.enableMask.rootPosition");
             SerializedProperty positionValid = so.FindProperty("sampleData.validMask.rootPosition");
             SerializedProperty headingValid = so.FindProperty("sampleData.validMask.rootHeading");
-            SerializedProperty rootOverrideAfterEffectors = so.FindProperty("sampleData.rootOverrideAfterEffectors");
+            SerializedProperty carryEffectorsWithRoot = so.FindProperty("sampleData.carryEffectorsWithRoot");
             using (new EditorGUI.DisabledScope(IsAutoSample(so)))
             {
                 if (DrawTransform(
@@ -99,13 +99,13 @@ namespace KimodoBridge.Editor
                         if (headingValid != null) headingValid.boolValue = true;
                     }
                 }
-                if (rootOverrideAfterEffectors != null)
+                if (carryEffectorsWithRoot != null)
                 {
                     EditorGUILayout.PropertyField(
-                        rootOverrideAfterEffectors,
+                        carryEffectorsWithRoot,
                         new GUIContent(
-                            "Root Override After Effectors",
-                            "Apply the complete Root override after local effector IK. The final root target wins, so effectors move with it."));
+                            "Carry Effectors With Root",
+                            "When dragging the root handle, move enabled hand and foot effectors by the same root transform delta."));
                 }
             }
             EditorGUILayout.EndVertical();
