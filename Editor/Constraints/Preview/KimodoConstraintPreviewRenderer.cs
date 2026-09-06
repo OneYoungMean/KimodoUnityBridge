@@ -176,7 +176,12 @@ namespace KimodoBridge.Editor
                             isRoot: true);
                     }
 
-                    if (entry.ConstraintMode == KimodoConstraintMode.Root2D ||
+                    bool rootOnly = entry.ConstraintMode == KimodoConstraintMode.Root2D ||
+                        string.Equals(
+                            KimodoConstraintInternal.NormalizeMode(entry.SampleData.constraintMode),
+                            "root2d",
+                            System.StringComparison.OrdinalIgnoreCase);
+                    if (rootOnly ||
                         entry.SampleData.effectors == null)
                     {
                         continue;
@@ -318,7 +323,12 @@ namespace KimodoBridge.Editor
         {
             if (entry?.SampleData?.rootOverride == null ||
                 !entry.SampleData.carryEffectorsWithRoot ||
-                entry.SampleData.effectors == null)
+                entry.SampleData.effectors == null ||
+                entry.ConstraintMode == KimodoConstraintMode.Root2D ||
+                string.Equals(
+                    KimodoConstraintInternal.NormalizeMode(entry.SampleData.constraintMode),
+                    "root2d",
+                    System.StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }

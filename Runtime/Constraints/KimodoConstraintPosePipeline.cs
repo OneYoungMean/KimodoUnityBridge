@@ -395,10 +395,20 @@ namespace KimodoBridge
                 return true;
             }
 
-            any |= job.solveLeftHand = KimodoConstraintMask.IsActive(sample, "lefthand");
-            any |= job.solveRightHand = KimodoConstraintMask.IsActive(sample, "righthand");
-            any |= job.solveLeftFoot = KimodoConstraintMask.IsActive(sample, "leftfoot");
-            any |= job.solveRightFoot = KimodoConstraintMask.IsActive(sample, "rightfoot");
+            // Root2D is a root-only constraint. Older/authored samples can
+            // still carry stale effector payloads or masks after their mode
+            // changes, so do not let those values accidentally turn Root2D
+            // into an IK solve. Other modes retain their explicit effector
+            // channel semantics.
+            bool calculateEffectors =
+                KimodoConstraintInternal.NormalizeMode(sample.constraintMode) != "root2d";
+            if (calculateEffectors)
+            {
+                any |= job.solveLeftHand = KimodoConstraintMask.IsActive(sample, "lefthand");
+                any |= job.solveRightHand = KimodoConstraintMask.IsActive(sample, "righthand");
+                any |= job.solveLeftFoot = KimodoConstraintMask.IsActive(sample, "leftfoot");
+                any |= job.solveRightFoot = KimodoConstraintMask.IsActive(sample, "rightfoot");
+            }
 
             if (KimodoConstraintMask.IsActive(sample, "rootposition") &&
                 sample.rootOverride != null)

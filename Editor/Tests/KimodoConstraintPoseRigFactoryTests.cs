@@ -208,6 +208,53 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void CarryEffectorsWithRoot_Root2DIgnoresEffectors()
+        {
+            var sample = new KimodoMarkerSampleResult
+            {
+                constraintMode = "root2d",
+                carryEffectorsWithRoot = true,
+                rootOverride = KimodoUnityBridge.KimodoRigidTransform.Identity,
+                effectors = new KimodoConstraintEffectors
+                {
+                    leftHand = new KimodoUnityBridge.KimodoRigidTransform
+                    {
+                        t = new Vector3(1f, 2f, 3f),
+                        q = Quaternion.Euler(10f, 20f, 30f)
+                    }
+                },
+                enableMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    leftHand = true
+                },
+                validMask = new KimodoConstraintMask
+                {
+                    rootPosition = true,
+                    leftHand = true
+                }
+            };
+            var entry = new ConstraintPreviewInstance
+            {
+                ConstraintMode = KimodoConstraintMode.Root2D,
+                SampleData = sample
+            };
+            Vector3 originalPosition = sample.effectors.leftHand.t;
+            Quaternion originalRotation = sample.effectors.leftHand.q;
+
+            KimodoConstraintPreviewRenderer.CarryEffectorsWithRoot(
+                entry,
+                Vector3.zero,
+                Quaternion.identity,
+                new Vector3(4f, 0f, 5f),
+                Quaternion.Euler(0f, 90f, 0f));
+
+            Assert.That(sample.effectors.leftHand.t, Is.EqualTo(originalPosition));
+            Assert.That(Quaternion.Angle(sample.effectors.leftHand.q, originalRotation), Is.LessThan(0.001f));
+            Assert.That(sample.enableMask.leftHand, Is.True);
+        }
+
+        [Test]
         public void CarryEffectorsWithRoot_DisabledLeavesTargetsUnchanged()
         {
             var sample = new KimodoMarkerSampleResult

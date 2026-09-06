@@ -137,53 +137,95 @@ namespace KimodoBridge.Editor
                         $"Constraint Character pose solve failed: {error}");
                 }
 
-                Transform hips = KimodoRetargetHumanoidPoseUtility.ResolveHumanBoneTransform(
+                // The solved character is still entirely in world space here.
+                // Converting only Hips leaves the avatar's canonical skeleton
+                // root (and therefore HumanPose.bodyPosition) in world space.
+                // Re-sampling that mixed hierarchy produces a root offset even
+                // when all joint rotations are correct. Convert every cached
+                // bone by the same rigid world -> track transform instead.
+                ConvertCharacterPoseToTrackSpace(
                     characterCache,
-                    HumanBodyBones.Hips);
-                if (hips == null)
-                {
-                    throw new InvalidOperationException(
-                        "Constraint Character pose has no Hips transform.");
-                }
-
-                KimodoTimelineTrackOffsetUtility.WorldToTrackPose(
-                    hips.position,
-                    hips.rotation,
                     trackOffsetPosition,
-                    trackOffsetRotation,
-                    out Vector3 trackRootPosition,
-                    out Quaternion trackRootRotation);
-                hips.SetPositionAndRotation(trackRootPosition, trackRootRotation);
+                    trackOffsetRotation);
 
                 if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
-                        characterCache,
-                        out MuscleSample solvedTrackPose,
-                        out error))
+                    characterCache,
+                    out MuscleSample solvedTrackPose,
+                    out error))
                 {
                     throw new InvalidOperationException(
                         $"Constraint Character pose capture failed: {error}");
                 }
 
-                KimodoConstraintProjectedPose projected = KimodoRuntimeConstraintExportProjector.ProjectSolvedMuscle(
+                // The solved MuscleSample is the single source of truth for
+                // the profile skeleton. Do not overwrite its root from a
+                // separately sampled Hips Transform after retargeting; that
+                // would insert a second root correction between muscle and
+                // bone sampling.
+                return KimodoRuntimeConstraintExportProjector.ProjectSolvedMuscle(
                     solvedTrackPose,
                     modelName);
-                Vector3 rootDelta = trackRootPosition - projected.profileRootPosition;
-                projected.profileRootPosition = trackRootPosition;
-                if (projected.jointPositions != null)
-                {
-                    for (int i = 0; i < projected.jointPositions.Length; i++)
-                    {
-                        projected.jointPositions[i] += rootDelta;
-                    }
-                }
-                Debug.Log($"[Kimodo][ConstraintExport] sampleTime={sample.sampleTime:F6}s " +
-                    $"worldRoot={sample.rootOverride?.t} trackOrigin={trackOffsetPosition} " +
-                    $"trackRoot={trackRootPosition} profileRoot={projected.profileRootPosition}");
-                return projected;
             }
             finally
             {
                 characterCache.Dispose();
+            }
+        }
+
+        private static void ConvertCharacterPoseToTrackSpace(
+            RetargetSkeleton cache,
+            Vector3 trackPosition,
+            Quaternion trackRotation)
+        {
+            if (cache?.boneTransforms == null || cache.boneTransforms.Length == 0)
+            {
+                return;
+            }
+
+            Quaternion normalizedTrackRotation = trackRotation;
+            if (normalizedTrackRotation.x * normalizedTrackRotation.x +
+                normalizedTrackRotation.y * normalizedTrackRotation.y +
+                normalizedTrackRotation.z * normalizedTrackRotation.z +
+                normalizedTrackRotation.w * normalizedTrackRotation.w <= 1e-8f)
+            {
+                normalizedTrackRotation = Quaternion.identity;
+            }
+            else
+            {
+                normalizedTrackRotation.Normalize();
+            }
+
+            Quaternion inverseTrackRotation = Quaternion.Inverse(normalizedTrackRotation);
+            int count = cache.boneTransforms.Length;
+            var worldPositions = new Vector3[count];
+            var worldRotations = new Quaternion[count];
+            var valid = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                Transform bone = cache.boneTransforms[i];
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                valid[i] = true;
+                worldPositions[i] = inverseTrackRotation * (bone.position - trackPosition);
+                worldRotations[i] = (inverseTrackRotation * bone.rotation).normalized;
+            }
+
+            // Set world poses from the captured snapshot. Applying a parent
+            // first may move its children, but each child is restored from the
+            // transformed snapshot when its turn is reached.
+            for (int i = 0; i < count; i++)
+            {
+                if (!valid[i])
+                {
+                    continue;
+                }
+
+                cache.boneTransforms[i].SetPositionAndRotation(
+                    worldPositions[i],
+                    worldRotations[i]);
             }
         }
 

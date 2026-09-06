@@ -26,12 +26,17 @@ namespace KimodoBridge
         {
             KimodoConstraintMask mask = KimodoConstraintMask.FromSample(sample);
             string mode = KimodoConstraintInternal.NormalizeMode(sample?.constraintMode);
-            bool rootOnly = (mode == "root2d" || mode == "mix") &&
-                mask.rootPosition &&
-                sample?.rootOverride != null &&
-                !mask.muscle &&
-                !mask.leftHand && !mask.rightHand &&
-                !mask.leftFoot && !mask.rightFoot;
+            // Root2D is intrinsically root-only. Ignore stale effector bits
+            // that may exist in older SampleResult data; the pose pipeline
+            // applies the same mode gate before constructing the IK job.
+            bool rootOnly = mode == "root2d"
+                ? mask.rootPosition && sample?.rootOverride != null
+                : mode == "mix" &&
+                  mask.rootPosition &&
+                  sample?.rootOverride != null &&
+                  !mask.muscle &&
+                  !mask.leftHand && !mask.rightHand &&
+                  !mask.leftFoot && !mask.rightFoot;
             if (!rootOnly && (sample?.sampleData == null || !sample.sampleData.IsValid || !mask.muscle))
             {
                 throw new InvalidOperationException("Constraint MuscleSample is invalid.");
