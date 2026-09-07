@@ -379,7 +379,12 @@ namespace KimodoUnityBridge.Command
             var result = new KimodoMarkerSampleResult
             {
                 sampleData = sample?.Clone() ?? new MuscleSample(),
-                enableMask = new KimodoConstraintMask(),
+                // A captured sample is a complete evaluated pose, not a user
+                // constraint selection. The preview pipeline gates pose
+                // application on active channels, so a captured sample must
+                // advertise its full-body payload; channel validity stays
+                // owned by validMask and CaptureWorldTargets below.
+                enableMask = hasSampleData ? KimodoConstraintMask.ForType("fullbody") : new KimodoConstraintMask(),
                 validMask = new KimodoConstraintMask
                 {
                     muscle = hasSampleData,

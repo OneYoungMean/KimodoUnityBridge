@@ -15,24 +15,27 @@ namespace KimodoUnityBridge.Command.Tests
     public sealed class AnimationAnalyzeCommandIntegrationTests
     {
         private const string PackageRoot = "Packages/com.unity.kimodo_unity_motion_tools";
-        private const string YBotPath = PackageRoot + "/Editor/Model/T-Pose.fbx";
+        private const string ModelPath = PackageRoot + "/Editor/Model/Armature.fbx";
         private const string ArcWalkPath = PackageRoot + "/Editor/Tests/Fixtures/arc_walk_left_loop.anim";
 
         [UnityTest]
         public IEnumerator AnimationAnalyze_ArcWalkFixture_WritesCompositePng()
         {
-            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(YBotPath);
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath);
             AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(ArcWalkPath);
-            Assert.That(source, Is.Not.Null, "Missing YBot T-pose fixture.");
+            Assert.That(source, Is.Not.Null, "Missing Armature fixture.");
             Assert.That(clip, Is.Not.Null, "Missing arc walk left loop fixture.");
 
             GameObject character = UnityEngine.Object.Instantiate(source);
-            character.name = "KimodoTest_YBot";
+            character.name = "KimodoTest_Armature";
             try
             {
-                Animator animator = character.GetComponentInChildren<Animator>(true);
-                Assert.That(animator, Is.Not.Null, "YBot fixture requires an Animator.");
-                Assert.That(animator.avatar, Is.Not.Null.And.Property("isHuman").True, "YBot fixture requires a Humanoid Avatar.");
+                Avatar modelAvatar = AssetDatabase.LoadAllAssetsAtPath(ModelPath)
+                    .OfType<Avatar>()
+                    .FirstOrDefault();
+                Assert.That(modelAvatar, Is.Not.Null.And.Property("isHuman").True, "Armature fixture requires a Humanoid Avatar.");
+                Animator animator = character.GetComponentInChildren<Animator>(true) ?? character.AddComponent<Animator>();
+                animator.avatar = modelAvatar;
                 animator.runtimeAnimatorController = null;
                 animator.Rebind();
 
@@ -103,24 +106,27 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [UnityTest]
-        public IEnumerator AnimationGenerate_TPoseWalkForward_WritesCompositePng()
+        public IEnumerator AnimationGenerate_ArmatureWalkForward_WritesCompositePng()
         {
-            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(YBotPath);
-            Assert.That(source, Is.Not.Null, "Missing YBot T-pose fixture.");
+            GameObject source = AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath);
+            Assert.That(source, Is.Not.Null, "Missing Armature fixture.");
 
             GameObject character = UnityEngine.Object.Instantiate(source);
-            character.name = "KimodoTest_YBot";
+            character.name = "KimodoTest_Armature";
             try
             {
-                Animator animator = character.GetComponentInChildren<Animator>(true);
-                Assert.That(animator, Is.Not.Null, "YBot fixture requires an Animator.");
-                Assert.That(animator.avatar, Is.Not.Null.And.Property("isHuman").True, "YBot fixture requires a Humanoid Avatar.");
+                Avatar modelAvatar = AssetDatabase.LoadAllAssetsAtPath(ModelPath)
+                    .OfType<Avatar>()
+                    .FirstOrDefault();
+                Assert.That(modelAvatar, Is.Not.Null.And.Property("isHuman").True, "Armature fixture requires a Humanoid Avatar.");
+                Animator animator = character.GetComponentInChildren<Animator>(true) ?? character.AddComponent<Animator>();
+                animator.avatar = modelAvatar;
                 animator.runtimeAnimatorController = null;
                 animator.Rebind();
 
                 JObject session = Require("session_get_or_create", new JObject
                 {
-                    ["name"] = "AnimationGenerate_TPoseWalkForward_" + Guid.NewGuid().ToString("N")
+                    ["name"] = "AnimationGenerate_ArmatureWalkForward_" + Guid.NewGuid().ToString("N")
                 });
                 JObject addedCharacter = Require("session_add", new JObject
                 {
@@ -131,7 +137,7 @@ namespace KimodoUnityBridge.Command.Tests
                     ["character"] = addedCharacter.Value<string>("name"),
                     ["prompt"] = "walk forward in a straight line at a natural relaxed pace",
                     ["duration_frames"] = 120,
-                    ["name"] = "Tpose_WalkForward",
+                    ["name"] = "Armature_WalkForward",
                     ["analysis_option"] = new JObject
                     {
                         ["keyframes"] = new JObject { ["enabled"] = true },
@@ -146,7 +152,7 @@ namespace KimodoUnityBridge.Command.Tests
                 string status;
                 do
                 {
-                    Assert.That(EditorApplication.timeSinceStartup, Is.LessThan(deadline), "Timed out waiting for T-pose walk-forward generation.");
+                    Assert.That(EditorApplication.timeSinceStartup, Is.LessThan(deadline), "Timed out waiting for Armature walk-forward generation.");
                     yield return null;
                     generation = Require("kimodo_get_generation", new JObject { ["request_id"] = requestId });
                     status = generation.Value<string>("status");
@@ -160,7 +166,7 @@ namespace KimodoUnityBridge.Command.Tests
                 generation = Require("kimodo_get_generation", new JObject { ["request_id"] = requestId });
                 status = generation.Value<string>("status");
 
-                Assert.That(status, Is.EqualTo("completed"), "T-pose walk-forward generation did not complete: " + generation.Value<string>("error"));
+                Assert.That(status, Is.EqualTo("completed"), "Armature walk-forward generation did not complete: " + generation.Value<string>("error"));
                 string animationName = generation.Value<string>("animation") ?? started.Value<string>("animation");
                 Assert.That(animationName, Is.Not.Null.And.Not.Empty);
 
@@ -180,7 +186,7 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(relativePng.Replace('\\', '/'), Does.StartWith("Library/KimodoData/"));
                 Assert.That(File.Exists(absolutePng), Is.True, "animation_analyze did not write its composite PNG.");
                 Assert.That(new FileInfo(absolutePng).Length, Is.GreaterThan(0));
-                Debug.Log("[Kimodo][Test] Generated T-pose walk-forward analysis screenshot: " + absolutePng);
+                Debug.Log("[Kimodo][Test] Generated Armature walk-forward analysis screenshot: " + absolutePng);
                 LogRootTrajectoryContinuity(analysis, animationName);
             }
             finally
