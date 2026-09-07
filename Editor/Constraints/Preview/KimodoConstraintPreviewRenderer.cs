@@ -879,6 +879,16 @@ namespace KimodoBridge.Editor
                         continue;
                     }
 
+                    // Transparent/additive overlays such as eye highlights
+                    // use their color property as part of the alpha/emission
+                    // setup. Overriding that property with the constraint
+                    // tint turns the overlay into an opaque white patch.
+                    if (IsTransparentPreviewMaterial(mat))
+                    {
+                        renderer.SetPropertyBlock(null, m);
+                        continue;
+                    }
+
                     if (!highlighted && colorMode == PreviewColorMode.Source)
                     {
                         renderer.SetPropertyBlock(null, m);
@@ -905,6 +915,38 @@ namespace KimodoBridge.Editor
                     renderer.SetPropertyBlock(block, m);
                 }
             }
+        }
+
+        private static bool IsTransparentPreviewMaterial(Material material)
+        {
+            if (material == null)
+            {
+                return false;
+            }
+
+            // HDRP Lit/Unlit expose _SurfaceType (0 = Opaque, 1 = Transparent).
+            if (material.HasProperty("_SurfaceType") &&
+                material.GetFloat("_SurfaceType") > 0.5f)
+            {
+                return true;
+            }
+
+            // Keep compatibility with URP/custom shaders using _Surface or a
+            // conventional RenderType tag. The render queue is a final
+            // fallback for additive overlay shaders that expose neither.
+            if (material.HasProperty("_Surface") &&
+                material.GetFloat("_Surface") > 0.5f)
+            {
+                return true;
+            }
+
+            string renderType = material.GetTag("RenderType", false, string.Empty);
+            if (string.Equals(renderType, "Transparent", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return material.renderQueue >= 3000;
         }
 
         private static Color ResolveSourceColor(Material material)
