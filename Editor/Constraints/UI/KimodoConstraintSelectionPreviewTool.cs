@@ -222,7 +222,7 @@ namespace KimodoBridge.Editor
             {
                 if (selected[i] is KimodoConstraintMarker marker &&
                     marker.ConstraintPreviewEnabled &&
-                    seen.Add(marker.GetInstanceID()))
+                    seen.Add(KimodoUnityObjectIdUtility.IdHash(marker)))
                 {
                     result.Add(marker);
                 }
@@ -249,7 +249,7 @@ namespace KimodoBridge.Editor
                 for (int markerIndex = 0; markerIndex < references.Count; markerIndex++)
                 {
                     KimodoConstraintMarker marker = references[markerIndex];
-                    if (marker != null && seen.Add(marker.GetInstanceID()))
+                    if (marker != null && seen.Add(KimodoUnityObjectIdUtility.IdHash(marker)))
                     {
                         result.Add(marker);
                     }

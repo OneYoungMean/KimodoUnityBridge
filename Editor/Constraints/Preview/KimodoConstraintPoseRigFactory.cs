@@ -72,7 +72,7 @@ namespace KimodoBridge.Editor
                         sourceAnimator,
                         resolvedSourceAvatar,
                         0,
-                        sourceAnimator.GetInstanceID(),
+                        KimodoUnityObjectIdUtility.IdHash(sourceAnimator),
                         out GameObject targetRoot,
                         out Animator targetAnimator,
                         out generatedMaterials,
