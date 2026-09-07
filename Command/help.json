@@ -195,37 +195,6 @@
       }
     },
     {
-      "name": "animation_compare",
-      "description": "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Session id; omitted uses the current Session."
-          },
-          "character": {
-            "type": "string",
-            "description": "Safe character name in the current Session."
-          },
-          "origin": {
-            "type": "object",
-            "description": "Origin animation and half-open frame range."
-          },
-          "target": {
-            "type": "object",
-            "description": "Target animation and half-open frame range."
-          }
-        },
-        "required": [
-          "character",
-          "origin",
-          "target"
-        ],
-        "additionalProperties": false
-      }
-    },
-    {
       "name": "kimodo_record_range",
       "description": "Record a Session time range into an AnimationClip and append it to the source character.",
       "inputSchema": {
@@ -712,90 +681,6 @@
         },
         "required": [
           "source"
-        ],
-        "additionalProperties": false
-      }
-    },
-    {
-      "name": "pose_contract",
-      "description": "Align a target External Pose end-effector to an origin External Pose and create a new External Pose slot.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "origin": {
-            "type": "object",
-            "description": "External Pose slot in the current Session.",
-            "additionalProperties": false,
-            "properties": {
-              "track": {
-                "type": "string"
-              },
-              "index": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "required": [
-              "track",
-              "index"
-            ]
-          },
-          "target": {
-            "type": "object",
-            "description": "External Pose slot in the current Session.",
-            "additionalProperties": false,
-            "properties": {
-              "track": {
-                "type": "string"
-              },
-              "index": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "required": [
-              "track",
-              "index"
-            ]
-          },
-          "endeffectors": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "left_hand",
-                "right_hand",
-                "left_foot",
-                "right_foot"
-              ]
-            },
-            "description": "End effectors to align."
-          },
-          "components": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "position",
-                "rotation"
-              ]
-            },
-            "description": "Components to align."
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "align_target_root",
-              "least_squares_root_fit"
-            ]
-          }
-        },
-        "required": [
-          "origin",
-          "target",
-          "endeffectors",
-          "components",
-          "mode"
         ],
         "additionalProperties": false
       }

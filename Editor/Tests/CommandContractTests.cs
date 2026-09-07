@@ -112,7 +112,6 @@ namespace KimodoUnityBridge.Command.Tests
             AssertFailure(command_kimodo.InstallServer("{"), "invalid_argument");
             AssertFailure(command_kimodo.GenerateAnimation("{"), "invalid_argument");
             AssertFailure(command_kimodo.Analyze("{"), "invalid_argument");
-            AssertFailure(command_kimodo.Compare("{"), "invalid_argument");
             AssertFailure(command_kimodo.RecordRange("{"), "invalid_argument");
             AssertFailure(command_kimodo.RetargetAnimation("{"), "invalid_argument");
             AssertFailure(command_kimodo.GetGeneration("{"), "invalid_argument");

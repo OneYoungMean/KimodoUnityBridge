@@ -156,7 +156,7 @@ if request_names_one_or_more_actions():
 
 匹配到已有动画后，必须先使用 analysis 返回的 `motion_profile` 判断循环、路径和
 heading，再决定是否覆盖。关键帧列表用于动作阶段、采样帧和验证证据；默认不调用
-`pose_get`、`pose_set` 或 `pose_contract`，也不创建/修改 Pose 资产。轨迹直接复用
+`pose_get` 或 `pose_set`，也不创建/修改 Pose 资产。轨迹直接复用
 `root_trajectory.path`，明确方向使用 PathAngle 起止角度。只有用户明确要求编辑 Pose，
 并确认接受 rig/Humanoid 映射副作用时，才允许启用 `ALLOW_DIRECT_POSE_EDIT=YES`。若没有匹配动画，
 报告未找到上下文后再按动作语义推断：向前为 PathAngle 起止 `0°`，左转终点

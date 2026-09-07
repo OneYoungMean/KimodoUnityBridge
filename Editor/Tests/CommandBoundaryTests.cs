@@ -40,8 +40,8 @@ namespace KimodoUnityBridge.Command.Tests
                 "kimodo_help", "kimodo_install_server",
                 "session_get_or_create", "session_get_raw", "session_add", "session_close",
                 "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
-                "animation_analyze", "animation_compare",
-                "pose_get", "pose_contract", "pose_set_root_transform", "pose_set_muscle",
+                "animation_analyze",
+                "pose_get", "pose_set_root_transform", "pose_set_muscle",
                 "kimodo_record_range", "kimodo_retarget_animation"
             }, definitions["tools"].Values<JObject>().Select(tool => tool.Value<string>("name")));
         }
@@ -53,6 +53,8 @@ namespace KimodoUnityBridge.Command.Tests
             AssertFailure(command_dispatcher.Invoke("does_not_exist", "{}"), "unknown_command");
             AssertFailure(command_dispatcher.Invoke("pose_copy", "{}"), "unknown_command");
             AssertFailure(command_dispatcher.Invoke("pose_create_path", "{}"), "unknown_command");
+            AssertFailure(command_dispatcher.Invoke("animation_compare", "{}"), "unknown_command");
+            AssertFailure(command_dispatcher.Invoke("pose_contract", "{}"), "unknown_command");
         }
 
         [Test]

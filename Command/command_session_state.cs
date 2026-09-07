@@ -975,121 +975,6 @@ namespace KimodoUnityBridge.Command
             throw new InvalidOperationException($"Retarget non-muscle clip '{source.name}' failed: {error}");
         }
 
-        public static string AnimationCompare(string argumentsJson)
-        {
-            return Execute(argumentsJson, arguments =>
-            {
-                TimelineSessionRecord session = RequireTimelineSession(arguments);
-                TimelineCharacterRecord character = ResolveCurrentSessionCharacter(arguments);
-                AnimationRange origin = ResolveAnimationRange(arguments["origin"] as JObject, character, "origin");
-                AnimationRange target = ResolveAnimationRange(arguments["target"] as JObject, character, "target");
-                KimodoMarkerSampleResult originPose = CaptureSampleResult(character, origin.EndFrameExclusive - 1);
-                KimodoMarkerSampleResult targetPose = CaptureSampleResult(character, target.StartFrame);
-                KimodoMotionMath.PoseDelta poseDelta = ComputePoseMotionDelta(originPose, targetPose);
-                var endEffectorDeltas = new JObject();
-                string recommended = "left_foot";
-                float smallest = float.MaxValue;
-                foreach (string endEffector in new[] { "left_hand", "right_hand", "left_foot", "right_foot" })
-                {
-                    KimodoRigidTransform originTransform = GetEndEffector(originPose, endEffector);
-                    KimodoRigidTransform targetTransform = GetEndEffector(targetPose, endEffector);
-                    Vector3 delta = targetTransform.t - originTransform.t;
-                    float distance = delta.magnitude;
-                    if (distance < smallest)
-                    {
-                        smallest = distance;
-                        recommended = endEffector;
-                    }
-                    endEffectorDeltas[endEffector] = new JObject
-                    {
-                        ["position"] = new JArray(delta.x, delta.y, delta.z),
-                        ["distance"] = distance
-                    };
-                }
-                return Ok(new JObject
-                {
-                    ["direct_concat"] = new JObject
-                    {
-                        ["recommended"] = false,
-                        ["reason"] = "Foot-contact comparison is not available in the current QuickServer analysis contract."
-                    },
-                    ["root_delta"] = new JObject
-                    {
-                        ["position"] = new JArray(
-                            poseDelta.RootPositionDelta.x,
-                            poseDelta.RootPositionDelta.y,
-                            poseDelta.RootPositionDelta.z),
-                        ["rotation_euler_degrees"] = new JArray(
-                            poseDelta.RootPitchDeltaDegrees,
-                            poseDelta.RootYawDeltaDegrees,
-                            poseDelta.RootRollDeltaDegrees),
-                        ["rotation_degrees"] = poseDelta.RootRotationDeltaDegrees
-                    },
-                    ["pose_delta"] = new JObject
-                    {
-                        ["mean_muscle_delta"] = poseDelta.MeanBodyMuscleDelta,
-                        ["root_height_delta"] = poseDelta.RootHeightDelta,
-                        ["root_pitch_delta_degrees"] = poseDelta.RootPitchDeltaDegrees,
-                        ["root_roll_delta_degrees"] = poseDelta.RootRollDeltaDegrees
-                    },
-                    ["end_effector_delta"] = endEffectorDeltas,
-                    ["contacts"] = new JObject
-                    {
-                        ["origin"] = new JObject(),
-                        ["target"] = new JObject(),
-                        ["compatible_support"] = false
-                    },
-                    ["trajectory_delta"] = new JObject
-                    {
-                        ["root_position"] = new JArray(
-                            poseDelta.RootPositionDelta.x,
-                            poseDelta.RootPositionDelta.y,
-                            poseDelta.RootPositionDelta.z)
-                    },
-                    ["recommended_contract"] = new JObject
-                    {
-                        ["endeffectors"] = new JArray(recommended),
-                        ["mode"] = "align_target_root"
-                    }
-                });
-            });
-        }
-
-        private static AnimationRange ResolveAnimationRange(JObject value, TimelineCharacterRecord character, string name)
-        {
-            if (value == null) throw new InvalidOperationException($"{name} must be an object.");
-            TimelineAnimationRecord animation = ResolveAnimation(new JObject { ["animation"] = RequiredStringValue(value, "animation") }, character);
-            JArray range = value["range"] as JArray;
-            if (range == null || range.Count != 2 || range[0]?.Type != JTokenType.Integer || range[1]?.Type != JTokenType.Integer)
-            {
-                throw new InvalidOperationException($"{name}.range must be [start_frame,end_frame_exclusive].");
-            }
-            int localStart = range[0].Value<int>();
-            int localEnd = range[1].Value<int>();
-            int duration = animation.TimelineClip != null
-                ? Math.Max(1, Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)))
-                : Math.Max(1, animation.EndFrameExclusive - animation.StartFrame);
-            if (localStart < 0 || localEnd <= localStart || localEnd > duration)
-            {
-                throw new InvalidOperationException($"{name}.range must be within the animation's [0,{duration}) frame range.");
-            }
-            int clipStart = animation.TimelineClip != null
-                ? Mathf.RoundToInt((float)(animation.TimelineStartSeconds * SessionFrameRate))
-                : animation.StartFrame;
-            return new AnimationRange(clipStart + localStart, clipStart + localEnd);
-        }
-
-        private readonly struct AnimationRange
-        {
-            public AnimationRange(int startFrame, int endFrameExclusive)
-            {
-                StartFrame = startFrame;
-                EndFrameExclusive = endFrameExclusive;
-            }
-            public int StartFrame { get; }
-            public int EndFrameExclusive { get; }
-        }
-
         public static string AnimationAnalyze(string argumentsJson)
         {
             return Execute(argumentsJson, arguments =>
@@ -1562,7 +1447,7 @@ namespace KimodoUnityBridge.Command
             WriteJsonAtomically(AnalysisCachePath(session, record.Id), record.ToJson());
         }
 
-        // Shared by animation_compare and automatic analysis endpoint checks.
+        // Shared by automatic analysis endpoint checks.
         // The common math keeps body, root height and root rotation observable.
         private static KimodoMotionMath.PoseDelta ComputePoseMotionDelta(
             KimodoMarkerSampleResult origin,

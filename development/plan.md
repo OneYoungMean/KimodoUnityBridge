@@ -34,9 +34,8 @@
 ## 当前产品边界
 
 - `session_add(kind:"character")` 和 `animation_analyze` 支持可渲染 Mesh 的分析路径。
-- 生成、Pose 采样和 `animation_compare` 仍要求有效 Humanoid Avatar。
+- 生成和 Pose 采样仍要求有效 Humanoid Avatar。
 - 已完成 Session Clip 不可变；修正、Record、Retarget 和生成都会追加派生 Clip。
-- `animation_compare` 只比较显式区间的结构化差异，不等同于语义识别或质量评分。
 - 静态图片不能单独证明播放连续性、滑步、跳变、加速度或速度连续性。
 - Foot IK、Raycast 或其他外部工作流只有在公开命令和项目资产实际支持时才能写成已实现能力。
 

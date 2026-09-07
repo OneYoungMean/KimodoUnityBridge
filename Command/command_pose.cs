@@ -144,93 +144,6 @@ namespace KimodoUnityBridge.Command
             });
         });
 
-        public static string PoseContract(string argumentsJson) => Execute(argumentsJson, arguments =>
-        {
-            TimelineSessionRecord session = RequireCurrentTimelineSession();
-            PoseReference originReference = RequirePoseReference(arguments["origin"] as JObject);
-            PoseReference targetReference = RequirePoseReference(arguments["target"] as JObject);
-            string mode = RequiredStringValue(arguments, "mode");
-            if (mode != "align_target_root" && mode != "least_squares_root_fit")
-            {
-                throw new InvalidOperationException("mode must be align_target_root or least_squares_root_fit.");
-            }
-            string[] endEffectors = RequiredStringArray(arguments, "endeffectors", "left_hand", "right_hand", "left_foot", "right_foot");
-            string[] components = RequiredStringArray(arguments, "components", "position", "rotation");
-            KimodoMarkerSampleResult origin = ReadPoseSample(originReference, PoseContractCommand);
-            KimodoMarkerSampleResult target = ReadPoseSample(targetReference, PoseContractCommand);
-            RequirePoseMarker(targetReference, out TimelineCharacterRecord targetCharacter);
-
-            Vector3 positionDelta = Vector3.zero;
-            Quaternion rotationDelta = Quaternion.identity;
-            int count = 0;
-            foreach (string endEffector in endEffectors)
-            {
-                KimodoRigidTransform originTransform = GetEndEffector(origin, endEffector);
-                KimodoRigidTransform targetTransform = GetEndEffector(target, endEffector);
-                if (components.Contains("position"))
-                {
-                    positionDelta += originTransform.t - targetTransform.t;
-                }
-                if (components.Contains("rotation"))
-                {
-                    Quaternion delta = originTransform.q * Quaternion.Inverse(targetTransform.q);
-                    rotationDelta = count == 0 ? delta : Quaternion.Slerp(rotationDelta, delta, 1f / (count + 1));
-                }
-                count++;
-            }
-            if (count == 0)
-            {
-                throw new InvalidOperationException("endeffectors must contain at least one item.");
-            }
-            if (components.Contains("position")) positionDelta /= count;
-            KimodoMarkerSampleResult contracted = target.Clone();
-            GetRootTransform(contracted, out Vector3 contractedRootPosition, out Quaternion contractedRootRotation);
-            if (components.Contains("position")) contractedRootPosition += positionDelta;
-            if (components.Contains("rotation")) contractedRootRotation = (rotationDelta * contractedRootRotation).normalized;
-            if (contracted.validMask?.rootPosition == true && contracted.rootOverride != null)
-            {
-                contracted.rootOverride.t = contractedRootPosition;
-                contracted.rootOverride.q = contractedRootRotation;
-            }
-            else
-            {
-                contracted.sampleData.SetRoot(contractedRootPosition, contractedRootRotation);
-            }
-
-            int index = AllocatePoseIndex(targetCharacter.PoseCacheTrack);
-            KimodoConstraintMarker marker = StoreExternalPose(targetCharacter, index, contracted);
-            float residual = 0f;
-            if (components.Contains("position"))
-            {
-                foreach (string endEffector in endEffectors)
-                {
-                    Vector3 originPosition = GetEndEffector(origin, endEffector).t;
-                    Vector3 targetPosition = GetEndEffector(contracted, endEffector).t;
-                    residual += Vector3.Distance(originPosition, targetPosition);
-                }
-                residual /= count;
-            }
-            SaveTimelineSession(session);
-            return Ok(new JObject
-            {
-                ["pose"] = PoseReferenceJson(targetCharacter.PoseCacheTrack.name, index),
-                ["root_delta"] = new JObject
-                {
-                    ["position"] = new JArray(positionDelta.x, positionDelta.y, positionDelta.z),
-                    ["yaw_degrees"] = components.Contains("rotation") ? rotationDelta.eulerAngles.y : 0f
-                },
-                ["residual_error"] = residual,
-                ["constraint"] = new JObject
-                {
-                    ["origin"] = PoseReferenceJson(originReference.Track, originReference.Index),
-                    ["target"] = PoseReferenceJson(targetReference.Track, targetReference.Index),
-                    ["endeffectors"] = new JArray(endEffectors),
-                    ["components"] = new JArray(components),
-                    ["mode"] = mode
-                }
-            });
-        });
-
         private static KimodoMarkerSampleResult ReadPoseSample(
             PoseReference reference,
             string command = GenerateAnimationCommand)
@@ -750,25 +663,6 @@ namespace KimodoUnityBridge.Command
                 }
             }
             throw new InvalidOperationException($"Unknown canonical muscle '{name}'.");
-        }
-
-        private static string[] RequiredStringArray(JObject arguments, string name, params string[] allowed)
-        {
-            if (arguments?[name] is not JArray array || array.Count == 0)
-            {
-                throw new InvalidOperationException($"{name} must be a non-empty array.");
-            }
-            var values = new List<string>();
-            foreach (JToken item in array)
-            {
-                string value = item.Value<string>()?.Trim();
-                if (string.IsNullOrWhiteSpace(value) || !allowed.Contains(value, StringComparer.Ordinal))
-                {
-                    throw new InvalidOperationException($"{name} contains an unsupported value.");
-                }
-                if (!values.Contains(value, StringComparer.Ordinal)) values.Add(value);
-            }
-            return values.ToArray();
         }
 
         private static KimodoRigidTransform GetEndEffector(

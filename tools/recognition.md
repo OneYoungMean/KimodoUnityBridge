@@ -10,6 +10,169 @@ opens the returned composite image, and returns one semantic choice plus a
 machine-readable motion profile. Never infer semantics from an asset filename,
 candidate order, clip id, or saliency alone.
 
+## Fixed recognition program / 固定识别程序
+
+Recognition uses a closed task set. The caller supplies the semantic alternatives;
+the recognizer may not invent another task, label, threshold, or quality score.
+Every task returns `value`, `confidence`, and `evidence`. Missing, unreadable, or
+conflicting evidence is `UNKNOWN` (or `CONFLICT`); low-confidence guesses must
+never be promoted to a positive result.
+
+```pseudo
+#define YES             1
+#define NO              0
+#define UNKNOWN        -1
+#define CONFLICT       -2
+#define NOT_APPLICABLE -3
+
+#define CONF_HIGH       "high"
+#define CONF_MEDIUM     "medium"
+#define CONF_LOW        "low"
+
+VISUAL_TASKS = [
+    "trajectory_shape",
+    "action_semantics",
+    "visual_motion_quality",
+    "contact_pattern"
+]
+
+STRUCTURED_TASKS = [
+    "loop_endpoint",
+    "keyframe_heading",
+    "trajectory_turn",
+    "trajectory_length"
+]
+
+ALLOWED_TRAJECTORY_SHAPE = ["closed_loop", "open_path", "near_static", "unclear"]
+ALLOWED_MOTION_QUALITY   = ["smooth_appearance", "visible_break", "unclear"]
+ALLOWED_CONTACT_PATTERN  = ["alternating", "left_dominant", "right_dominant", "unclear"]
+ALLOWED_LOOP_ENDPOINT    = ["candidate", "not_candidate", "unknown"]
+ALLOWED_KEYFRAME_HEADING = ["consistent", "inconsistent", "unknown"]
+
+function recognize_clip(analysis, semantic_alternatives, clip_index = 0):
+    image = analysis.pictures.image_path
+    picture_map = tiles_for_clip(analysis.pictures.images, clip_index)
+    ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image) == YES
+
+    result = {}
+    for TASK in VISUAL_TASKS:
+        if TASK == "action_semantics" and semantic_alternatives is empty:
+            result[TASK] = task_result(NOT_APPLICABLE, CONF_HIGH, [])
+        else:
+            result[TASK] = run_visual_task(
+                TASK, image, picture_map, analysis, semantic_alternatives
+            )
+
+    for TASK in STRUCTURED_TASKS:
+        result[TASK] = run_structured_task(TASK, analysis.clips[clip_index])
+
+    return finalize_recognition(result)
+
+function run_structured_task(TASK, clip_analysis):
+    profile = clip_analysis.motion_profile
+
+    if TASK == "loop_endpoint":
+        return structured_value(
+            profile.is_loop_candidate,
+            true  => "candidate",
+            false => "not_candidate"
+        )
+    if TASK == "keyframe_heading":
+        return structured_value(
+            profile.heading_consistent,
+            true  => "consistent",
+            false => "inconsistent"
+        )
+    if TASK == "trajectory_turn":
+        return numeric_value(profile.heading_change_degrees)
+    if TASK == "trajectory_length":
+        return numeric_value(profile.path_length_xz)
+
+    return task_result(UNKNOWN, CONF_LOW, [])
+
+function finalize_recognition(result):
+    required = [
+        "trajectory_shape",
+        "visual_motion_quality",
+        "loop_endpoint",
+        "keyframe_heading",
+        "trajectory_turn",
+        "trajectory_length"
+    ]
+    if result["action_semantics"].value != NOT_APPLICABLE:
+        required.append("action_semantics")
+
+    if any(result[T].value in [UNKNOWN, "unknown", "unclear", CONFLICT]
+           for T in required):
+        status = "not_verified"
+    elif any(result[T].confidence == CONF_LOW for T in required):
+        status = "needs_review"
+    else:
+        status = "verified"
+
+    return {
+        "status": status,
+        "analysis_handoff": result
+    }
+```
+
+### Recognition prompt / 识别提示词
+
+The following prompt is the only visual-task instruction. Substitute one `TASK`
+per call; do not ask the model to solve several tasks in one free-form answer.
+
+```text
+You are a constrained animation-evidence recognizer.
+
+Inputs:
+- TASK: exactly one task from the fixed task list;
+- composite_image: the opened animation_analyze composite image;
+- picture_map: tile id, rect, presentation, and frames;
+- analysis_json: the returned structured analysis;
+- semantic_alternatives: the caller-provided alternatives, if any.
+
+Rules:
+1. Locate the relevant tile from picture_map before reading the image.
+2. Report visible facts only. Do not use filenames, clip names, candidate order,
+   common-sense expectations, or unstated thresholds.
+3. Tile ids and frame numbers printed in the image are secondary labels. Use
+   picture_map and analysis_json for exact ids and frames.
+4. A static image cannot prove playback continuity, velocity, acceleration,
+   sliding, or popping. For those claims return UNKNOWN.
+5. If the image is unreadable or evidence is missing, return unknown. If image
+   and JSON conflict, return unknown and state `CONFLICT` in reason. Never
+   resolve a conflict by guessing.
+6. Return only an allowed value for TASK. Do not create synonyms or extra fields.
+7. confidence is high only when the requested fact is directly visible or comes
+   from the named structured field; otherwise use medium or low.
+
+TASK definitions:
+- trajectory_shape: inspect root2d_pelvis_projection only; return closed_loop,
+  open_path, near_static, or unclear.
+- action_semantics: use only semantic_alternatives and inspect keyframes,
+  foot_transitions, and test_pose tiles; if alternatives cannot be separated,
+  return unknown.
+- visual_motion_quality: report smooth_appearance only for an unbroken visible
+  drawing; report visible_break for an explicit visual discontinuity; otherwise
+  unclear. Do not call this playback smoothness.
+- contact_pattern: inspect foot_transitions; blue is left-foot and red is
+  right-foot event. Return alternating, left_dominant, right_dominant, or unclear.
+
+Return strict JSON and nothing else:
+{
+  "task": "<TASK>",
+  "value": "<allowed value>",
+  "confidence": "high|medium|low",
+  "evidence": [{
+    "tile_id": "<id>",
+    "presentation": "<presentation>",
+    "frame": "<frame or null>",
+    "observation": "<one visible fact>"
+  }],
+  "reason": "<one short sentence>"
+}
+```
+
 ## Semantic identification
 
 When a caller supplies semantic alternatives, compare them against the opened
@@ -34,17 +197,14 @@ function identify_semantics(alternatives, character_ref, clip_ref):
     picture_map = analysis.pictures.images
     ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image_path) == YES
 
-    observations = inspect_temporal_tiles(
-        image_path,
-        picture_map,
-        structured_support = analysis.clips[0]
-    )
-    choice = choose_semantic(alternatives, observations)
-    profile = derive_motion_profile(analysis.clips[0], observations)
+    recognition = recognize_clip(analysis, alternatives, clip_index = 0)
+    choice = recognition.analysis_handoff.action_semantics
+    profile = analysis.clips[0].motion_profile
     return {
-        semantic: choice.semantic,
+        status: recognition.status,
+        semantic: choice.value,
         profile: profile,
-        evidence: observations,
+        evidence: recognition.analysis_handoff,
         confidence: choice.confidence
     }
 ```

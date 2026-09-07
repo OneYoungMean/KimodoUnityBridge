@@ -79,35 +79,25 @@ function compare(candidate_1, candidate_2):
         mapping_is_unambiguous(candidate_1_tiles, candidate_2_tiles)
     VISUAL_OPENED = OPEN_WITH_AVAILABLE_VISUAL_TOOL(image_path)
 
+    candidate_1_recognition = recognize_clip(
+        analysis, TARGET_SEMANTICS, clip_index = 0
+    )
+    candidate_2_recognition = recognize_clip(
+        analysis, TARGET_SEMANTICS, clip_index = 1
+    )
+
     supplemental_numeric_evidence = NOT_APPLICABLE
-    if RANGE_OR_TRANSITION_REQUIRED == YES:
-        if candidate_1.character != candidate_2.character:
-            return comparison_report(RESULT_INSUFFICIENT_EVIDENCE, [])
-        ASSERT request explicitly supplies both half-open local frame ranges
-        supplemental_numeric_evidence = animation_compare({
-            session_id: session_id,
-            character: candidate_1.character,
-            origin: {
-                animation: candidate_1.clip,
-                range: [
-                    candidate_1.start_frame,
-                    candidate_1.end_frame_exclusive
-                ]
-            },
-            target: {
-                animation: candidate_2.clip,
-                range: [
-                    candidate_2.start_frame,
-                    candidate_2.end_frame_exclusive
-                ]
-            }
-        })
 
     COMPARISON_PROMPT = """
     Compare candidate 1 and candidate 2 for: {COMPARISON_GOAL}.
     Target semantics, if supplied: {TARGET_SEMANTICS}.
 
-    Apply identical evidence conditions. Inspect both returned visuals.
+    Apply identical evidence conditions. Inspect both returned visuals through
+    the fixed recognition task set. Use each candidate's analysis_handoff for
+    trajectory shape, semantics, visual quality, contacts, loop endpoint,
+    keyframe heading, turn, and path length. Do not invent a task, threshold,
+    score, or synonym. If a required handoff value is UNKNOWN or CONFLICT,
+    leave that criterion UNKNOWN.
     Fill each required *_WINNER with CANDIDATE_1, CANDIDATE_2, TIE, or UNKNOWN.
     Use structured and optional range evidence only as support. Do not calculate
     OVERALL_WINNER by score, vote, magnitude, displacement, contact count,
@@ -125,7 +115,11 @@ function compare(candidate_1, candidate_2):
         composite_visual = image_path,
         candidate_1_tiles = candidate_1_tiles,
         candidate_2_tiles = candidate_2_tiles,
-        structured_evidence = analysis,
+        structured_evidence = {
+            "analysis": analysis,
+            "candidate_1_recognition": candidate_1_recognition,
+            "candidate_2_recognition": candidate_2_recognition
+        },
         supplemental_evidence = supplemental_numeric_evidence
     )
 
@@ -192,6 +186,10 @@ function comparison_report(result, comparison_observations):
         overall_winner: OVERALL_WINNER,
         criterion_winners: required_criterion_winners(),
         evidence: concise_differences_by_criterion(comparison_observations),
+        analysis_handoff: {
+            candidate_1: candidate_1_recognition.analysis_handoff,
+            candidate_2: candidate_2_recognition.analysis_handoff
+        },
         unverified: criteria_with_UNKNOWN_evidence()
     }
 

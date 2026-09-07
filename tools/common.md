@@ -26,6 +26,37 @@ description: Shared execution contract for all Kimodo capability tools.
 - 静态图片不能证明播放连续性、滑步、跳变、加速度或速度连续性。
 - 必要证据缺失时返回 `not_verified` 或 `insufficient_evidence`，不得猜测为通过。
 
+### Analysis handoff / 分析交接边界
+
+`animation_analyze` 的证据交给下一个环节时，必须分成两类，不能互相替代：
+
+- **图像识别**：`trajectory_shape`、`action_semantics`、
+  `visual_motion_quality`、`contact_pattern`。每项必须实际打开对应 tile，
+  并返回 `value`、`confidence`、`evidence`。
+- **结构化分析**：`loop_endpoint`、`keyframe_heading`、
+  `trajectory_turn`、`trajectory_length`。数值和布尔值只能读取返回的
+  `motion_profile`，不能从像素估算；字段缺失时返回 `UNKNOWN`。
+
+没有时间序列或播放采样时，`playback_continuity`、`velocity_smoothness`、
+`acceleration_quality` 固定为 `UNKNOWN`。`confidence` 是证据可靠度，不是
+动作质量分数；任何必需项为 `UNKNOWN`、`CONFLICT` 或低置信度时，交接状态不得
+报告为 `verified`。
+
+交接结果的最小外壳为：
+
+```json
+{
+  "status": "verified|needs_review|not_verified",
+  "analysis_handoff": {
+    "<task>": {
+      "value": "<fixed enum or number>",
+      "confidence": "high|medium|low",
+      "evidence": ["<tile id or structured field>"]
+    }
+  }
+}
+```
+
 ## Async tasks
 
 - `kimodo_install_server` 与 `kimodo_generate_animation` 都返回 `request_id`；保存它并按固定间隔轮询 `kimodo_get_generation`。

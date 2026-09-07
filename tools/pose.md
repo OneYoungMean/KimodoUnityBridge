@@ -5,7 +5,7 @@ description: Create and edit External Pose slots for explicit Humanoid pose cons
 
 # Pose tool / Pose 工具
 
-负责 `pose_get`、`pose_contract`、`pose_set_root_transform` 和 `pose_set_muscle`。
+负责 `pose_get`、`pose_set_root_transform` 和 `pose_set_muscle`。
 
 - 仅对当前 Session 中明确指定的 Humanoid Clip 采样。
 - 只复用运行时返回的 `{track,index}` Pose 引用。

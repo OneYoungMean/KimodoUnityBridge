@@ -27,11 +27,9 @@ namespace KimodoUnityBridge.Command
         public const string SessionCloseCommand = "session_close";
         public const string SessionAddCommand = "session_add";
         public const string AnimationAnalyzeCommand = "animation_analyze";
-        public const string AnimationCompareCommand = "animation_compare";
         public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
-        public const string PoseContractCommand = "pose_contract";
         public const string PoseSetRootTransformCommand = "pose_set_root_transform";
         public const string PoseSetMuscleCommand = "pose_set_muscle";
         public const string GetGenerationCommand = "kimodo_get_generation";
@@ -111,13 +109,6 @@ namespace KimodoUnityBridge.Command
                                 ["maximum"] = 4096,
                                 ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
                             }, false))),
-                    CommandDefinition(AnimationCompareCommand,
-                        "Compare two animation ranges or transition-like clip ranges without modifying the Session.",
-                        Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Required("character", "string", "Safe character name in the current Session."),
-                            Required("origin", "object", "Origin animation and half-open frame range."),
-                            Required("target", "object", "Target animation and half-open frame range."))),
                     CommandDefinition(RecordRangeCommand,
                         "Record a Session time range into an AnimationClip and append it to the source character.",
                         Properties(
@@ -162,14 +153,6 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
-                    CommandDefinition(PoseContractCommand,
-                        "Align a target External Pose end-effector to an origin External Pose and create a new External Pose slot.",
-                        Properties(
-                            RequiredPoseReference("origin"),
-                            RequiredPoseReference("target"),
-                            RequiredEnumArray("endeffectors", "End effectors to align.", "left_hand", "right_hand", "left_foot", "right_foot"),
-                            RequiredEnumArray("components", "Components to align.", "position", "rotation"),
-                            RequiredEnum("mode", "align_target_root", "least_squares_root_fit"))),
                     CommandDefinition(PoseSetRootTransformCommand,
                         "Modify the root transform of an External Pose slot.",
                         Properties(
@@ -274,7 +257,7 @@ namespace KimodoUnityBridge.Command
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
-                        Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle / pose_contract"),
+                        Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle"),
                         Route("obtain a reusable root trajectory", AnimationAnalyzeCommand, "then reference root_trajectory.path from a generation root_path constraint"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
