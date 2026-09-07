@@ -1226,8 +1226,18 @@ namespace KimodoBridge.Editor
             float frameRate)
         {
             var frames = new List<int>();
-            JArray keyframes = analysis?["keyframes"] as JArray;
-            if (keyframes != null)
+            JArray keyframes = analysis?["phase_track"] as JArray;
+            bool phaseTrack = keyframes != null;
+            if (phaseTrack)
+            {
+                foreach (JObject phase in keyframes.OfType<JObject>())
+                {
+                    int frame = Mathf.Clamp(phase.Value<int?>("anchor_frame") ?? 0, 0, Mathf.Max(0, frameCount - 1));
+                    if (!frames.Contains(frame)) frames.Add(frame);
+                }
+            }
+            if (!phaseTrack) keyframes = analysis?["keyframes"] as JArray;
+            if (!phaseTrack && keyframes != null)
             {
                 foreach (JObject keyframe in keyframes.OfType<JObject>())
                 {

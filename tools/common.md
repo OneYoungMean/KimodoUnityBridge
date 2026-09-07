@@ -35,12 +35,29 @@ description: Shared execution contract for all Kimodo capability tools.
   并返回 `value`、`confidence`、`evidence`。
 - **结构化分析**：`loop_endpoint`、`keyframe_heading`、
   `trajectory_turn`、`trajectory_length`。数值和布尔值只能读取返回的
-  `motion_profile`，不能从像素估算；字段缺失时返回 `UNKNOWN`。
+  `motion_profile`（`phase_anchor_heading_consistent` 优先），不能从像素估算；字段缺失时返回 `UNKNOWN`。
 
 没有时间序列或播放采样时，`playback_continuity`、`velocity_smoothness`、
 `acceleration_quality` 固定为 `UNKNOWN`。`confidence` 是证据可靠度，不是
 动作质量分数；任何必需项为 `UNKNOWN`、`CONFLICT` 或低置信度时，交接状态不得
 报告为 `verified`。
+
+### Phase track / 连续阶段轨道
+
+Humanoid analysis 使用破坏性的新契约 `analysis_schema_version=2-phase-track-v1`
+与 `phase_track_version=1-temporal-cluster-v1`。图片同时返回
+`pictures.render_version`；识别/比较必须记录并校验这些版本，版本不匹配时返回
+`UNKNOWN` 并要求更新提示词。旧的均分关键帧
+列表不再是阶段证据；`phase_track` 是唯一阶段来源。每项必须覆盖连续帧区间，
+区间首尾相接、无重叠、无空洞，并包含：`start_frame`、`end_frame`、
+`duration_frames`、`duration_seconds`、`anchor_frame`、`kind` 和 `confidence`。
+`kind` 只能是 `phase` 或 `transition`；聚类器不得直接命名 `walk`、`wave` 等语义。
+Mesh analysis 对该字段返回 `NOT_APPLICABLE`。
+
+比较多个目标语义时，按用户给出的优先级计算时长先验：第 `i` 个语义的权重为
+`w_i = 1/(i*i)`，目标占比为 `p_i = w_i / sum(w_j)`。比较使用实际阶段覆盖
+时长与该先验的偏差；不把权重相加做总质量分数。允许语义覆盖重叠（例如边走边挥手），
+但 `idle`/站立背景阶段的总覆盖不得超过 50%，除非请求明确要求长时间 idle。
 
 交接结果的最小外壳为：
 

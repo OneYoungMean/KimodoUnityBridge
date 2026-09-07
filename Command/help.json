@@ -135,7 +135,7 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, vertical motion, root pitch/roll samples, distance/speed/heading metrics, source human scale, endpoint_pose_comparison (body muscles plus complete root position/rotation), and motion_profile (loop/path/heading/vertical/tilt evidence plus deferred override decisions); the path is stored on the Pose Cache Track for reuse. Root2D is a planar XZ/heading override and never suppresses sampled Y, pitch, or roll. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Humanoid results use analysis_schema_version=2-phase-track-v1 and phase_track_version=1-temporal-cluster-v1: contiguous, non-overlapping temporal phase/transition intervals with anchor frames replace uniform keyframe sampling. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Mesh-only results return phase_track=NOT_APPLICABLE and omit Humanoid trajectory/contact data. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -341,7 +341,7 @@
           },
           "analysis_option": {
             "type": "object",
-            "description": "Optional analysis object; set keyframes.enabled=true and keyframes.max_count (or keyframe_count) to control keyframe sampling."
+            "description": "Optional analysis object for phase-track analysis. Legacy uniform keyframe_count/max_count controls are removed; Humanoid phase_track intervals and anchors are produced by the analyzer."
           },
           "path_begin_angle_degrees": {
             "type": "number",

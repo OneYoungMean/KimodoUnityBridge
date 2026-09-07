@@ -97,7 +97,7 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Each Humanoid clips[] result includes root_trajectory.path plus clip-start-local Root XZ, heading, vertical motion, root pitch/roll samples, distance/speed/heading metrics, source human scale, endpoint_pose_comparison (body muscles plus complete root position/rotation), and motion_profile (loop/path/heading/vertical/tilt evidence plus deferred override decisions); the path is stored on the Pose Cache Track for reuse. Root2D is a planar XZ/heading override and never suppresses sampled Y, pitch, or roll. Mesh-only results omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Humanoid results use analysis_schema_version=2-phase-track-v1 and phase_track_version=1-temporal-cluster-v1: contiguous, non-overlapping temporal phase/transition intervals with anchor frames replace uniform keyframe sampling. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Mesh-only results return phase_track=NOT_APPLICABLE and omit Humanoid trajectory/contact data. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
@@ -143,7 +143,7 @@ namespace KimodoUnityBridge.Command
                             Enum("output_mode", "humanoid_muscle", "character_bone", "model_bone"),
                             Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
                             Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
-                            Optional("analysis_option", "object", "Optional analysis object; set keyframes.enabled=true and keyframes.max_count (or keyframe_count) to control keyframe sampling."),
+                            Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
                             Optional("path_begin_angle_degrees", "number", "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
                             Optional("path_end_angle_degrees", "number", "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
                             Optional("override_heading_degrees", "number", "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."),

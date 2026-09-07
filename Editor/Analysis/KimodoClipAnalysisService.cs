@@ -195,7 +195,16 @@ namespace KimodoBridge.Editor
             }
             Add(0, "start", "Start");
             Add(samples.Count - 1, "end", "End");
-            foreach (JObject keyframe in (analysis?["keyframes"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+            JArray phaseTrack = analysis?["phase_track"] as JArray;
+            if (phaseTrack != null)
+            {
+                foreach (JObject phase in phaseTrack.OfType<JObject>())
+                {
+                    int frame = phase.Value<int?>("anchor_frame") ?? 0;
+                    Add(frame, phase.Value<string>("kind") ?? "phase", $"Phase anchor | phase={phase.Value<int?>("phase_index") ?? 0}");
+                }
+            }
+            else foreach (JObject keyframe in (analysis?["keyframes"] as JArray)?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
             {
                 int frame = keyframe.Value<int?>("frame") ?? Mathf.RoundToInt((float)((keyframe.Value<double?>("time") ?? 0) * frameRate));
                 float saliency = keyframe.Value<float?>("saliency") ?? keyframe.Value<float?>("score") ?? 0f;

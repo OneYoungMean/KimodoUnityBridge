@@ -18,6 +18,8 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
+        private const string PhaseTrackVersion = "1-temporal-cluster-v1";
+
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
             IReadOnlyList<AnalysisSubject> subjects,
@@ -28,17 +30,28 @@ namespace KimodoUnityBridge.Command
             string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
             string projectPath = ToProjectRelativePath(imagePath);
             JObject persisted = subjects[0].Record.Pictures;
-            if (persisted != null &&
+            bool phaseTrackReady = subjects.All(item =>
+                string.Equals(item.Record.Analysis?.Value<string>("phase_track_version"), PhaseTrackVersion, StringComparison.Ordinal));
+            if (phaseTrackReady && persisted != null &&
                 string.Equals(persisted.Value<string>("level"), level, StringComparison.Ordinal) &&
                 string.Equals(persisted.Value<string>("image_path"), projectPath, StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(imagePath))
             {
                 var cachedResult = (JObject)persisted.DeepClone();
+                cachedResult["render_version"] = TestAnalysisPictureRenderVersion;
                 cachedResult["cached"] = true;
                 return cachedResult;
             }
 
             var data = subjects.Select(subject => BuildSubjectPictureData(session, subject)).ToList();
+            foreach (SubjectPictureData subject in data)
+            {
+                EnsurePhaseTrack(subject);
+                AnalysisCache[subject.Subject.Record.Id] = subject.Subject.Record;
+                WriteJsonAtomically(
+                    AnalysisCachePath(session, subject.Subject.Record.Id),
+                    subject.Subject.Record.ToJson());
+            }
             TrajectoryScale trajectoryScale = BuildTrajectoryScale(data, true);
             var tiles = new List<PictureTile>();
             foreach (SubjectPictureData subject in data)
@@ -131,6 +144,7 @@ namespace KimodoUnityBridge.Command
             var result = new JObject
             {
                 ["level"] = level,
+                ["render_version"] = TestAnalysisPictureRenderVersion,
                 ["image_path"] = projectPath,
                 ["width"] = imageWidth,
                 ["height"] = imageHeight,
@@ -592,48 +606,240 @@ namespace KimodoUnityBridge.Command
         private static List<int> SelectKeyFrames(SubjectPictureData subject, int count)
         {
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-            int targetCount = Mathf.Clamp(count, 1, lastFrame + 1);
-            var candidates = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
+            return (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
                 .OfType<JObject>()
-                .Select((item, order) => new
-                {
-                    Frame = Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, lastFrame),
-                    Score = item.Value<float?>("saliency") ?? item.Value<float?>("score") ?? 0f,
-                    Order = order
-                })
-                .GroupBy(item => item.Frame)
-                .Select(group => group.OrderByDescending(item => item.Score).ThenBy(item => item.Order).First())
+                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, lastFrame))
+                .Distinct()
+                .OrderBy(frame => frame)
                 .ToList();
+        }
 
-            var frames = new HashSet<int>();
-            for (int segment = 0; segment < targetCount; segment++)
+        private sealed class PhaseSegment
+        {
+            public int StartFrame;
+            public int EndFrame;
+            public int AnchorFrame;
+            public float MeanChange;
+            public float UpperBodyActivity;
+            public float RootSpeed;
+            public int FootEventCount;
+            public bool Transition;
+        }
+
+        private sealed class PhaseFeature
+        {
+            public Vector3[] Points;
+            public float Speed;
+            public float UpperBodySpeed;
+            public bool LeftContact;
+            public bool RightContact;
+        }
+
+        private static void EnsurePhaseTrack(SubjectPictureData subject)
+        {
+            if (subject == null || subject.Pelvis == null || subject.Pelvis.Length == 0 ||
+                !IsHumanoidCharacter(subject.Subject.Character)) return;
+
+            JArray phases = BuildPhaseTrack(subject);
+            JObject analysis = subject.Subject.Record.Analysis ?? new JObject();
+            analysis["phase_track_version"] = PhaseTrackVersion;
+            analysis["phase_track"] = phases;
+            if (analysis["motion_profile"] is JObject profile &&
+                subject.Subject.Record.RootTrajectory?["samples"] is JArray trajectorySamples)
             {
-                int start = Mathf.FloorToInt(segment * (lastFrame + 1f) / targetCount);
-                int end = Mathf.Min(lastFrame,
-                    Mathf.FloorToInt((segment + 1) * (lastFrame + 1f) / targetCount) - 1);
-                var inSegment = candidates
-                    .Where(item => item.Frame >= start && item.Frame <= end)
-                    .OrderByDescending(item => item.Score)
-                    .ThenBy(item => Mathf.Abs(item.Frame - Mathf.RoundToInt((start + end) * .5f)))
-                    .ThenBy(item => item.Order)
-                    .FirstOrDefault();
-                frames.Add(inSegment != null
-                    ? inSegment.Frame
-                    : Mathf.Clamp(Mathf.RoundToInt(Mathf.Lerp(start, end, .5f)), 0, lastFrame));
+                var headings = phases.OfType<JObject>()
+                    .Select(phase => phase.Value<int?>("anchor_frame") ?? 0)
+                    .Select(frame => trajectorySamples.OfType<JObject>().FirstOrDefault(sample =>
+                        sample.Value<int?>("frame") == frame)?["heading_xz"] as JArray)
+                    .Where(value => value != null && value.Count >= 2)
+                    .Select(value => Mathf.Atan2(value[0].Value<float>(), value[1].Value<float>()) * Mathf.Rad2Deg)
+                    .ToArray();
+                float firstHeading = headings.Length > 0 ? headings[0] : 0f;
+                bool consistent = headings.Length > 0 && headings.All(value => Mathf.Abs(Mathf.DeltaAngle(firstHeading, value)) <= 8f);
+                profile["phase_anchor_heading_consistent"] = consistent;
+                profile["phase_anchor_heading_sample_count"] = headings.Length;
             }
-            if (targetCount > 1)
+            analysis["keyframes"] = new JArray(phases.OfType<JObject>().Select(item => new JObject
             {
-                frames.Add(0);
-                frames.Add(lastFrame);
-            }
-            var ordered = frames.OrderBy(frame => frame).ToList();
-            while (ordered.Count > targetCount)
+                ["frame"] = item.Value<int>("anchor_frame"),
+                ["phase_index"] = item.Value<int>("phase_index"),
+                ["kind"] = item.Value<string>("kind")
+            }));
+            subject.Subject.Record.Analysis = analysis;
+            subject.RefreshKeyframes();
+        }
+
+        private static JArray BuildPhaseTrack(SubjectPictureData subject)
+        {
+            int frameCount = subject.Pelvis.Length;
+            PhaseFeature[] features = Enumerable.Range(0, frameCount)
+                .Select(frame => BuildPhaseFeature(subject, frame)).ToArray();
+            var changes = new float[Math.Max(0, frameCount - 1)];
+            for (int frame = 1; frame < frameCount; frame++) changes[frame - 1] =
+                PhaseFeatureDistance(features[frame - 1], features[frame]);
+            float threshold = Mathf.Clamp(Mathf.Max(.06f, Median(changes) * 3f), .08f, .8f);
+            int minimumFrames = Mathf.Clamp(Mathf.RoundToInt((float)SessionFrameRate * .2f), 6, 18);
+            var segments = new List<PhaseSegment>();
+            int start = 0;
+            for (int frame = 1; frame < frameCount; frame++)
             {
-                int removeIndex = ordered.Count - 2;
-                if (removeIndex <= 0) break;
-                ordered.RemoveAt(removeIndex);
+                bool contactChanged = features[frame].LeftContact != features[frame - 1].LeftContact ||
+                    features[frame].RightContact != features[frame - 1].RightContact;
+                bool boundary = frame - start >= minimumFrames &&
+                    (changes[frame - 1] > threshold || (contactChanged && changes[frame - 1] > threshold * .65f));
+                if (!boundary) continue;
+                segments.Add(CreatePhaseSegment(features, changes, start, frame - 1, threshold));
+                start = frame;
             }
-            return ordered;
+            segments.Add(CreatePhaseSegment(features, changes, start, frameCount - 1, threshold));
+            MergeShortPhaseSegments(features, changes, segments, minimumFrames, threshold);
+            for (int index = 0; index < segments.Count; index++)
+            {
+                if (segments[index].StartFrame != (index == 0 ? 0 : segments[index - 1].EndFrame + 1) ||
+                    segments[index].EndFrame < segments[index].StartFrame ||
+                    segments[index].AnchorFrame < segments[index].StartFrame ||
+                    segments[index].AnchorFrame > segments[index].EndFrame)
+                {
+                    throw new InvalidOperationException("Phase-track clustering produced non-contiguous intervals.");
+                }
+            }
+            if (segments[segments.Count - 1].EndFrame != frameCount - 1)
+            {
+                throw new InvalidOperationException("Phase-track clustering did not cover the complete clip.");
+            }
+
+            var result = new JArray();
+            for (int index = 0; index < segments.Count; index++)
+            {
+                PhaseSegment segment = segments[index];
+                int duration = segment.EndFrame - segment.StartFrame + 1;
+                result.Add(new JObject
+                {
+                    ["phase_index"] = index,
+                    ["start_frame"] = segment.StartFrame,
+                    ["end_frame"] = segment.EndFrame,
+                    ["duration_frames"] = duration,
+                    ["duration_seconds"] = duration / SessionFrameRate,
+                    ["anchor_frame"] = segment.AnchorFrame,
+                    ["kind"] = segment.Transition ? "transition" : "phase",
+                    ["confidence"] = segment.MeanChange <= threshold ? "high" : "medium",
+                    ["mean_feature_change"] = segment.MeanChange,
+                    ["mean_root_speed"] = segment.RootSpeed,
+                    ["upper_body_activity"] = segment.UpperBodyActivity,
+                    ["foot_event_count"] = segment.FootEventCount
+                });
+            }
+            return result;
+        }
+
+        private static PhaseFeature BuildPhaseFeature(SubjectPictureData subject, int frame)
+        {
+            int previous = Mathf.Max(0, frame - 1);
+            Vector3 pelvis = subject.Pelvis[frame];
+            return new PhaseFeature
+            {
+                Points = new[]
+                {
+                    subject.LeftHand[frame] - pelvis,
+                    subject.RightHand[frame] - pelvis,
+                    subject.LeftElbow[frame] - pelvis,
+                    subject.RightElbow[frame] - pelvis,
+                    subject.LeftFoot[frame] - pelvis,
+                    subject.RightFoot[frame] - pelvis,
+                    subject.Head[frame] - pelvis
+                },
+                Speed = Vector3.Distance(subject.Pelvis[frame], subject.Pelvis[previous]) * (float)SessionFrameRate,
+                UpperBodySpeed = (
+                    Vector3.Distance(subject.LeftHand[frame], subject.LeftHand[previous]) +
+                    Vector3.Distance(subject.RightHand[frame], subject.RightHand[previous]) +
+                    Vector3.Distance(subject.LeftElbow[frame], subject.LeftElbow[previous]) +
+                    Vector3.Distance(subject.RightElbow[frame], subject.RightElbow[previous])) *
+                    (float)SessionFrameRate,
+                LeftContact = subject.LeftContacts[frame],
+                RightContact = subject.RightContacts[frame]
+            };
+        }
+
+        private static float PhaseFeatureDistance(PhaseFeature first, PhaseFeature second)
+        {
+            float distance = 0f;
+            for (int index = 0; index < first.Points.Length; index++)
+                distance += Vector3.Distance(first.Points[index], second.Points[index]);
+            distance += Mathf.Abs(first.Speed - second.Speed) * .05f;
+            if (first.LeftContact != second.LeftContact) distance += .6f;
+            if (first.RightContact != second.RightContact) distance += .6f;
+            return distance / (first.Points.Length + 1f);
+        }
+
+        private static PhaseSegment CreatePhaseSegment(
+            PhaseFeature[] features,
+            float[] changes,
+            int start,
+            int end,
+            float threshold)
+        {
+            int anchor = start;
+            float best = float.PositiveInfinity;
+            float meanChange = 0f;
+            float rootSpeed = 0f;
+            float upperBodyActivity = 0f;
+            int footEvents = 0;
+            int changeCount = 0;
+            for (int frame = start; frame <= end; frame++)
+            {
+                rootSpeed += features[frame].Speed;
+                upperBodyActivity += features[frame].UpperBodySpeed;
+                if (frame > start &&
+                    (features[frame].LeftContact != features[frame - 1].LeftContact ||
+                     features[frame].RightContact != features[frame - 1].RightContact)) footEvents++;
+                float distance = 0f;
+                if (frame > start) { distance += changes[frame - 1]; meanChange += changes[frame - 1]; changeCount++; }
+                if (frame < end) distance += changes[frame];
+                if (distance < best) { best = distance; anchor = frame; }
+            }
+            meanChange /= Mathf.Max(1, changeCount);
+            return new PhaseSegment
+            {
+                StartFrame = start,
+                EndFrame = end,
+                AnchorFrame = anchor,
+                MeanChange = meanChange,
+                RootSpeed = rootSpeed / Mathf.Max(1, end - start + 1),
+                UpperBodyActivity = upperBodyActivity / Mathf.Max(1, end - start + 1),
+                FootEventCount = footEvents,
+                Transition = meanChange > threshold * 1.25f
+            };
+        }
+
+        private static void MergeShortPhaseSegments(
+            PhaseFeature[] features,
+            float[] changes,
+            List<PhaseSegment> segments,
+            int minimumFrames,
+            float threshold)
+        {
+            for (int index = 0; index < segments.Count && segments.Count > 1; index++)
+            {
+                PhaseSegment segment = segments[index];
+                if (segment.EndFrame - segment.StartFrame + 1 >= minimumFrames) continue;
+                int neighbor = index == 0 ? 1 : index - 1;
+                int mergedStart = Mathf.Min(segments[neighbor].StartFrame, segment.StartFrame);
+                int mergedEnd = Mathf.Max(segments[neighbor].EndFrame, segment.EndFrame);
+                PhaseSegment merged = CreatePhaseSegment(features, changes, mergedStart, mergedEnd, threshold);
+                int insertAt = Mathf.Min(index, neighbor);
+                segments.RemoveAt(Mathf.Max(index, neighbor));
+                segments.RemoveAt(Mathf.Min(index, neighbor));
+                segments.Insert(insertAt, merged);
+                index = Mathf.Max(-1, index - 2);
+            }
+        }
+
+        private static float Median(float[] values)
+        {
+            if (values == null || values.Length == 0) return 0f;
+            float[] ordered = values.OrderBy(value => value).ToArray();
+            int middle = ordered.Length / 2;
+            return ordered.Length % 2 == 0 ? (ordered[middle - 1] + ordered[middle]) * .5f : ordered[middle];
         }
 
     }

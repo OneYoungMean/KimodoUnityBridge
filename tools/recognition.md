@@ -40,7 +40,8 @@ STRUCTURED_TASKS = [
     "loop_endpoint",
     "keyframe_heading",
     "trajectory_turn",
-    "trajectory_length"
+    "trajectory_length",
+    "phase_track"
 ]
 
 ALLOWED_TRAJECTORY_SHAPE = ["closed_loop", "open_path", "near_static", "unclear"]
@@ -50,7 +51,11 @@ ALLOWED_LOOP_ENDPOINT    = ["candidate", "not_candidate", "unknown"]
 ALLOWED_KEYFRAME_HEADING = ["consistent", "inconsistent", "unknown"]
 
 function recognize_clip(analysis, semantic_alternatives, clip_index = 0):
+    if analysis.analysis_schema_version != "2-phase-track-v1":
+        return not_verified_all_tasks("analysis_schema_version_mismatch")
     image = analysis.pictures.image_path
+    if analysis.pictures.render_version != "37-phase-track-clustering":
+        return not_verified_all_tasks("render_version_mismatch")
     picture_map = tiles_for_clip(analysis.pictures.images, clip_index)
     ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image) == YES
 
@@ -79,7 +84,7 @@ function run_structured_task(TASK, clip_analysis):
         )
     if TASK == "keyframe_heading":
         return structured_value(
-            profile.heading_consistent,
+            profile.phase_anchor_heading_consistent ?? profile.keyframe_heading_consistent ?? profile.heading_consistent,
             true  => "consistent",
             false => "inconsistent"
         )
@@ -87,6 +92,14 @@ function run_structured_task(TASK, clip_analysis):
         return numeric_value(profile.heading_change_degrees)
     if TASK == "trajectory_length":
         return numeric_value(profile.path_length_xz)
+    if TASK == "phase_track":
+        return structured_array(
+            clip_analysis.phase_track,
+            required_fields = [
+                "start_frame", "end_frame", "duration_frames",
+                "duration_seconds", "anchor_frame", "kind", "confidence"
+            ]
+        )
 
     return task_result(UNKNOWN, CONF_LOW, [])
 
@@ -114,6 +127,12 @@ function finalize_recognition(result):
         "status": status,
         "analysis_handoff": result
     }
+
+function not_verified_all_tasks(reason):
+    result = {}
+    for TASK in VISUAL_TASKS + STRUCTURED_TASKS:
+        result[TASK] = task_result(UNKNOWN, CONF_LOW, [{"reason": reason}])
+    return finalize_recognition(result)
 ```
 
 ### Recognition prompt / 识别提示词

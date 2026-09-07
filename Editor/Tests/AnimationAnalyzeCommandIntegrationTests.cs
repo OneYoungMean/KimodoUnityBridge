@@ -62,6 +62,21 @@ namespace KimodoUnityBridge.Command.Tests
                     }),
                     ["level"] = "middle", ["resolution"] = 512
                 });
+                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("2-phase-track-v1"));
+                Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("37-phase-track-clustering"));
+                JObject clipAnalysis = analysis["clips"]?.Children<JObject>().Single();
+                Assert.That(clipAnalysis?.Value<string>("phase_track_version"), Is.EqualTo("1-temporal-cluster-v1"));
+                JArray phases = clipAnalysis?["phase_track"] as JArray;
+                Assert.That(phases, Is.Not.Null.And.Not.Empty);
+                Assert.That(phases.First().Value<int>("start_frame"), Is.EqualTo(0));
+                Assert.That(phases.Last().Value<int>("end_frame"), Is.GreaterThanOrEqualTo(phases.First().Value<int>("start_frame")));
+                int analyzedFrameCount = clipAnalysis["root_trajectory"]?.Value<int>("frame_count") ?? 0;
+                Assert.That(phases.Last().Value<int>("end_frame"), Is.EqualTo(analyzedFrameCount - 1));
+                for (int phaseIndex = 1; phaseIndex < phases.Count; phaseIndex++)
+                {
+                    Assert.That(phases[phaseIndex].Value<int>("start_frame"),
+                        Is.EqualTo(phases[phaseIndex - 1].Value<int>("end_frame") + 1));
+                }
                 // HDRP AOV/readback and editor asset writes can finish on the
                 // next editor tick even though the command returned.
                 yield return null;
@@ -138,11 +153,6 @@ namespace KimodoUnityBridge.Command.Tests
                     ["prompt"] = "walk forward in a straight line at a natural relaxed pace",
                     ["duration_frames"] = 120,
                     ["name"] = "Armature_WalkForward",
-                    ["analysis_option"] = new JObject
-                    {
-                        ["keyframes"] = new JObject { ["enabled"] = true },
-                        ["keyframe_count"] = 8
-                    }
                 });
 
                 string requestId = started.Value<string>("request_id");

@@ -24,7 +24,7 @@ namespace KimodoUnityBridge.Command
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string TestAnalysisPictureRenderVersion = "36-align-analysis-timebase";
+        private const string TestAnalysisPictureRenderVersion = "37-phase-track-clustering";
         private const int PictureSupersample = 2;
         private const int TestPoseSupersampleHeight = 2048;
         private const float TestPoseJointCameraOffsetMeters = .2f;

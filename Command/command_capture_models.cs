@@ -129,7 +129,7 @@ namespace KimodoUnityBridge.Command
                 Bounds = bounds;
                 TestBounds = testBounds;
                 KeyframeCount = Mathf.Max(1,
-                    subject.Record.Analysis?.Value<int?>("keyframe_count") ?? 8);
+                    (subject.Record.Analysis?["keyframes"] as JArray)?.Count ?? 1);
                 KeyFrameSet = new HashSet<int>((subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
                     .OfType<JObject>()
                     .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, pelvis.Length - 1))));
@@ -152,8 +152,20 @@ namespace KimodoUnityBridge.Command
             public Bounds LastBounds { get; }
             public Bounds Bounds { get; }
             public Bounds TestBounds { get; }
-            public int KeyframeCount { get; }
+            public int KeyframeCount { get; private set; }
             public HashSet<int> KeyFrameSet { get; }
+
+            public void RefreshKeyframes()
+            {
+                JArray keyframes = Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray();
+                KeyframeCount = Mathf.Max(1, keyframes.Count);
+                KeyFrameSet.Clear();
+                foreach (JObject item in keyframes.OfType<JObject>())
+                {
+                    KeyFrameSet.Add(Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0,
+                        Math.Max(0, Pelvis.Length - 1)));
+                }
+            }
 
             public KimodoMarkerSampleResult GetSample(int localFrame)
             {
