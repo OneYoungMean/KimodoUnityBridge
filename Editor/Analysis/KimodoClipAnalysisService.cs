@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using KimodoUnityBridge;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -39,7 +40,8 @@ namespace KimodoBridge.Editor
         internal static bool TryAnalyzeSelected(
             KimodoPlayableClip fallback,
             out List<KimodoClipAnalysisResult> results,
-            out string error)
+            out string error,
+            string analysisLevel = "middle")
         {
             results = new List<KimodoClipAnalysisResult>();
             error = string.Empty;
@@ -58,7 +60,7 @@ namespace KimodoBridge.Editor
                     error = "Selection contains a non-Kimodo playable clip.";
                     return false;
                 }
-                if (!TryAnalyze(clip, timelineClip, results.Count == 0 ? "A" : "B", out KimodoClipAnalysisResult result, out error))
+                if (!TryAnalyze(clip, timelineClip, results.Count == 0 ? "A" : "B", out KimodoClipAnalysisResult result, out error, analysisLevel))
                 {
                     return false;
                 }
@@ -126,7 +128,8 @@ namespace KimodoBridge.Editor
             TimelineClip timelineClip,
             string role,
             out KimodoClipAnalysisResult result,
-            out string error)
+            out string error,
+            string analysisLevel = "middle")
         {
             result = null;
             error = string.Empty;
@@ -149,7 +152,9 @@ namespace KimodoBridge.Editor
                     ModelName = modelName,
                     TextEncoderMode = KimodoPlayableClipGenerationSettings.instance.DefaultTextEncoderMode,
                     ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath,
-                    AnalysisOptionsJson = new JObject { ["keyframes"] = new JObject { ["enabled"] = true } }.ToString(Formatting.None)
+                    AnalysisOptionsJson = (string.Equals(analysisLevel, "-test", StringComparison.OrdinalIgnoreCase)
+                        ? new JObject { ["keyframe_count"] = 8 }
+                        : new JObject { ["keyframes"] = new JObject { ["enabled"] = true } }).ToString(Formatting.None)
                 };
                 if (!KimodoPlayableClipGenerationExecutionService.Analysis(input, out string json, out byte[] denseKmb, out error))
                 {
@@ -175,6 +180,14 @@ namespace KimodoBridge.Editor
                     FrameSamples = samples,
                     MarkerFrames = frames
                 };
+                // The Inspector invokes rendering immediately after analysis.
+                // Hand the already computed backend JSON and dense samples to
+                // the command bridge so it does not analyze or sample again.
+                Type bridgeType = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(assembly => assembly.GetType("KimodoUnityBridge.Command.KimodoAnalysisPictureBridge", false))
+                    .FirstOrDefault(type => type != null);
+                bridgeType?.GetMethod("RegisterPrecomputedAnalysis", BindingFlags.Public | BindingFlags.Static)
+                    ?.Invoke(null, new object[] { timelineClip, analysis, samples });
                 return true;
             }
             catch (Exception ex)

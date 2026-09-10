@@ -162,13 +162,7 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Analysis Picture Camera");
-            camera.cullingMask = 1 << SessionCaptureLayer;
-            camera.orthographic = true;
-            camera.aspect = Mathf.Max(.1f, aspect);
-            camera.nearClipPlane = .01f;
-            camera.farClipPlane = 1000f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            Camera camera = CreateTestAnalysisPictureCameraBase("Kimodo Test Analysis Picture Camera", aspect);
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
             CalculateTestViewExtents(
                 subject,
@@ -197,13 +191,7 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
-            camera.cullingMask = 1 << SessionCaptureLayer;
-            camera.orthographic = true;
-            camera.aspect = Mathf.Max(.1f, aspect);
-            camera.nearClipPlane = .01f;
-            camera.farClipPlane = 1000f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            Camera camera = CreateTestAnalysisPictureCameraBase("Kimodo Test Pose Camera", aspect);
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
             CalculateTestViewExtents(
                 bounds,
@@ -232,20 +220,30 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Pose Camera");
-            camera.cullingMask = 1 << SessionCaptureLayer;
-            camera.orthographic = true;
-            camera.aspect = Mathf.Max(.0001f, aspect);
-            camera.nearClipPlane = .01f;
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            Camera camera = CreateTestAnalysisPictureCameraBase("Kimodo Test Pose Camera", aspect);
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
-            CalculateTestViewExtents(points, normalizedDirection, out Vector3 viewCenter, out _, out float vertical, out float maxDepth);
+            CalculateTestViewExtents(points, normalizedDirection, out Vector3 viewCenter, out float horizontal, out float vertical, out float maxDepth);
             float distance = Mathf.Max(8f, maxDepth + 8f);
             Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
             camera.transform.position = viewCenter + normalizedDirection * distance;
             camera.transform.LookAt(viewCenter, up);
-            camera.orthographicSize = Mathf.Max(.0001f, vertical);
+            // Fit the complete projected OBB for the requested tile aspect.
+            // This preserves character proportions when a tile is 2:3 or
+            // another non-square rect.
+            camera.orthographicSize = Mathf.Max(.0001f, vertical, horizontal / camera.aspect);
             camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
+            return camera;
+        }
+
+        private static Camera CreateTestAnalysisPictureCameraBase(string name, float aspect)
+        {
+            Camera camera = CreateAnalysisPictureCamera(name);
+            camera.cullingMask = 1 << SessionCaptureLayer;
+            camera.orthographic = true;
+            camera.aspect = Mathf.Max(.0001f, aspect);
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 1000f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
             return camera;
         }
 
@@ -436,6 +434,120 @@ namespace KimodoUnityBridge.Command
             texture.Apply(false, false);
         }
 
+        private static void DrawTestTileNumber(Texture2D texture, string value)
+        {
+            string text = value ?? string.Empty;
+            int size = texture.width >= 256 ? 4 : 2;
+            int textWidth = 0;
+            foreach (char digit in text) textWidth += digit == '-' ? size * 4 : size * 5;
+            textWidth = Math.Max(1, textWidth - size);
+            int x = size * 2;
+            int y = texture.height - size * 8 - size * 2;
+            int backdropX = Mathf.Max(0, x - size);
+            FillRect(texture, backdropX, 0, texture.width - backdropX, size * 10, new Color(0f, 0f, 0f, .65f));
+            foreach (char digit in text)
+            {
+                if (digit == '-')
+                {
+                    FillRect(texture, x + size, y + size * 3, size * 3, size, Color.white);
+                    x += size * 4;
+                }
+                else
+                {
+                    DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
+                    x += size * 5;
+                }
+            }
+            texture.Apply(false, false);
+        }
+
+        private static void DrawTestAnalysisHeader(
+            Texture2D texture,
+            string animationName,
+            float durationSeconds,
+            DateTime capturedAt)
+        {
+            if (texture == null) return;
+            string name = string.IsNullOrWhiteSpace(animationName) ? "(unnamed)" : animationName.Trim();
+            string text = string.Format(
+                CultureInfo.InvariantCulture,
+                "Animation: {0}   Duration: {1:0.00}s   Captured: {2:yyyy-MM-dd HH:mm:ss}",
+                name,
+                Math.Max(0f, durationSeconds),
+                capturedAt);
+            int headerHeight = Mathf.Clamp(Mathf.RoundToInt(texture.width * 60f / 1920f), 48, 96);
+            int scale = Mathf.Clamp(texture.width / Math.Max(1, text.Length * 6), 1, 4);
+            int glyphHeight = 7 * scale;
+            int baseline = texture.height - headerHeight + Mathf.Max(2, (headerHeight - glyphHeight) / 2);
+            FillRect(texture, 0, texture.height - headerHeight, texture.width, headerHeight, new Color(.025f, .03f, .045f, 1f));
+            int x = scale * 3;
+            foreach (char character in text.ToUpperInvariant())
+            {
+                string[] glyph = HeaderGlyph(character);
+                for (int row = 0; row < glyph.Length; row++)
+                {
+                    for (int column = 0; column < glyph[row].Length; column++)
+                    {
+                        if (glyph[row][column] != '#') continue;
+                        FillRect(texture, x + column * scale, baseline + (glyph.Length - 1 - row) * scale, scale, scale, Color.white);
+                    }
+                }
+                x += 6 * scale;
+                if (x >= texture.width - scale * 4) break;
+            }
+        }
+
+        private static string[] HeaderGlyph(char character)
+        {
+            switch (character)
+            {
+                case 'A': return new[] { " ### ", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" };
+                case 'B': return new[] { "#### ", "#   #", "#   #", "#### ", "#   #", "#   #", "#### " };
+                case 'C': return new[] { " ####", "#    ", "#    ", "#    ", "#    ", "#    ", " ####" };
+                case 'D': return new[] { "#### ", "#   #", "#   #", "#   #", "#   #", "#   #", "#### " };
+                case 'E': return new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#####" };
+                case 'F': return new[] { "#####", "#    ", "#    ", "#### ", "#    ", "#    ", "#    " };
+                case 'G': return new[] { " ####", "#    ", "#    ", "# ###", "#   #", "#   #", " ####" };
+                case 'H': return new[] { "#   #", "#   #", "#   #", "#####", "#   #", "#   #", "#   #" };
+                case 'I': return new[] { "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####" };
+                case 'J': return new[] { "#####", "    #", "    #", "    #", "    #", "#   #", " ### " };
+                case 'K': return new[] { "#   #", "#  # ", "# #  ", "##   ", "# #  ", "#  # ", "#   #" };
+                case 'L': return new[] { "#    ", "#    ", "#    ", "#    ", "#    ", "#    ", "#####" };
+                case 'M': return new[] { "#   #", "## ##", "# # #", "# # #", "#   #", "#   #", "#   #" };
+                case 'N': return new[] { "#   #", "##  #", "##  #", "# # #", "#  ##", "#  ##", "#   #" };
+                case 'O': return new[] { " ### ", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " };
+                case 'P': return new[] { "#### ", "#   #", "#   #", "#### ", "#    ", "#    ", "#    " };
+                case 'Q': return new[] { " ### ", "#   #", "#   #", "#   #", "# # #", "#  # ", " ## #" };
+                case 'R': return new[] { "#### ", "#   #", "#   #", "#### ", "# #  ", "#  # ", "#   #" };
+                case 'S': return new[] { " ####", "#    ", "#    ", " ### ", "    #", "    #", "#### " };
+                case 'T': return new[] { "#####", "  #  ", "  #  ", "  #  ", "  #  ", "  #  ", "  #  " };
+                case 'U': return new[] { "#   #", "#   #", "#   #", "#   #", "#   #", "#   #", " ### " };
+                case 'V': return new[] { "#   #", "#   #", "#   #", "#   #", "#   #", " # # ", "  #  " };
+                case 'W': return new[] { "#   #", "#   #", "#   #", "# # #", "# # #", "## ##", "#   #" };
+                case 'X': return new[] { "#   #", "#   #", " # # ", "  #  ", " # # ", "#   #", "#   #" };
+                case 'Y': return new[] { "#   #", "#   #", " # # ", "  #  ", "  #  ", "  #  ", "  #  " };
+                case 'Z': return new[] { "#####", "    #", "   # ", "  #  ", " #   ", "#    ", "#####" };
+                case '0': return new[] { " ### ", "#  ##", "# # #", "##  #", "#   #", "#   #", " ### " };
+                case '1': return new[] { "  #  ", " ##  ", "# #  ", "  #  ", "  #  ", "  #  ", "#####" };
+                case '2': return new[] { " ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####" };
+                case '3': return new[] { "#### ", "    #", "    #", " ### ", "    #", "    #", "#### " };
+                case '4': return new[] { "   # ", "  ## ", " # # ", "#  # ", "#####", "   # ", "   # " };
+                case '5': return new[] { "#####", "#    ", "#    ", "#### ", "    #", "    #", "#### " };
+                case '6': return new[] { " ### ", "#    ", "#    ", "#### ", "#   #", "#   #", " ### " };
+                case '7': return new[] { "#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   " };
+                case '8': return new[] { " ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### " };
+                case '9': return new[] { " ### ", "#   #", "#   #", " ####", "    #", "    #", " ### " };
+                case ':': return new[] { "     ", "  #  ", "     ", "     ", "  #  ", "     ", "     " };
+                case '.': return new[] { "     ", "     ", "     ", "     ", "     ", "  #  ", "  #  " };
+                case '-': return new[] { "     ", "     ", "     ", " ### ", "     ", "     ", "     " };
+                case '/': return new[] { "    #", "   # ", "   # ", "  #  ", " #   ", " #   ", "#    " };
+                case '_': return new[] { "     ", "     ", "     ", "     ", "     ", "     ", "#####" };
+                case '(': return new[] { "   # ", "  #  ", " #   ", " #   ", " #   ", "  #  ", "   # " };
+                case ')': return new[] { " #   ", "  #  ", "   # ", "   # ", "   # ", "  #  ", " #   " };
+                default: return new[] { "     ", "     ", " ### ", "#   #", "#   #", " ### ", "     " };
+            }
+        }
+
         private static void DrawFrameNumber(Texture2D texture, int frame)
         {
             string text = Math.Max(0, frame).ToString(CultureInfo.InvariantCulture);
@@ -443,9 +555,9 @@ namespace KimodoUnityBridge.Command
             int width = 0;
             foreach (char character in text) width += size * 5;
             width = Math.Max(1, width - size);
-            int x = size * 2;
-            int y = size * 2;
-            FillRect(texture, 0, 0, width + size * 4, size * 8, new Color(0f, 0f, 0f, .65f));
+            int x = Mathf.Max(size, texture.width - width - size * 2);
+            int y = texture.height - size * 8 - size * 2;
+            FillRect(texture, texture.width - width - size * 4, 0, width + size * 4, size * 8, new Color(0f, 0f, 0f, .65f));
             foreach (char digit in text)
             {
                 DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
@@ -468,6 +580,7 @@ namespace KimodoUnityBridge.Command
                 '7' => new[] { true, true, true, false, false, false, false },
                 '8' => new[] { true, true, true, true, true, true, true },
                 '9' => new[] { true, true, true, true, false, true, true },
+                '-' => new[] { false, false, false, false, false, false, true },
                 _ => new bool[7]
             };
             int w = size * 3;

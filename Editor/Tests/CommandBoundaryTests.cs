@@ -162,7 +162,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(method.Invoke(null, new object[] { "  HIGH " }), Is.EqualTo("high"));
             Assert.That(method.Invoke(null, new object[] { null }), Is.EqualTo("middle"));
             AssertPrivateFailure(method, "ultra", "level must be");
-            AssertPrivateFailure(method, "-test", "level must be");
+            Assert.That(method.Invoke(null, new object[] { "-test" }), Is.EqualTo("-test"));
         }
 
         [Test]

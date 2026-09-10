@@ -96,6 +96,26 @@ namespace KimodoUnityBridge.Command
 
         private static Texture2D RenderPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
         {
+            if (tile.Presentation == "test_empty_pose")
+            {
+                return CreateEmptyTestTile(width, height);
+            }
+            if (tile.Presentation.StartsWith("test_overview_", StringComparison.Ordinal))
+            {
+                string type = tile.TestTileType ?? string.Empty;
+                if (type == "3d_track") return RenderRoot2DPictureTile(PictureTile.TestRoot2D(tile.Subject, tile.Direction), width, height);
+                if (type == "height_time_track") return RenderTestHeightTimeTile(tile, width, height);
+                PictureTile mapped = type == "3d_ghost"
+                    ? PictureTile.TestKeyframes(tile.Subject, tile.Direction)
+                    : type == "3d_ghost_track"
+                        ? PictureTile.TestFootTransitions(tile.Subject, tile.Direction)
+                        : PictureTile.TestRoot2D(tile.Subject, tile.Direction);
+                return RenderPictureTile(mapped, width, height, trajectoryScale);
+            }
+            if (tile.Presentation == "test_selected_3d_ghost" || tile.Presentation == "test_selected_3d_ghost_track")
+            {
+                return RenderTestPictureTile(tile, width, height, trajectoryScale);
+            }
             if (tile.Presentation == "test_root2d")
             {
                 return RenderRoot2DPictureTile(tile, width, height);
@@ -127,7 +147,7 @@ namespace KimodoUnityBridge.Command
             }
             if (tile.Presentation == "test_pose")
             {
-                return RenderTestPoseTile(tile, height);
+                return RenderTestPoseTile(tile, width, height);
             }
 
             int size = width;
@@ -176,6 +196,115 @@ namespace KimodoUnityBridge.Command
                     if (item != null) UnityEngine.Object.DestroyImmediate(item);
                 }
             }
+        }
+
+        private static Texture2D RenderTest3DTrackTile(PictureTile tile, int width, int height)
+        {
+            SubjectPictureData subject = tile.Subject;
+            int count = subject.Pelvis?.Length ?? 0;
+            var samples = new List<Vector2>(Math.Max(1, count));
+            for (int i = 0; i < Math.Max(1, count); i++)
+            {
+                Vector3 p = count > 0 ? subject.Pelvis[i] : Vector3.zero;
+                samples.Add(new Vector2(p.x, p.z));
+            }
+            return RenderTestCoordinatePlotTile(samples, width, height, new Color(.25f, .85f, .95f, 1f));
+        }
+
+        private static Texture2D RenderTestHeightTimeTile(PictureTile tile, int width, int height)
+        {
+            SubjectPictureData subject = tile.Subject;
+            int count = Math.Max(1, subject.Pelvis?.Length ?? 0);
+            float initialHeight = count > 0 ? subject.Pelvis[0].y : 0f;
+            var samples = new List<Vector2>(count);
+            for (int i = 0; i < count; i++)
+            {
+                float time = count <= 1 ? 0f : i / (float)(count - 1);
+                float y = Mathf.Clamp((subject.Pelvis[i].y - initialHeight) * .5f + .5f, 0f, 1f);
+                samples.Add(new Vector2(time, y));
+            }
+            return RenderTestCoordinatePlotTile(samples, width, height, new Color(.25f, .85f, .95f, 1f), true);
+        }
+
+        private static Texture2D RenderTestCoordinatePlotTile(IReadOnlyList<Vector2> samples, int width, int height, Color lineColor, bool fixedUnitRange = false)
+        {
+            var normalized = new List<Vector2>(samples ?? Array.Empty<Vector2>());
+            if (normalized.Count == 0) normalized.Add(Vector2.zero);
+            Vector2 min = normalized[0], max = normalized[0];
+            foreach (Vector2 p in normalized) { min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
+            Vector2 size = max - min;
+            if (fixedUnitRange) { min = Vector2.zero; max = Vector2.one; size = Vector2.one; }
+            if (size.x < .0001f) size.x = 1f;
+            if (size.y < .0001f) size.y = 1f;
+            const float margin = .08f;
+            for (int i = 0; i < normalized.Count; i++)
+                normalized[i] = new Vector2(margin + (normalized[i].x - min.x) / size.x * (1f - margin * 2f), margin + (normalized[i].y - min.y) / size.y * (1f - margin * 2f));
+            var points = normalized.Select(p => new Vector3(p.x, .02f, p.y)).ToArray();
+            var environment = new List<GameObject>();
+            if (points.Length > 1) CreateWorldLine(environment, points, lineColor, .018f);
+            Color axis = new Color(.8f, .8f, .85f, .7f);
+            for (int i = 0; i <= 5; i++)
+            {
+                float v = i / 5f;
+                bool edge = i == 0 || i == 5;
+                CreateWorldLine(environment, new Vector3(v, .03f, 0f), new Vector3(v, .03f, 1f), edge ? .022f : .008f, axis, true);
+                CreateWorldLine(environment, new Vector3(0f, .03f, v), new Vector3(1f, .03f, v), edge ? .022f : .008f, axis, true);
+            }
+            Bounds bounds = new Bounds(new Vector3(.5f, 0f, .5f), new Vector3(1f, .02f, 1f));
+            Camera camera = CreateTestAnalysisPictureCamera(bounds, Vector3.up, width / (float)Mathf.Max(1, height));
+            camera.transform.position = bounds.center + Vector3.up * 10f;
+            camera.transform.LookAt(bounds.center, Vector3.forward);
+            camera.orthographicSize = Mathf.Max(.5f, .5f / camera.aspect);
+            try { return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f)); }
+            finally { UnityEngine.Object.DestroyImmediate(camera.gameObject); foreach (GameObject item in environment) if (item != null) UnityEngine.Object.DestroyImmediate(item); }
+        }
+
+        private static Color TestSpeedColor(float speed)
+        {
+            float index = speed <= .01f ? 0f : speed >= 10f ? 1f : speed <= 2f ? .5f * (speed - .01f) / 1.99f : .5f + .5f * (speed - 2f) / 8f;
+            return Color.Lerp(Color.green, Color.red, Mathf.Clamp01(index));
+        }
+
+        private static void CreateSpeedTrajectoryLine(List<GameObject> objects, IReadOnlyList<Vector3> points, float width)
+        {
+            if (points == null || points.Count < 2) return;
+            GameObject lineObject = MoveToAnalysisSessionRoot(
+                new GameObject("Kimodo Evidence Speed Trajectory") { hideFlags = HideFlags.HideAndDontSave });
+            SetLayerRecursively(lineObject, SessionCaptureLayer);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.positionCount = points.Count;
+            line.SetPositions(points.ToArray());
+            line.startWidth = line.endWidth = width;
+            line.useWorldSpace = true;
+            Gradient gradient = new Gradient();
+            // Unity's Gradient supports at most 8 color keys; downsample the
+            // per-frame speed samples onto 8 evenly spaced keys to stay in budget.
+            const int MaxGradientKeys = 8;
+            var colors = new GradientColorKey[MaxGradientKeys];
+            var alphas = new GradientAlphaKey[MaxGradientKeys];
+            for (int index = 0; index < MaxGradientKeys; index++)
+            {
+                int sample = Mathf.RoundToInt(index * (points.Count - 1) / (float)(MaxGradientKeys - 1));
+                float speed = sample == 0
+                    ? Vector3.Distance(points[1], points[0]) * (float)SessionFrameRate
+                    : Vector3.Distance(points[sample], points[sample - 1]) * (float)SessionFrameRate;
+                float time = sample / (float)(points.Count - 1);
+                colors[index] = new GradientColorKey(TestSpeedColor(speed), time);
+                alphas[index] = new GradientAlphaKey(1f, time);
+            }
+            gradient.SetKeys(colors, alphas);
+            line.colorGradient = gradient;
+            line.startColor = colors[0].color;
+            line.endColor = colors[colors.Length - 1].color;
+            // The speed gradient reaches the mesh as VERTEX colors; URP/Unlit
+            // ignores those and would paint the line in its base color. Use a
+            // vertex-color-aware shader so the gradient actually shows.
+            line.sharedMaterial = new Material(Shader.Find("Sprites/Default"))
+            {
+                hideFlags = HideFlags.HideAndDontSave,
+                color = Color.white
+            };
+            objects.Add(lineObject);
         }
 
         private static void RenderPoseOnto(
@@ -278,14 +407,16 @@ namespace KimodoUnityBridge.Command
             using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, requestedFrames))
             {
                 var virtualPoses = new List<TestVirtualPose>();
-                if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes")
+                bool eventOnly = tile.Presentation == "test_selected_3d_ghost_track";
+                if (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_keyframes" ||
+                    tile.Presentation == "test_selected_3d_ghost" || tile.Presentation == "test_selected_3d_ghost_track")
                 {
                     List<int> frames = tile.TrajectoryFrames;
                     bool separated = !tile.Subject.FirstBounds.Intersects(tile.Subject.LastBounds);
                     for (int index = 0; index < frames.Count; index++)
                     {
                         int frame = frames[index];
-                        if (frame == 0 || frame == lastFrame) continue;
+                        if (!eventOnly && (frame == 0 || frame == lastFrame)) continue;
                         Color tint = ResolveTestPoseTint(tile, frame, out bool keyframe, out bool footTransition);
                         float alpha = Mathf.Clamp(
                             GhostAlpha(index, frames.Count, separated),
@@ -302,10 +433,13 @@ namespace KimodoUnityBridge.Command
                             posePlan.Get(frame), tint, alpha));
                     }
                 }
-                Color startTint = ResolveTestPoseTint(tile, 0, out _, out _);
-                Color endTint = ResolveTestPoseTint(tile, lastFrame, out _, out _);
-                virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(0), startTint, 1f));
-                virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(lastFrame), endTint, 1f));
+                if (!eventOnly)
+                {
+                    Color startTint = ResolveTestPoseTint(tile, 0, out _, out _);
+                    Color endTint = ResolveTestPoseTint(tile, lastFrame, out _, out _);
+                    virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(0), startTint, 1f));
+                    virtualPoses.Add(CreateTestVirtualPose(posePlan.Get(lastFrame), endTint, 1f));
+                }
 
                 Bounds contentBounds = CalculateTestContentBounds(tile.Subject);
                 Bounds tileBounds = IncludeGroundInBounds(contentBounds);
@@ -361,14 +495,13 @@ namespace KimodoUnityBridge.Command
 
             if (tile.Presentation == "test_pose")
             {
-                // Test pose tiles already choose their width from the pose
-                // aspect. Render at the larger height, then preserve that
-                // aspect while reducing to the requested output resolution.
-                Texture2D source = RenderTestPoseTile(tile, targetHeight * scale);
+                // The final tile rect is authoritative. Render the pose with
+                // that aspect so the orthographic camera fits its OBB into the
+                // target viewport; never stretch a rendered character image.
+                Texture2D source = RenderTestPoseTile(tile, targetWidth * scale, targetHeight * scale);
                 try
                 {
-                    int outputWidth = Mathf.Max(1, Mathf.RoundToInt(source.width / (float)scale));
-                    return ResizeTexture(source, outputWidth, targetHeight);
+                    return ResizeTexture(source, targetWidth, targetHeight);
                 }
                 finally
                 {
@@ -391,7 +524,7 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static Texture2D RenderTestPoseTile(PictureTile tile, int targetHeight)
+        private static Texture2D RenderTestPoseTile(PictureTile tile, int targetWidth, int targetHeight)
         {
             int frame = Mathf.Clamp(tile.Frame, 0, Math.Max(0, tile.Subject.Pelvis.Length - 1));
             Vector3[] viewPoints =
@@ -414,10 +547,12 @@ namespace KimodoUnityBridge.Command
                 tile.Direction,
                 sampledRootRotation * Vector3.forward);
             CalculateTestViewExtents(viewPoints, tile.Direction, out _, out float horizontal, out float vertical, out _);
-            float aspect = horizontal / Mathf.Max(.0001f, vertical);
-            int sourceHeight = TestPoseSupersampleHeight;
-            int sourceWidth = Math.Max(1, Mathf.CeilToInt(sourceHeight * aspect));
-            int targetWidth = Math.Max(1, Mathf.RoundToInt(targetHeight * aspect));
+            float aspect = targetWidth / (float)Mathf.Max(1, targetHeight);
+            // Render only at the quality needed by the final tile. The old
+            // fixed 2048px buffer made a 264px tile unnecessarily expensive.
+            // Keep a 2x supersample for edges, with a bounded upper limit.
+            int sourceHeight = Mathf.Clamp(Mathf.Max(256, targetHeight * 2), 256, 1024);
+            int sourceWidth = Math.Max(1, Mathf.RoundToInt(sourceHeight * aspect));
             using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, new[] { frame }))
             {
                 TestVirtualPose pose = CreateTestVirtualPose(

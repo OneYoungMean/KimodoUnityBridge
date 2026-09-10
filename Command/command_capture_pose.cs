@@ -117,7 +117,10 @@ namespace KimodoUnityBridge.Command
             preview.hideFlags = HideFlags.HideAndDontSave;
             foreach (Animator animator in preview.GetComponentsInChildren<Animator>(true))
             {
-                UnityEngine.Object.DestroyImmediate(animator);
+                // Keep the component (disabled) so bone lookups such as
+                // GetBoneTransform(HumanBodyBones.Hips) still resolve for
+                // downstream anchoring; a destroyed Animator loses them.
+                animator.enabled = false;
             }
             snapshot.Apply(preview);
             var transientMaterials = new List<Material>();
@@ -452,8 +455,8 @@ namespace KimodoUnityBridge.Command
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             // The two test panels intentionally color only their own event
             // type: keyframe samples never inherit foot colors, and vice versa.
-            keyframe = tile.Presentation == "test_keyframes" && tile.PrimaryFrames.Contains(frame);
-            footTransition = tile.Presentation == "test_foot_transitions" &&
+            keyframe = (tile.Presentation == "test_keyframes" || tile.Presentation == "test_selected_3d_ghost") && tile.PrimaryFrames.Contains(frame);
+            footTransition = (tile.Presentation == "test_foot_transitions" || tile.Presentation == "test_selected_3d_ghost_track") &&
                 tile.PrimaryFrames.Contains(frame) && TryGetFootTransitionTint(subject, frame, out _);
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
@@ -468,8 +471,10 @@ namespace KimodoUnityBridge.Command
             int lastFrame = Math.Max(0, tile.Subject.Pelvis.Length - 1);
             if (frame == 0) return TestStartFrameTint;
             if (frame == lastFrame) return TestEndFrameTint;
-            if (string.Equals(tile.PoseKind, "keyframe", StringComparison.Ordinal)) return TestKeyframeTint;
-            if (string.Equals(tile.PoseKind, "foot_transition", StringComparison.Ordinal) &&
+            if (string.Equals(tile.PoseKind, "keyframe", StringComparison.Ordinal) ||
+                string.Equals(tile.PoseKind, "key_pose", StringComparison.Ordinal)) return TestKeyframeTint;
+            if ((string.Equals(tile.PoseKind, "foot_transition", StringComparison.Ordinal) ||
+                 string.Equals(tile.PoseKind, "step_pose", StringComparison.Ordinal)) &&
                 TryGetFootTransitionTint(tile.Subject, frame, out Color footTint))
             {
                 return footTint;

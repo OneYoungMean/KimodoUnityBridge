@@ -22,11 +22,25 @@ namespace KimodoUnityBridge.Command
     {
         private static readonly Dictionary<string, AnalysisCacheRecord> AnalysisCache =
             new Dictionary<string, AnalysisCacheRecord>(StringComparer.OrdinalIgnoreCase);
+        // Pose samples are expensive (they evaluate a Timeline/retarget
+        // sampler). Keep one canonical sample array for the lifetime of an
+        // analysis request so trajectory, endpoint checks and rendering all
+        // consume the same data.
+        private static readonly Dictionary<string, KimodoMarkerSampleResult[]> AnalysisPoseSamples =
+            new Dictionary<string, KimodoMarkerSampleResult[]>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, PrecomputedAnalysis> PrecomputedAnalyses =
+            new Dictionary<string, PrecomputedAnalysis>(StringComparer.OrdinalIgnoreCase);
+
+        private sealed class PrecomputedAnalysis
+        {
+            public JObject Analysis;
+            public KimodoMarkerSampleResult[] Samples;
+        }
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
         private const string TestAnalysisPictureRenderVersion = "37-phase-track-clustering";
+        private const string TestAnalysisPicture20TileRenderVersion = "45-test-20-tile-height-time-track";
         private const int PictureSupersample = 2;
-        private const int TestPoseSupersampleHeight = 2048;
         private const float TestPoseJointCameraOffsetMeters = .2f;
         private const float TestPoseFootForwardCameraOffsetMeters = .3f;
         private const float TestPoseHeadCameraOffsetMeters = .3f;

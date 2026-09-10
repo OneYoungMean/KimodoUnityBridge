@@ -988,6 +988,10 @@ namespace KimodoUnityBridge.Command
                 }
 
                 string level = NormalizeAnalysisPictureLevel(arguments.Value<string>("level"));
+                if (level == "-test" && requestedClips?.Count != 1)
+                {
+                    throw new InvalidOperationException("-test analysis accepts exactly one clip.");
+                }
                 int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
                 JObject requestedAnalysisOptions = null;
                 string requestedAnalysisOptionsJson = ParseAnalysisOptionsJson(arguments);
@@ -1068,6 +1072,23 @@ namespace KimodoUnityBridge.Command
 
                 JObject pictures = RenderAnalysisPictures(session, subjects, level, pictureResolution);
                 SaveTimelineSession(session);
+                string analysisImagePath = pictures?.Value<string>("image_path") ?? string.Empty;
+                var analysisLog = new JObject
+                {
+                    ["level"] = level,
+                    ["clips"] = new JArray(subjects.Select(subject => new JObject
+                    {
+                        ["role"] = subject.Role,
+                        ["character"] = subject.Character?.Name ?? string.Empty,
+                        ["clip"] = subject.Animation?.Name ?? string.Empty,
+                        ["analysis"] = subject.Record.Analysis?.DeepClone() ?? new JObject()
+                    })),
+                    ["image_path"] = analysisImagePath,
+                    ["image_path_absolute"] = string.IsNullOrWhiteSpace(analysisImagePath)
+                        ? string.Empty
+                        : ProjectRelativePathToAbsolute(analysisImagePath)
+                };
+                Debug.Log("[Kimodo][Analysis] " + analysisLog.ToString(Formatting.None));
                 return Ok(new JObject
                 {
                     ["analysis_schema_version"] = AnalysisContractVersion,
@@ -1258,7 +1279,7 @@ namespace KimodoUnityBridge.Command
             }
 
             int frameCount = Math.Max(1, endFrameExclusive - startFrame);
-            KimodoMarkerSampleResult[] samples = CaptureSampleResults(character, startFrame, frameCount);
+            KimodoMarkerSampleResult[] samples = CaptureCachedSampleResults(record, character, startFrame, frameCount);
             if (samples.Length == 0 || !TryGetRoot2DWorld(samples[0], out Vector3 startPosition, out Quaternion startRotation))
             {
                 throw new InvalidOperationException(
@@ -1387,8 +1408,9 @@ namespace KimodoUnityBridge.Command
                 return;
             }
 
-            KimodoMarkerSampleResult first = CaptureSampleResult(character, startFrame);
-            KimodoMarkerSampleResult last = CaptureSampleResult(character, endFrameExclusive - 1);
+            KimodoMarkerSampleResult[] endpointSamples = CaptureCachedSampleResults(record, character, startFrame, Math.Max(1, endFrameExclusive - startFrame));
+            KimodoMarkerSampleResult first = endpointSamples[0];
+            KimodoMarkerSampleResult last = endpointSamples[endpointSamples.Length - 1];
             bool valid = first?.sampleData?.IsValid == true && last?.sampleData?.IsValid == true;
             var comparison = new JObject
             {
@@ -1480,9 +1502,9 @@ namespace KimodoUnityBridge.Command
         private static string NormalizeAnalysisPictureLevel(string level)
         {
             string normalized = (level ?? "middle").Trim().ToLowerInvariant();
-            if (normalized != "low" && normalized != "middle" && normalized != "high")
+            if (normalized != "low" && normalized != "middle" && normalized != "high" && normalized != "-test")
             {
-                throw new InvalidOperationException("level must be low, middle, or high.");
+                throw new InvalidOperationException("level must be low, middle, high, or -test.");
             }
             return normalized;
         }
@@ -1552,6 +1574,13 @@ namespace KimodoUnityBridge.Command
             JObject result = requested != null
                 ? (JObject)requested.DeepClone()
                 : new JObject();
+            if (level == "-test")
+            {
+                int count = result.Value<int?>("keyframe_count") ?? 8;
+                if (count <= 0) throw new InvalidOperationException("analysis_option.keyframe_count must be a positive integer.");
+                result["keyframe_count"] = count;
+                return result;
+            }
             // Legacy keyframe_count/max_count are intentionally not read in
             // the v2 command. The phase tracker is deterministic and owns
             // temporal segmentation.
