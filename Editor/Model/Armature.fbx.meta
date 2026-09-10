@@ -1,7 +1,7 @@
 fileFormatVersion: 2
-guid: CX0Z5nv4VHphceog36vsLC8RkEkCkyILMfimThUeYI07yZYmOlRoQi4=
+guid: 96d9909d31b166347869538fa920969b
 ModelImporter:
-  serializedVersion: 22361
+  serializedVersion: 22200
   internalIDToNameTable: []
   externalObjects: {}
   materials:
@@ -25,9 +25,6 @@ ModelImporter:
     importAnimatedCustomProperties: 0
     importConstraints: 0
     animationCompression: 1
-    aCLCompressionLevel: 3
-    aCLCurvePrecision: 0.01
-    aCLFastSampleMode: 1
     animationRotationError: 0.5
     animationPositionError: 0.5
     animationScaleError: 0.5
@@ -36,17 +33,10 @@ ModelImporter:
     extraUserProperties: []
     clipAnimations: []
     isReadable: 0
-    tuanjieGIEnable: 0
-    tuanjieGIGenSDFFactor: 1
-    tuanjieGIGenSDFBias: 0.25
-    tuanjieGIDoubleSidedMode: 0
-    tuanjieGIGenFacetNums: 12
   meshes:
     lODScreenPercentages: []
     globalScale: 1
     meshCompression: 0
-    totalVerticesCount: 29936
-    totalTrianglesCount: 47884
     addColliders: 0
     useSRGBMaterialColor: 1
     sortHierarchyByName: 1
@@ -79,74 +69,6 @@ ModelImporter:
     secondaryUVPackMargin: 4
     useFileScale: 1
     strictVertexDataChecks: 0
-  virtualGeometry:
-    virtualGeometry: 0
-    hasBoneWeight: 0
-    useTransparent: 0
-    setVGForeachMesh: 0
-    isFirstUse: 1
-    virtualGeometrySettings:
-      generateGeometryBuffer: 0
-      surfaceCompensation: 0
-      allMeshUse: 1
-      ignoreSimpleMesh: 0
-      transformScaleState: 0
-      isPossibleOverflow: 0
-    virtualGeometryPlatformSettings:
-    - serializedVersion: 0
-      overridden: 0
-      ignorePlatformSupport: 0
-      buildTarget: DefaultVirtualGeometryPlatform
-      positionPrecision: -2147483648
-      normalPrecision: -2147483648
-      tangentPrecision: -2147483648
-      detailedTriangleCount: 0
-      detailedVertexCount: 0
-      rootPageSize: 0
-      streamablePageSize: 0
-      reserveTrianglePercent: 100
-      reserveDetailLevel: 0
-    - serializedVersion: 0
-      overridden: 0
-      ignorePlatformSupport: 0
-      buildTarget: Standalone
-      positionPrecision: -2147483648
-      normalPrecision: -2147483648
-      tangentPrecision: -2147483648
-      detailedTriangleCount: 0
-      detailedVertexCount: 0
-      rootPageSize: 0
-      streamablePageSize: 0
-      reserveTrianglePercent: 100
-      reserveDetailLevel: 0
-    - serializedVersion: 0
-      overridden: 0
-      ignorePlatformSupport: 0
-      buildTarget: iPhone
-      positionPrecision: -2147483648
-      normalPrecision: -2147483648
-      tangentPrecision: -2147483648
-      detailedTriangleCount: 0
-      detailedVertexCount: 0
-      rootPageSize: 0
-      streamablePageSize: 0
-      reserveTrianglePercent: 100
-      reserveDetailLevel: 0
-    - serializedVersion: 0
-      overridden: 0
-      ignorePlatformSupport: 0
-      buildTarget: Android
-      positionPrecision: -2147483648
-      normalPrecision: -2147483648
-      tangentPrecision: -2147483648
-      detailedTriangleCount: 0
-      detailedVertexCount: 0
-      rootPageSize: 0
-      streamablePageSize: 0
-      reserveTrianglePercent: 100
-      reserveDetailLevel: 0
-    selectedVGMeshes: []
-    supportVGMeshes: []
   tangentSpace:
     normalSmoothAngle: 60
     normalImportMode: 0
@@ -157,14 +79,10 @@ ModelImporter:
     normalSmoothingSource: 0
   referencedClips: []
   importAnimation: 1
-  overrideDefaultPose: 0
   humanDescription:
     serializedVersion: 3
     human: []
     skeleton: []
-    namedPoseList:
-    - name: Default
-      skeleton: []
     armTwist: 0.5
     foreArmTwist: 0.5
     upperLegTwist: 0.5
@@ -174,7 +92,6 @@ ModelImporter:
     feetSpacing: 0
     globalScale: 1
     rootMotionBoneName: 
-    defaultPoseIndex: -1
     hasTranslationDoF: 0
     hasExtraRoot: 0
     skeletonHasParents: 1
