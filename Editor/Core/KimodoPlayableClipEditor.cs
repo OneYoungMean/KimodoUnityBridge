@@ -66,7 +66,6 @@ namespace KimodoBridge.Editor
         private GUIStyle trajectoryContinuityFoldoutStyle;
         private double lastRepaintTime;
         private bool repaintQueued;
-        private int analysisLevelIndex;
 
         private void OnEnable()
         {
@@ -378,15 +377,12 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.Space(4f);
-            string[] analysisLevels = { "Standard", "-test" };
-            analysisLevelIndex = EditorGUILayout.Popup("Analysis Mode", analysisLevelIndex, analysisLevels);
             if (!GUILayout.Button("Analyze Selected Clip(s)"))
             {
                 return;
             }
 
-            string analysisLevel = analysisLevelIndex == 1 ? "-test" : "middle";
-            if (!KimodoClipAnalysisService.TryAnalyzeSelected(clip, out List<KimodoClipAnalysisResult> results, out string error, analysisLevel))
+            if (!KimodoClipAnalysisService.TryAnalyzeSelected(clip, out List<KimodoClipAnalysisResult> results, out string error))
             {
                 Debug.LogError("[Kimodo Analysis] " + error);
                 return;
@@ -398,28 +394,27 @@ namespace KimodoBridge.Editor
             }
             int totalFrames = results.Sum(item => item.FrameSamples?.Count ?? 0);
             int keyframeCount = results.Sum(item => (item.Analysis?["keyframes"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0);
-            Debug.Log($"[Kimodo Analysis] level={analysisLevel}, clips={results.Count}, frames={totalFrames}, keyframes={keyframeCount}, markers={markerCount}");
+            Debug.Log($"[Kimodo Analysis] picture=all-standard, clips={results.Count}, frames={totalFrames}, keyframes={keyframeCount}, markers={markerCount}");
             string imagePath = string.Empty;
             string renderError = string.Empty;
-            bool rendered = TryRenderAnalysisPicture(results, analysisLevel, 512, out imagePath, out renderError);
+            bool rendered = TryRenderAnalysisPicture(results, 512, out imagePath, out renderError);
             if (rendered)
             {
-                Debug.Log($"[Kimodo Analysis] level={analysisLevel} image_path={imagePath}");
+                Debug.Log($"[Kimodo Analysis] picture=all-standard image_path={imagePath}");
                 foreach (KimodoClipAnalysisResult result in results)
                 {
-                    Debug.Log("[Kimodo Analysis] level=" + analysisLevel + " analysis=" +
+                    Debug.Log("[Kimodo Analysis] picture=all-standard analysis=" +
                         (result.Analysis?.ToString(Formatting.None) ?? "{}") + "; image_path=" + imagePath);
                 }
             }
             else
             {
-                Debug.LogWarning($"[Kimodo Analysis] level={analysisLevel} image_path=<not generated>; render_error={renderError}");
+                Debug.LogWarning($"[Kimodo Analysis] picture=all-standard image_path=<not generated>; render_error={renderError}");
             }
         }
 
         private static bool TryRenderAnalysisPicture(
             IReadOnlyList<KimodoClipAnalysisResult> results,
-            string level,
             int resolution,
             out string imagePath,
             out string error)
@@ -435,7 +430,7 @@ namespace KimodoBridge.Editor
                 if (method == null) { error = "Analysis picture bridge is unavailable until the Command assembly is loaded."; return false; }
                 object[] args =
                 {
-                    results.Select(item => item.TimelineClip).ToArray(), level, resolution, null, null
+                    results.Select(item => item.TimelineClip).ToArray(), null, resolution, null, null
                 };
                 bool success = (bool)method.Invoke(null, args);
                 imagePath = args[3] as string ?? string.Empty;

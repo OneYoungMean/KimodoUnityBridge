@@ -156,13 +156,10 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void AnalysisLevel_NormalizesSupportedValuesAndRejectsUnknownValue()
+        public void AnalysisPictureResolution_RejectsInvalidValue()
         {
-            MethodInfo method = PrivateMethod("NormalizeAnalysisPictureLevel", typeof(string));
-            Assert.That(method.Invoke(null, new object[] { "  HIGH " }), Is.EqualTo("high"));
-            Assert.That(method.Invoke(null, new object[] { null }), Is.EqualTo("middle"));
-            AssertPrivateFailure(method, "ultra", "level must be");
-            Assert.That(method.Invoke(null, new object[] { "-test" }), Is.EqualTo("-test"));
+            MethodInfo method = PrivateMethod("ResolveAnalysisPictureResolution", typeof(JToken));
+            AssertPrivateFailure(method, new JValue(32), "between 64 and 4096");
         }
 
         [Test]

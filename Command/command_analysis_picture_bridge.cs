@@ -22,14 +22,9 @@ namespace KimodoUnityBridge.Command
             command_context.RegisterPrecomputedAnalysis(clip, analysis, samples);
         }
 
-        public static bool TryRenderSelectedTest(TimelineClip selectedClip, int resolution, out string imagePath, out string error)
+        public static bool TryRenderSelectedAnalysis(TimelineClip[] selectedClips, JObject picture, int resolution, out string imagePath, out string error)
         {
-            return command_context.TryRenderSelectedAnalysis(new[] { selectedClip }, "-test", resolution, out imagePath, out error);
-        }
-
-        public static bool TryRenderSelectedAnalysis(TimelineClip[] selectedClips, string level, int resolution, out string imagePath, out string error)
-        {
-            return command_context.TryRenderSelectedAnalysis(selectedClips, level, resolution, out imagePath, out error);
+            return command_context.TryRenderSelectedAnalysis(selectedClips, picture, resolution, out imagePath, out error);
         }
     }
 
@@ -49,7 +44,7 @@ namespace KimodoUnityBridge.Command
             };
         }
 
-        internal static bool TryRenderSelectedAnalysis(TimelineClip[] selectedClips, string level, int resolution, out string imagePath, out string error)
+        internal static bool TryRenderSelectedAnalysis(TimelineClip[] selectedClips, JObject picture, int resolution, out string imagePath, out string error)
         {
             imagePath = string.Empty;
             error = string.Empty;
@@ -58,7 +53,8 @@ namespace KimodoUnityBridge.Command
             {
                 EnsureTimelineSessionsRestored();
                 TimelineSessionRecord session = currentTimelineSession;
-                if (session == null) { error = "No active command Session. Create/select a Session before rendering -test."; return false; }
+                if (session == null) { error = "No active command Session. Create/select a Session before rendering analysis pictures."; return false; }
+                AnalysisPictureRequest pictureRequest = AnalysisPictureRequest.Parse(picture);
                 var subjects = new System.Collections.Generic.List<AnalysisSubject>();
                 foreach (TimelineClip selectedClip in selectedClips ?? Array.Empty<TimelineClip>())
                 {
@@ -67,7 +63,7 @@ namespace KimodoUnityBridge.Command
                     if (character == null || animation == null) { error = "Selected clip is not loaded in the active command Session."; return false; }
                     int startFrame = Math.Max(0, animation.StartFrame);
                     int endFrame = Math.Max(startFrame + 1, animation.EndFrameExclusive);
-                    JObject options = level == "-test" ? new JObject { ["keyframe_count"] = 8 } : new JObject();
+                    JObject options = new JObject();
                     string inputSignature = BuildAnimationAnalysisSignature(character, animation, options);
                     AnalysisCacheRecord record = EnumerateAnalysisCacheRecords(session).FirstOrDefault(item =>
                         string.Equals(item.AnimationId, animation.Id.ToString("D"), StringComparison.OrdinalIgnoreCase) &&
@@ -105,11 +101,13 @@ namespace KimodoUnityBridge.Command
                     subjects.Add(new AnalysisSubject(subjects.Count == 0 ? "source" : "target", character, animation, record, startFrame, endFrame));
                 }
                 if (subjects.Count == 0) { error = "No selected clips were provided."; return false; }
-                JObject pictures = level == "-test"
-                    ? RenderTestAnalysisPictures(session, subjects[0], resolution < 64 ? 512 : resolution)
-                    : RenderAnalysisPictures(session, subjects, "middle", resolution < 64 ? 512 : resolution);
+                JObject pictures = RenderAnalysisPictures(
+                    session,
+                    subjects,
+                    pictureRequest.ToJson(),
+                    resolution < 64 ? 512 : resolution);
                 imagePath = pictures?.Value<string>("image_path") ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(imagePath)) { error = "-test rendering completed without an image path."; return false; }
+                if (string.IsNullOrWhiteSpace(imagePath)) { error = "Analysis picture rendering completed without an image path."; return false; }
                 return true;
             }
             catch (Exception ex)

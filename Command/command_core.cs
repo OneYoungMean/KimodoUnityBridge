@@ -97,12 +97,12 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Humanoid results use analysis_schema_version=2-phase-track-v1 and phase_track_version=1-temporal-cluster-v1: contiguous, non-overlapping temporal phase/transition intervals with anchor frames replace uniform keyframe sampling. Use level=-test for one clip and a fixed 20-tile 16:9 contact/keyframe diagnostic using backend keyframes. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Mesh-only results return phase_track=NOT_APPLICABLE and omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+                        "Analyze one or two immutable Session clips and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
-                            OptionalEnumWithDefault("level", "middle", "low", "middle", "high", "-test"),
-                            Optional("analysis_option", "object", "Optional backend analysis options. In -test mode keyframe_count defaults to 8 and may be overridden by the caller."),
+                            new JObject { ["name"] = "picture", ["type"] = "object", ["description"] = "Unified graph-space picture request with tiles and output mode." },
+                            Optional("analysis_option", "object", "Optional backend analysis options."),
                             new PropertyDefinition("resolution", new JObject
                             {
                                 ["type"] = "integer",
@@ -257,7 +257,7 @@ namespace KimodoUnityBridge.Command
                         Route("select or create a Session", SessionGetOrCreateCommand),
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
-                        Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
+                        Route("analyze and render motion", AnimationAnalyzeCommand, "returns composite and/or individual pictures with self-describing tiles"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle"),
                         Route("obtain a reusable root trajectory", AnimationAnalyzeCommand, "then reference root_trajectory.path from a generation root_path constraint"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
@@ -279,7 +279,7 @@ namespace KimodoUnityBridge.Command
                         new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
                         new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<request_id>" }, ["repeat_until"] = "status is completed, failed, or canceled" },
-                        new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["level"] = "middle" }, ["save"] = "pictures.image_path" },
+                        new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["picture"] = new JObject { ["output"] = "both" } }, ["save"] = "pictures.image_path" },
                         new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
                     },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject

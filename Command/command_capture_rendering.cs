@@ -198,65 +198,171 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static Texture2D RenderTest3DTrackTile(PictureTile tile, int width, int height)
-        {
-            SubjectPictureData subject = tile.Subject;
-            int count = subject.Pelvis?.Length ?? 0;
-            var samples = new List<Vector2>(Math.Max(1, count));
-            for (int i = 0; i < Math.Max(1, count); i++)
-            {
-                Vector3 p = count > 0 ? subject.Pelvis[i] : Vector3.zero;
-                samples.Add(new Vector2(p.x, p.z));
-            }
-            return RenderTestCoordinatePlotTile(samples, width, height, new Color(.25f, .85f, .95f, 1f));
-        }
-
         private static Texture2D RenderTestHeightTimeTile(PictureTile tile, int width, int height)
         {
             SubjectPictureData subject = tile.Subject;
-            int count = Math.Max(1, subject.Pelvis?.Length ?? 0);
-            float initialHeight = count > 0 ? subject.Pelvis[0].y : 0f;
-            var samples = new List<Vector2>(count);
-            for (int i = 0; i < count; i++)
+            int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
+            float aspect = width / (float)Mathf.Max(1, height);
+            List<int> poseFrames = subject.KeyFrameSet
+                .Append(0)
+                .Append(lastFrame)
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+            float length = CalculateHeightTimeLength(subject, poseFrames, aspect);
+            var poseTargets = new Dictionary<int, Vector3>();
+            var curvePoints = new List<Vector3>(Math.Max(1, subject.Pelvis.Length));
+            for (int frame = 0; frame <= lastFrame; frame++)
             {
-                float time = count <= 1 ? 0f : i / (float)(count - 1);
-                float y = Mathf.Clamp((subject.Pelvis[i].y - initialHeight) * .5f + .5f, 0f, 1f);
-                samples.Add(new Vector2(time, y));
+                float z = lastFrame == 0 ? 0f : frame / (float)lastFrame * length;
+                curvePoints.Add(new Vector3(0f, subject.Pelvis[frame].y, z));
             }
-            return RenderTestCoordinatePlotTile(samples, width, height, new Color(.25f, .85f, .95f, 1f), true);
+
+            using (TestPosePlan posePlan = BuildTestPosePlan(subject, poseFrames))
+            {
+                Bounds contentBounds = new Bounds(curvePoints.Count > 0 ? curvePoints[0] : Vector3.zero, Vector3.zero);
+                foreach (Vector3 point in curvePoints) contentBounds.Encapsulate(point);
+                for (int index = 0; index < poseFrames.Count; index++)
+                {
+                    int frame = poseFrames[index];
+                    Vector3 target = curvePoints[Mathf.Clamp(frame, 0, curvePoints.Count - 1)];
+                    // The preview root can be offset from Hips. Move the root
+                    // by that stable offset so the rendered Hips lands on the
+                    // same diagnostic point as the green curve.
+                    poseTargets[frame] = target + posePlan.Get(frame).RootPosition - subject.Pelvis[frame];
+                    Bounds poseBounds = CalculateRawPreviewPoseBounds(subject, frame);
+                    poseBounds.center += poseTargets[frame] - posePlan.Get(frame).RootPosition;
+                    contentBounds.Encapsulate(poseBounds.min);
+                    contentBounds.Encapsulate(poseBounds.max);
+                }
+
+                float minY = contentBounds.min.y;
+                float maxY = contentBounds.max.y;
+                float axisX = contentBounds.min.x;
+                Color gridColor = new Color(.55f, .62f, .68f, .45f);
+                var environment = new List<GameObject>();
+                CreateEvidenceLights(environment, contentBounds.center);
+                for (int index = 0; index <= 5; index++)
+                {
+                    float z = length * index / 5f;
+                    bool edge = index == 0 || index == 5;
+                    CreateWorldLine(environment, new Vector3(axisX, minY, z), new Vector3(axisX, maxY, z), edge ? .012f : .006f, gridColor, true);
+                }
+                const int horizontalDivisions = 5;
+                for (int index = 0; index <= horizontalDivisions; index++)
+                {
+                    float y = Mathf.Lerp(minY, maxY, index / (float)horizontalDivisions);
+                    bool edge = index == 0 || index == horizontalDivisions;
+                    CreateWorldLine(environment, new Vector3(axisX, y, 0f), new Vector3(axisX, y, length), edge ? .016f : .006f, gridColor, true);
+                }
+                CreateDiagnosticLine(environment, curvePoints, new Color(.15f, .9f, .25f, 1f), .025f);
+                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, minY, length), .022f, Color.white, true);
+                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, maxY, 0f), .022f, Color.white, true);
+                float diagnosticMargin = Mathf.Max(.05f, contentBounds.size.magnitude * .03f);
+                contentBounds.Expand(Vector3.one * diagnosticMargin);
+
+                var poses = new List<TestVirtualPose>(poseFrames.Count);
+                bool separated = !subject.FirstBounds.Intersects(subject.LastBounds);
+                for (int index = 0; index < poseFrames.Count; index++)
+                {
+                    int frame = poseFrames[index];
+                    float alpha = GhostAlpha(index, poseFrames.Count, separated);
+                    poses.Add(CreateGhostVirtualPose(
+                        posePlan.Get(frame),
+                        ResolveGhostPoseTint(subject, frame),
+                        alpha,
+                        poseTargets[frame]));
+                }
+
+                Camera camera = CreateTestAnalysisPictureCamera(
+                    contentBounds,
+                    Vector3.right,
+                    aspect,
+                    0f);
+                try
+                {
+                    return RenderTestPoseLayers(camera, environment, poses, width, height, new Color(.12f, .12f, .12f, 1f));
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(camera.gameObject);
+                    foreach (TestVirtualPose pose in poses) pose.Dispose();
+                    foreach (GameObject item in environment) if (item != null) UnityEngine.Object.DestroyImmediate(item);
+                }
+            }
         }
 
-        private static Texture2D RenderTestCoordinatePlotTile(IReadOnlyList<Vector2> samples, int width, int height, Color lineColor, bool fixedUnitRange = false)
+        private static float CalculateHeightTimeLength(
+            SubjectPictureData subject,
+            IReadOnlyList<int> poseFrames,
+            float aspect)
         {
-            var normalized = new List<Vector2>(samples ?? Array.Empty<Vector2>());
-            if (normalized.Count == 0) normalized.Add(Vector2.zero);
-            Vector2 min = normalized[0], max = normalized[0];
-            foreach (Vector2 p in normalized) { min = Vector2.Min(min, p); max = Vector2.Max(max, p); }
-            Vector2 size = max - min;
-            if (fixedUnitRange) { min = Vector2.zero; max = Vector2.one; size = Vector2.one; }
-            if (size.x < .0001f) size.x = 1f;
-            if (size.y < .0001f) size.y = 1f;
-            const float margin = .08f;
-            for (int i = 0; i < normalized.Count; i++)
-                normalized[i] = new Vector2(margin + (normalized[i].x - min.x) / size.x * (1f - margin * 2f), margin + (normalized[i].y - min.y) / size.y * (1f - margin * 2f));
-            var points = normalized.Select(p => new Vector3(p.x, .02f, p.y)).ToArray();
-            var environment = new List<GameObject>();
-            if (points.Length > 1) CreateWorldLine(environment, points, lineColor, .018f);
-            Color axis = new Color(.8f, .8f, .85f, .7f);
-            for (int i = 0; i <= 5; i++)
+            if (subject == null || poseFrames == null || poseFrames.Count == 0) return 1f;
+            var poses = new List<Bounds>(poseFrames.Count);
+            float minY = float.PositiveInfinity;
+            float maxY = float.NegativeInfinity;
+            for (int index = 0; index < poseFrames.Count; index++)
             {
-                float v = i / 5f;
-                bool edge = i == 0 || i == 5;
-                CreateWorldLine(environment, new Vector3(v, .03f, 0f), new Vector3(v, .03f, 1f), edge ? .022f : .008f, axis, true);
-                CreateWorldLine(environment, new Vector3(0f, .03f, v), new Vector3(1f, .03f, v), edge ? .022f : .008f, axis, true);
+                int frame = Mathf.Clamp(poseFrames[index], 0, Math.Max(0, subject.Pelvis.Length - 1));
+                Bounds pose = CalculateRawPreviewPoseBounds(subject, frame);
+                Vector3 hips = subject.Pelvis[frame];
+                pose.center += new Vector3(-hips.x, 0f, -hips.z);
+                poses.Add(pose);
+                minY = Mathf.Min(minY, pose.min.y);
+                maxY = Mathf.Max(maxY, pose.max.y);
             }
-            Bounds bounds = new Bounds(new Vector3(.5f, 0f, .5f), new Vector3(1f, .02f, 1f));
-            Camera camera = CreateTestAnalysisPictureCamera(bounds, Vector3.up, width / (float)Mathf.Max(1, height));
-            camera.transform.position = bounds.center + Vector3.up * 10f;
-            camera.transform.LookAt(bounds.center, Vector3.forward);
-            camera.orthographicSize = Mathf.Max(.5f, .5f / camera.aspect);
-            try { return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f)); }
-            finally { UnityEngine.Object.DestroyImmediate(camera.gameObject); foreach (GameObject item in environment) if (item != null) UnityEngine.Object.DestroyImmediate(item); }
+
+            if (float.IsNaN(minY) || float.IsInfinity(minY) ||
+                float.IsNaN(maxY) || float.IsInfinity(maxY)) return 1f;
+            float targetWidth = Mathf.Max(.001f, maxY - minY) * Mathf.Max(.001f, aspect);
+            float widthAtLength = 0f;
+            for (int index = 0; index < poses.Count; index++)
+            {
+                widthAtLength = Mathf.Max(widthAtLength, poses[index].max.z);
+            }
+
+            Func<float, float> horizontalWidth = length =>
+            {
+                float minZ = float.PositiveInfinity;
+                float maxZ = float.NegativeInfinity;
+                for (int index = 0; index < poses.Count; index++)
+                {
+                    float u = subject.Pelvis.Length <= 1 ? 0f :
+                        Mathf.Clamp(poseFrames[index], 0, subject.Pelvis.Length - 1) /
+                        (float)(subject.Pelvis.Length - 1);
+                    minZ = Mathf.Min(minZ, u * length + poses[index].min.z);
+                    maxZ = Mathf.Max(maxZ, u * length + poses[index].max.z);
+                }
+                return maxZ - minZ;
+            };
+
+            float upper = Mathf.Max(1f, targetWidth + widthAtLength - poses[0].min.z);
+            while (horizontalWidth(upper) < targetWidth && upper < 100000f) upper *= 2f;
+            if (horizontalWidth(0f) >= targetWidth) return .001f;
+            float lower = 0f;
+            for (int iteration = 0; iteration < 32; iteration++)
+            {
+                float middle = (lower + upper) * .5f;
+                if (horizontalWidth(middle) < targetWidth) lower = middle;
+                else upper = middle;
+            }
+            return Mathf.Max(.001f, upper);
+        }
+
+        private static void CreateDiagnosticLine(List<GameObject> objects, IReadOnlyList<Vector3> points, Color color, float width)
+        {
+            if (points == null || points.Count < 2) return;
+            GameObject lineObject = MoveToAnalysisSessionRoot(
+                new GameObject("Kimodo Height Time Hip Curve") { hideFlags = HideFlags.HideAndDontSave });
+            SetLayerRecursively(lineObject, SessionCaptureLayer);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.positionCount = points.Count;
+            line.SetPositions(points.ToArray());
+            line.startWidth = line.endWidth = width;
+            line.useWorldSpace = true;
+            line.sharedMaterial = MakeUnlitMaterial(color);
+            line.startColor = line.endColor = color;
+            objects.Add(lineObject);
         }
 
         private static Color TestSpeedColor(float speed)
@@ -648,6 +754,9 @@ namespace KimodoUnityBridge.Command
                 SetEvidenceVisualsEnabled(environment, false);
                 foreach (TestVirtualPose pose in poses)
                 {
+                    Vector3 previousPosition = pose.Preview != null ? pose.Preview.transform.position : Vector3.zero;
+                    bool moved = pose.HasTargetPosition && pose.Preview != null;
+                    if (moved) pose.Preview.transform.position = pose.TargetPosition;
                     SetPreviewRenderersEnabled(pose.Preview, true);
                     try
                     {
@@ -663,7 +772,11 @@ namespace KimodoUnityBridge.Command
                         RenderTexture.ReleaseTemporary(layer); layer = null;
                         RenderTexture.ReleaseTemporary(depth); depth = null;
                     }
-                    finally { SetPreviewRenderersEnabled(pose.Preview, false); }
+                    finally
+                    {
+                        SetPreviewRenderersEnabled(pose.Preview, false);
+                        if (moved) pose.Preview.transform.position = previousPosition;
+                    }
                 }
 
                 if (includeTrajectories)
@@ -900,8 +1013,21 @@ namespace KimodoUnityBridge.Command
             foreach (Vector3 point in groundPoints) bounds.Encapsulate(point);
             bounds.Expand(new Vector3(.8f, .2f, .8f));
 
+            float aspect = width / (float)Mathf.Max(1, height);
+            Bounds groundBounds = IncludeGroundInBounds(bounds);
+            float groundWidth = Mathf.Max(.001f, groundBounds.size.x);
+            float groundDepth = Mathf.Max(.001f, groundBounds.size.z);
+            if (groundWidth / groundDepth < aspect)
+            {
+                groundBounds.Expand(new Vector3(groundDepth * aspect - groundWidth, 0f, 0f));
+            }
+            else
+            {
+                groundBounds.Expand(new Vector3(0f, 0f, groundWidth / aspect - groundDepth));
+            }
+
             var environment = new List<GameObject>();
-            CreatePictureEnvironment(environment, IncludeGroundInBounds(bounds));
+            CreatePictureEnvironment(environment, groundBounds);
             CreateWorldLine(environment, groundPoints, new Color(.1f, .85f, .25f, .95f), .06f);
             var keyframes = new HashSet<int>(tile.PrimaryFrames);
             foreach (int frame in tile.TrajectoryFrames.Where(frame => !keyframes.Contains(frame)))
@@ -923,7 +1049,7 @@ namespace KimodoUnityBridge.Command
                 CreateHeadingArrow(environment, origin, forward, .45f, tint);
             }
 
-            Camera camera = CreateTestAnalysisPictureCamera(bounds, tile.Direction, (float)width / Mathf.Max(1, height));
+            Camera camera = CreateTestAnalysisPictureCamera(groundBounds, tile.Direction, aspect, 0f);
             try
             {
                 return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));

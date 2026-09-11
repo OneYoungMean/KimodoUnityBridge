@@ -69,11 +69,11 @@ function compare(candidate_1, candidate_2):
                 clip: candidate_2.clip
             }
         ],
-        level: "middle",
+       picture: {"output": "composite"},
         resolution: 512
     })
     ASSERT analysis.analysis_schema_version == "2-phase-track-v1"
-    ASSERT analysis.pictures.render_version == "37-phase-track-clustering"
+    ASSERT analysis.pictures.render_version == "51-unified-picture-space"
 
     image_path = analysis.pictures.image_path
     picture_map = analysis.pictures.images

@@ -27,7 +27,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void AnimationAnalyzeSchema_UsesExplicitClipsAndMiddleByDefault()
+        public void AnimationAnalyzeSchema_UsesExplicitClipsAndPictureObject()
         {
             JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
             JObject schema = json["tools"].Values<JObject>()
@@ -36,7 +36,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(schema?["required"]?.Values<string>(), Does.Contain("clips"));
             Assert.That(schema?["properties"]?["clips"]?["minItems"]?.Value<int>(), Is.EqualTo(1));
             Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(2));
-            Assert.That(schema?["properties"]?["level"]?.Value<string>("default"), Is.EqualTo("middle"));
+            Assert.That(schema?["properties"]?["picture"]?.Value<string>("type"), Is.EqualTo("object"));
             JObject definition = json["tools"].Values<JObject>()
                 .Single(value => value.Value<string>("name") == "animation_analyze");
             Assert.That(definition.Value<string>("description"), Does.Contain("phase_track_version"));

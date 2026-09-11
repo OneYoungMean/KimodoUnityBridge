@@ -135,7 +135,7 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one or two immutable Session clips and render visual evidence synchronously. Humanoid results use analysis_schema_version=2-phase-track-v1 and phase_track_version=1-temporal-cluster-v1: contiguous, non-overlapping temporal phase/transition intervals with anchor frames replace uniform keyframe sampling. Use level=-test for one clip and a fixed 20-tile 16:9 contact/keyframe diagnostic using backend keyframes. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Mesh-only results return phase_track=NOT_APPLICABLE and omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+      "description": "Analyze one or two immutable Session clips and render unified picture evidence. Picture tiles are explicitly selected from the standard graph-space types and can be returned as a composite image, individual tile images, or both. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -172,15 +172,23 @@
               ]
             }
           },
-          "level": {
-            "type": "string",
-            "enum": [
-              "low",
-              "middle",
-              "high",
-              "-test"
-            ],
-            "default": "middle"
+          "picture": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Unified graph-space picture request. Omit to render all standard tiles as one composite.",
+            "properties": {
+              "tiles": {
+                "type": "array",
+                "items": { "type": "string", "enum": ["3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "key_pose", "step_pose"] },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "output": {
+                "type": "string",
+                "enum": ["composite", "tiles", "both"],
+                "default": "composite"
+              }
+            }
           },
           "resolution": {
             "type": "integer",
@@ -190,7 +198,7 @@
           },
           "analysis_option": {
             "type": "object",
-            "description": "Optional backend analysis options. In -test mode keyframe_count defaults to 8 and may be overridden by the caller."
+            "description": "Optional backend analysis options."
           }
         },
         "required": [

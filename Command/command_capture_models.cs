@@ -550,11 +550,34 @@ namespace KimodoUnityBridge.Command
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
                 bool usesGhostMaterial)
+                : this(preview, transientMaterials, alpha, usesGhostMaterial, Vector3.zero, false)
+            {
+            }
+
+            public TestVirtualPose(
+                GameObject preview,
+                IReadOnlyList<Material> transientMaterials,
+                float alpha,
+                bool usesGhostMaterial,
+                Vector3 targetPosition)
+                : this(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition, true)
+            {
+            }
+
+            private TestVirtualPose(
+                GameObject preview,
+                IReadOnlyList<Material> transientMaterials,
+                float alpha,
+                bool usesGhostMaterial,
+                Vector3 targetPosition,
+                bool hasTargetPosition)
             {
                 Preview = preview;
                 TransientMaterials = transientMaterials;
                 Alpha = alpha;
                 UsesGhostMaterial = usesGhostMaterial;
+                TargetPosition = targetPosition;
+                HasTargetPosition = hasTargetPosition;
             }
 
             public TestVirtualPose(
@@ -562,12 +585,35 @@ namespace KimodoUnityBridge.Command
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
                 bool usesGhostMaterial)
+                : this(preview, transientMaterials, alpha, usesGhostMaterial, Vector3.zero, false)
+            {
+            }
+
+            public TestVirtualPose(
+                EvaluatedPosePreview preview,
+                IReadOnlyList<Material> transientMaterials,
+                float alpha,
+                bool usesGhostMaterial,
+                Vector3 targetPosition)
+                : this(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition, true)
+            {
+            }
+
+            private TestVirtualPose(
+                EvaluatedPosePreview preview,
+                IReadOnlyList<Material> transientMaterials,
+                float alpha,
+                bool usesGhostMaterial,
+                Vector3 targetPosition,
+                bool hasTargetPosition)
             {
                 EvaluatedPreview = preview;
                 Preview = preview?.Root;
                 TransientMaterials = transientMaterials;
                 Alpha = alpha;
                 UsesGhostMaterial = usesGhostMaterial;
+                TargetPosition = targetPosition;
+                HasTargetPosition = hasTargetPosition;
             }
 
             public GameObject Preview { get; }
@@ -575,6 +621,8 @@ namespace KimodoUnityBridge.Command
             public IReadOnlyList<Material> TransientMaterials { get; }
             public float Alpha { get; }
             public bool UsesGhostMaterial { get; }
+            public Vector3 TargetPosition { get; }
+            public bool HasTargetPosition { get; }
 
             public void Dispose()
             {
@@ -712,6 +760,59 @@ namespace KimodoUnityBridge.Command
             public Vector3 LocalPosition { get; }
             public Quaternion LocalRotation { get; }
             public Vector3 LocalScale { get; }
+        }
+
+        private sealed class AnalysisPictureRequest
+        {
+            private static readonly string[] AllTileTypes =
+            {
+                "3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "key_pose", "step_pose"
+            };
+
+            private AnalysisPictureRequest(IReadOnlyList<string> tileTypes, string output)
+            {
+                TileTypes = tileTypes;
+                Output = output;
+            }
+
+            public IReadOnlyList<string> TileTypes { get; }
+            public string Output { get; }
+            public bool WritesComposite => Output == "composite" || Output == "both";
+            public bool WritesTiles => Output == "tiles" || Output == "both";
+
+            public bool Includes(string tileType) => TileTypes.Contains(tileType, StringComparer.Ordinal);
+
+            public JObject ToJson()
+            {
+                return new JObject
+                {
+                    ["tiles"] = new JArray(TileTypes),
+                    ["output"] = Output
+                };
+            }
+
+            public static AnalysisPictureRequest Parse(JObject value)
+            {
+                string output = (value?.Value<string>("output") ?? "composite").Trim().ToLowerInvariant();
+                if (output != "composite" && output != "tiles" && output != "both")
+                {
+                    throw new InvalidOperationException("picture.output must be composite, tiles, or both.");
+                }
+
+                var requested = value?["tiles"] as JArray;
+                var types = new List<string>();
+                foreach (string raw in (requested ?? new JArray(AllTileTypes)).Values<string>())
+                {
+                    string tile = (raw ?? string.Empty).Trim().ToLowerInvariant();
+                    if (!AllTileTypes.Contains(tile, StringComparer.Ordinal))
+                    {
+                        throw new InvalidOperationException($"Unsupported picture tile type '{raw}'.");
+                    }
+                    if (!types.Contains(tile, StringComparer.Ordinal)) types.Add(tile);
+                }
+                if (types.Count == 0) throw new InvalidOperationException("picture.tiles must contain at least one tile type.");
+                return new AnalysisPictureRequest(types, output);
+            }
         }
 
         private readonly struct PictureLayout

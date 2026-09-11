@@ -41,29 +41,26 @@ namespace KimodoUnityBridge.Command
         private static JObject RenderAnalysisPictures(
             TimelineSessionRecord session,
             IReadOnlyList<AnalysisSubject> subjects,
-            string level,
+            JObject picture,
             int requestedResolution)
         {
-            string signature = BuildPictureSignature(subjects, level, requestedResolution);
+            AnalysisPictureRequest pictureRequest = AnalysisPictureRequest.Parse(picture);
+            string pictureKey = pictureRequest.ToJson().ToString(Formatting.None);
+            string signature = BuildPictureSignature(subjects, pictureKey, requestedResolution);
             string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
             string projectPath = ToProjectRelativePath(imagePath);
             JObject persisted = subjects[0].Record.Pictures;
             bool phaseTrackReady = subjects.All(item =>
                 string.Equals(item.Record.Analysis?.Value<string>("phase_track_version"), PhaseTrackVersion, StringComparison.Ordinal));
             if (phaseTrackReady && persisted != null &&
-                string.Equals(persisted.Value<string>("level"), level, StringComparison.Ordinal) &&
+                string.Equals(persisted.Value<string>("picture"), pictureKey, StringComparison.Ordinal) &&
                 string.Equals(persisted.Value<string>("image_path"), projectPath, StringComparison.OrdinalIgnoreCase) &&
                 File.Exists(imagePath))
             {
                 var cachedResult = (JObject)persisted.DeepClone();
-                cachedResult["render_version"] = TestAnalysisPictureRenderVersion;
+                cachedResult["render_version"] = UnifiedAnalysisPictureRenderVersion;
                 cachedResult["cached"] = true;
                 return cachedResult;
-            }
-
-            if (level == "-test")
-            {
-                return RenderTestAnalysisPictures(session, subjects[0], requestedResolution);
             }
 
             var data = subjects.Select(subject => BuildSubjectPictureData(session, subject)).ToList();
@@ -79,13 +76,13 @@ namespace KimodoUnityBridge.Command
             var tiles = new List<PictureTile>();
             foreach (SubjectPictureData subject in data)
             {
-                tiles.AddRange(BuildPictureTiles(subject, level));
+                tiles.AddRange(BuildPictureTiles(subject, pictureRequest));
             }
 
             int maxTileCount = Math.Max(
                 1,
                 data.Select(subject => tiles.Count(tile => ReferenceEquals(tile.Subject, subject))).DefaultIfEmpty(1).Max());
-            PictureLayout layout = PictureLayout.ForLevel(maxTileCount, level == "high", requestedResolution);
+            PictureLayout layout = PictureLayout.ForLevel(maxTileCount, true, requestedResolution);
 
             int tileWidth = layout.TileSize;
             int tileHeight = ResolvePictureTileHeight(layout, tiles, tileWidth);
@@ -135,18 +132,15 @@ namespace KimodoUnityBridge.Command
                 RenderSettings.fog = previousFogEnabled;
                 captureSessionRoot = previousCaptureRoot;
             }
-            try
+            imageWidth = canvas.width;
+            imageHeight = canvas.height;
+            if (pictureRequest.WritesComposite)
             {
-                imageWidth = canvas.width;
-                imageHeight = canvas.height;
                 File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(canvas);
             }
 
             var descriptions = new JArray();
+            var tilePaths = new JArray();
             for (int index = 0; index < tiles.Count; index++)
             {
                 PictureTile tile = tiles[index];
@@ -155,6 +149,18 @@ namespace KimodoUnityBridge.Command
                 int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
                 JObject description = (JObject)tile.Description.DeepClone();
                 description["subject"] = tile.Subject.Subject.Role;
+                if (pictureRequest.WritesTiles)
+                {
+                    string tilePath = Path.Combine(
+                        EvidenceFolder(session),
+                        $"analysis_picture_{signature}_tile_{index + 1:00}.png");
+                    Texture2D tileImage = new Texture2D(rect.width, rect.height, TextureFormat.RGBA32, false);
+                    tileImage.SetPixels(canvas.GetPixels(rect.x, rect.y, rect.width, rect.height));
+                    tileImage.Apply(false, false);
+                    try { File.WriteAllBytes(tilePath, tileImage.EncodeToPNG()); }
+                    finally { UnityEngine.Object.DestroyImmediate(tileImage); }
+                    tilePaths.Add(ToProjectRelativePath(tilePath));
+                }
                 descriptions.Add(new JObject
                 {
                     ["id"] = (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
@@ -166,16 +172,18 @@ namespace KimodoUnityBridge.Command
 
             var result = new JObject
             {
-                ["level"] = level,
-                ["render_version"] = TestAnalysisPictureRenderVersion,
-                ["image_path"] = projectPath,
+                ["picture"] = pictureKey,
+                ["render_version"] = UnifiedAnalysisPictureRenderVersion,
+                ["image_path"] = pictureRequest.WritesComposite ? projectPath : string.Empty,
                 ["width"] = imageWidth,
                 ["height"] = imageHeight,
                 ["resolution"] = requestedResolution,
                 ["supersample"] = PictureSupersample,
                 ["images"] = descriptions,
+                ["tile_paths"] = tilePaths,
                 ["cached"] = cached
             };
+            UnityEngine.Object.DestroyImmediate(canvas);
             PersistPictureSummary(session, subjects[0].Record, result);
             return result;
         }
@@ -286,7 +294,7 @@ namespace KimodoUnityBridge.Command
                     (float)(data.Pelvis.Length / SessionFrameRate),
                     capturedAt);
                 canvas.Apply(false, false);
-                string signature = BuildPictureSignature(new[] { subject }, "-test", requestedResolution);
+                    string signature = BuildPictureSignature(new[] { subject }, "legacy-diagnostic", requestedResolution);
                 string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
                 Directory.CreateDirectory(EvidenceFolder(session));
                 File.WriteAllBytes(imagePath, canvas.EncodeToPNG());
@@ -306,8 +314,8 @@ namespace KimodoUnityBridge.Command
                 }
                 var result = new JObject
                 {
-                    ["level"] = "-test",
-                    ["render_version"] = TestAnalysisPicture20TileRenderVersion,
+                    ["picture"] = new JObject { ["output"] = "composite" },
+                    ["render_version"] = UnifiedAnalysisPictureRenderVersion,
                     ["image_path"] = ToProjectRelativePath(imagePath),
                     ["width"] = layout.CanvasWidth,
                     ["height"] = layout.CanvasHeight,
@@ -341,7 +349,7 @@ namespace KimodoUnityBridge.Command
                             ["fps"] = SessionFrameRate,
                             ["duration_seconds"] = data.Pelvis.Length / SessionFrameRate,
                             ["screenshot_generated_at"] = capturedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                            ["tile_types"] = new JArray("3d_track", "3d_ghost", "3d_ghost_track", "blank", "test_pose"),
+                            ["tile_types"] = new JArray("3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "test_pose"),
                             ["rect"] = new JObject { ["x"] = 0, ["y"] = 0, ["width"] = layout.CanvasWidth, ["height"] = layout.CanvasHeight }
                         }
                     },
@@ -642,12 +650,10 @@ namespace KimodoUnityBridge.Command
 
         private static string BuildPictureSignature(
             IReadOnlyList<AnalysisSubject> subjects,
-            string level,
+            string pictureKey,
             int requestedResolution)
         {
-            // All humanoid picture levels now use the depth-tested test renderer.
-            string renderVersion = level == "-test" ? TestAnalysisPicture20TileRenderVersion : TestAnalysisPictureRenderVersion;
-            string source = renderVersion + "|" + level + "|" + requestedResolution + "|" + PictureSupersample + "|" +
+            string source = UnifiedAnalysisPictureRenderVersion + "|" + pictureKey + "|" + requestedResolution + "|" + PictureSupersample + "|" +
                 string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
             using (SHA256 hash = SHA256.Create())
             {
@@ -854,7 +860,7 @@ namespace KimodoUnityBridge.Command
             return result;
         }
 
-        private static List<PictureTile> BuildPictureTiles(SubjectPictureData subject, string level)
+        private static List<PictureTile> BuildPictureTiles(SubjectPictureData subject, AnalysisPictureRequest request)
         {
             if (!IsHumanoidCharacter(subject.Subject.Character))
             {
@@ -863,42 +869,28 @@ namespace KimodoUnityBridge.Command
                     .ToList();
             }
 
-            if (level == "low" || level == "middle" || level == "high")
+            var result = new List<PictureTile>();
+            if (request.Includes("3d_track")) result.Add(PictureTile.TestOverview(subject, "3d_track", Vector3.up));
+            if (request.Includes("height_time_track")) result.Add(PictureTile.TestOverview(subject, "height_time_track", Vector3.up));
+            IReadOnlyList<int?> keyframes = NormalizeTestKeyframes(subject, 8);
+            IReadOnlyList<int?> steps = NormalizeTestStepFrames(subject, 8);
+            if (request.Includes("3d_ghost"))
             {
-                var result = new List<PictureTile>
-                {
-                    PictureTile.TestFootTransitions(subject, new Vector3(1f, .75f, -1f)),
-                    PictureTile.TestKeyframes(subject, new Vector3(1f, .75f, -1f))
-                };
-
-                if (level == "middle" || level == "high")
-                {
-                    result.Insert(0, PictureTile.TestRoot2D(subject, new Vector3(0f, 1f, 0f)));
-                    foreach (int frame in SelectKeyFrames(subject, subject.KeyframeCount).OrderBy(frame => frame))
-                    {
-                        result.Add(PictureTile.TestPose(subject, frame, "keyframe", new Vector3(1f, .75f, -1f)));
-                    }
-                }
-
-                if (level == "high")
-                {
-                    foreach (int frame in FootTransitionFrames(subject).OrderBy(frame => frame))
-                    {
-                        result.Add(PictureTile.TestPose(subject, frame, "foot_transition", new Vector3(1f, .75f, -1f)));
-                    }
-                }
-
-                if (level == "middle" || level == "high")
-                {
-                    int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
-                    result.Add(PictureTile.TestPose(subject, 0, "start", new Vector3(1f, .75f, -1f)));
-                    result.Add(PictureTile.TestPose(subject, lastFrame, "end", new Vector3(1f, .75f, -1f)));
-                }
-
-                return result;
+                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost", keyframes.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f)));
             }
-
-            throw new InvalidOperationException($"Unsupported analysis picture level '{level}'.");
+            if (request.Includes("3d_ghost_track"))
+            {
+                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost_track", steps.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f)));
+            }
+            if (request.Includes("key_pose"))
+            {
+                for (int index = 0; index < keyframes.Count; index++) result.Add(PictureTile.TestPoseSlot(subject, keyframes[index], "key_pose", index + 1));
+            }
+            if (request.Includes("step_pose"))
+            {
+                for (int index = 0; index < steps.Count; index++) result.Add(PictureTile.TestPoseSlot(subject, steps[index], "step_pose", index + 1));
+            }
+            return result;
         }
 
         private static List<int> SelectKeyFrames(SubjectPictureData subject, int count)

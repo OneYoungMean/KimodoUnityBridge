@@ -191,6 +191,15 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
+            return CreateTestAnalysisPictureCamera(bounds, direction, aspect, TestCameraMarginMeters);
+        }
+
+        private static Camera CreateTestAnalysisPictureCamera(
+            Bounds bounds,
+            Vector3 direction,
+            float aspect,
+            float margin)
+        {
             Camera camera = CreateTestAnalysisPictureCameraBase("Kimodo Test Pose Camera", aspect);
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
             CalculateTestViewExtents(
@@ -205,8 +214,8 @@ namespace KimodoUnityBridge.Command
             Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
             camera.transform.LookAt(viewCenter, up);
 
-            float horizontalHalf = maxHorizontal * TestCameraFitScale + TestCameraMarginMeters;
-            float verticalHalf = maxVertical * TestCameraFitScale + TestCameraMarginMeters;
+            float horizontalHalf = maxHorizontal * TestCameraFitScale + Mathf.Max(0f, margin);
+            float verticalHalf = maxVertical * TestCameraFitScale + Mathf.Max(0f, margin);
             camera.orthographicSize = Mathf.Max(
                 .5f,
                 verticalHalf,
@@ -438,13 +447,8 @@ namespace KimodoUnityBridge.Command
         {
             string text = value ?? string.Empty;
             int size = texture.width >= 256 ? 4 : 2;
-            int textWidth = 0;
-            foreach (char digit in text) textWidth += digit == '-' ? size * 4 : size * 5;
-            textWidth = Math.Max(1, textWidth - size);
             int x = size * 2;
             int y = texture.height - size * 8 - size * 2;
-            int backdropX = Mathf.Max(0, x - size);
-            FillRect(texture, backdropX, 0, texture.width - backdropX, size * 10, new Color(0f, 0f, 0f, .65f));
             foreach (char digit in text)
             {
                 if (digit == '-')
@@ -556,8 +560,7 @@ namespace KimodoUnityBridge.Command
             foreach (char character in text) width += size * 5;
             width = Math.Max(1, width - size);
             int x = Mathf.Max(size, texture.width - width - size * 2);
-            int y = texture.height - size * 8 - size * 2;
-            FillRect(texture, texture.width - width - size * 4, 0, width + size * 4, size * 8, new Color(0f, 0f, 0f, .65f));
+            int y = size * 2;
             foreach (char digit in text)
             {
                 DrawSevenSegmentDigit(texture, x, y, digit, size, Color.white);
