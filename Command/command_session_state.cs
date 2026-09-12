@@ -149,6 +149,7 @@ namespace KimodoUnityBridge.Command
                 .Where(item => item != null && item.transform.parent == null &&
                     item.name.StartsWith("KimodoSession_", StringComparison.Ordinal)))
             {
+                RemoveSessionLights(root);
                 root.SetActive(root == session?.SessionRoot);
             }
             foreach (PlayableDirector director in Resources.FindObjectsOfTypeAll<PlayableDirector>())
@@ -255,13 +256,21 @@ namespace KimodoUnityBridge.Command
         internal static void CreateSessionBasics(GameObject sessionRoot, string safeName)
         {
             if (sessionRoot == null) return;
-            GameObject lightObject = new GameObject($"Kimodo_PreviewLight_{safeName}");
-            lightObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            lightObject.transform.SetParent(sessionRoot.transform, false);
-            Light light = lightObject.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.intensity = IsBuiltInCapturePipeline() ? .25f : 1f;
-            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
+            RemoveSessionLights(sessionRoot);
+        }
+
+        private static void RemoveSessionLights(GameObject sessionRoot)
+        {
+            if (sessionRoot == null) return;
+            foreach (Light light in sessionRoot.GetComponentsInChildren<Light>(true))
+            {
+                if (light != null) UnityEngine.Object.DestroyImmediate(light);
+            }
+            foreach (Transform child in sessionRoot.GetComponentsInChildren<Transform>(true)
+                .Where(item => item != null && item.name.StartsWith("Kimodo_PreviewLight_", StringComparison.Ordinal)))
+            {
+                if (child != null) UnityEngine.Object.DestroyImmediate(child.gameObject);
+            }
         }
 
         private static GameObject CloneCharacterToSession(TimelineSessionRecord session, GameObject source)
@@ -285,6 +294,7 @@ namespace KimodoUnityBridge.Command
                 candidate.Rebind();
                 candidate.Update(0f);
             }
+            RemoveSessionLights(clone);
             return clone;
         }
 
@@ -982,9 +992,9 @@ namespace KimodoUnityBridge.Command
             {
                 TimelineSessionRecord session = RequireTimelineSession(arguments);
                 JArray requestedClips = arguments["clips"] as JArray;
-                if (requestedClips == null || requestedClips.Count < 1 || requestedClips.Count > 2)
+                if (requestedClips == null || requestedClips.Count != 1)
                 {
-                    throw new InvalidOperationException("clips must contain one or two {character,clip,role?} objects.");
+                    throw new InvalidOperationException("animation_analyze requires exactly one {character,clip,role?} object; analyze comparison clips separately.");
                 }
 
                 JObject picture = AnalysisPictureRequest.Parse(arguments["picture"] as JObject).ToJson();

@@ -769,34 +769,52 @@ namespace KimodoUnityBridge.Command
                 "3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "key_pose", "step_pose"
             };
 
-            private AnalysisPictureRequest(IReadOnlyList<string> tileTypes, string output)
+            private AnalysisPictureRequest(IReadOnlyList<string> tileTypes, string output, int? tileIndex)
             {
                 TileTypes = tileTypes;
                 Output = output;
+                TileIndex = tileIndex;
             }
 
             public IReadOnlyList<string> TileTypes { get; }
             public string Output { get; }
-            public bool WritesComposite => Output == "composite" || Output == "both";
-            public bool WritesTiles => Output == "tiles" || Output == "both";
+            public int? TileIndex { get; }
+            public bool WritesComposite => Output == "composite";
+            public bool WritesTiles => Output == "tile";
+            public bool WritesSingleTile => Output == "tile";
 
             public bool Includes(string tileType) => TileTypes.Contains(tileType, StringComparer.Ordinal);
 
             public JObject ToJson()
             {
-                return new JObject
+                var result = new JObject
                 {
                     ["tiles"] = new JArray(TileTypes),
                     ["output"] = Output
                 };
+                if (TileIndex.HasValue) result["tile_index"] = TileIndex.Value;
+                return result;
             }
 
             public static AnalysisPictureRequest Parse(JObject value)
             {
                 string output = (value?.Value<string>("output") ?? "composite").Trim().ToLowerInvariant();
-                if (output != "composite" && output != "tiles" && output != "both")
+                if (output != "composite" && output != "tile")
                 {
-                    throw new InvalidOperationException("picture.output must be composite, tiles, or both.");
+                    throw new InvalidOperationException("picture.output must be composite or tile.");
+                }
+
+                int? tileIndex = value?.Value<int?>("tile_index");
+                if (output == "tile")
+                {
+                    if (!tileIndex.HasValue || tileIndex.Value < 1)
+                    {
+                        throw new InvalidOperationException("picture.tile_index must be a 1-based positive integer when picture.output is tile.");
+                    }
+                }
+                else if (tileIndex.HasValue)
+                {
+                    throw new InvalidOperationException("picture.tile_index is only valid when picture.output is tile.");
                 }
 
                 var requested = value?["tiles"] as JArray;
@@ -811,7 +829,7 @@ namespace KimodoUnityBridge.Command
                     if (!types.Contains(tile, StringComparer.Ordinal)) types.Add(tile);
                 }
                 if (types.Count == 0) throw new InvalidOperationException("picture.tiles must contain at least one tile type.");
-                return new AnalysisPictureRequest(types, output);
+                return new AnalysisPictureRequest(types, output, tileIndex);
             }
         }
 

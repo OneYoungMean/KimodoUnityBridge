@@ -63,7 +63,9 @@ namespace KimodoUnityBridge.Command.Tests
                     ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = 512
                 });
                 Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("2-phase-track-v1"));
-                Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("51-unified-picture-space"));
+                Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("52-test-analysis-picture"));
+                Assert.That(analysis["pictures"]?.Value<string>("aspect"), Is.EqualTo("16:9"));
+                Assert.That(analysis["pictures"]?.Value<int>("tile_count"), Is.EqualTo(20));
                 JObject clipAnalysis = analysis["clips"]?.Children<JObject>().Single();
                 Assert.That(clipAnalysis?.Value<string>("phase_track_version"), Is.EqualTo("1-temporal-cluster-v1"));
                 JArray phases = clipAnalysis?["phase_track"] as JArray;
@@ -118,6 +120,16 @@ namespace KimodoUnityBridge.Command.Tests
                 command_dispatcher.Invoke("session_close", "{}");
                 UnityEngine.Object.DestroyImmediate(character);
             }
+        }
+
+        [Test]
+        public void AnimationAnalyzeSchema_RequiresOneClip()
+        {
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject schema = definitions["tools"].Children<JObject>()
+                .Single(item => item.Value<string>("name") == "animation_analyze")["inputSchema"] as JObject;
+            Assert.That(schema?["properties"]?["clips"]?["minItems"]?.Value<int>(), Is.EqualTo(1));
+            Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(1));
         }
 
         [UnityTest]

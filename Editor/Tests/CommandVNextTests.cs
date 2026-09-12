@@ -35,8 +35,12 @@ namespace KimodoUnityBridge.Command.Tests
 
             Assert.That(schema?["required"]?.Values<string>(), Does.Contain("clips"));
             Assert.That(schema?["properties"]?["clips"]?["minItems"]?.Value<int>(), Is.EqualTo(1));
-            Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(2));
+            Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(1));
             Assert.That(schema?["properties"]?["picture"]?.Value<string>("type"), Is.EqualTo("object"));
+            JObject picture = schema?["properties"]?["picture"] as JObject;
+            Assert.That(picture?["properties"]?["tile_index"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(picture?["properties"]?["tile_index"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(picture?["properties"]?["output"]?["enum"]?.Values<string>(), Does.Contain("tile"));
             JObject definition = json["tools"].Values<JObject>()
                 .Single(value => value.Value<string>("name") == "animation_analyze");
             Assert.That(definition.Value<string>("description"), Does.Contain("phase_track_version"));
@@ -63,6 +67,22 @@ namespace KimodoUnityBridge.Command.Tests
                 Is.EqualTo("number"));
             Assert.That(generate?["properties"]?["override_heading_degrees"]?["type"]?.Value<string>(),
                 Is.EqualTo("number"));
+        }
+
+        [Test]
+        public void OptionalOverridesAreMarkedAdvanced()
+        {
+            JObject json = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject analyze = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "animation_analyze")["inputSchema"] as JObject;
+            JObject generate = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "kimodo_generate_animation")["inputSchema"] as JObject;
+
+            Assert.That(analyze?["properties"]?["session_id"]?["x-kimodo-advanced"]?.Value<bool>(), Is.True);
+            Assert.That(analyze?["properties"]?["analysis_option"]?["x-kimodo-advanced"]?.Value<bool>(), Is.True);
+            Assert.That(generate?["properties"]?["model"]?["x-kimodo-advanced"]?.Value<bool>(), Is.True);
+            Assert.That(generate?["properties"]?["constraints"]?["x-kimodo-advanced"]?.Value<bool>(), Is.True);
+            Assert.That(generate?["properties"]?["character"]?["x-kimodo-advanced"], Is.Null);
         }
 
         [Test]

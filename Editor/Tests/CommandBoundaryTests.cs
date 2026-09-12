@@ -28,6 +28,27 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void SessionBasics_DoNotRetainPreviewLights()
+        {
+            var root = new GameObject("KimodoSession_LightFixture");
+            var legacyLight = new GameObject("Kimodo_PreviewLight_LightFixture");
+            legacyLight.transform.SetParent(root.transform, false);
+            legacyLight.AddComponent<Light>();
+            try
+            {
+                command_context.CreateSessionBasics(root, "LightFixture");
+
+                Assert.That(root.GetComponentsInChildren<Light>(true), Is.Empty);
+                Assert.That(root.transform.Cast<Transform>().Any(item =>
+                    item.name.StartsWith("Kimodo_PreviewLight_", StringComparison.Ordinal)), Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void Definitions_AreLoadedFromHelpJsonAndMatchDispatcherSurface()
         {
             TextAsset help = AssetDatabase.LoadAssetAtPath<TextAsset>(HelpAssetPath);

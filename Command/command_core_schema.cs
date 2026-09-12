@@ -117,6 +117,12 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition(name, type, description, false);
         }
 
+        private static PropertyDefinition Advanced(PropertyDefinition definition)
+        {
+            definition.Schema["x-kimodo-advanced"] = true;
+            return definition;
+        }
+
         private static PropertyDefinition OptionalArray(string name, string itemType, string description)
         {
             return new PropertyDefinition(name, new JObject
@@ -142,9 +148,9 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition("clips", new JObject
             {
                 ["type"] = "array",
-                ["description"] = "One or two immutable Session clip references. Every item explicitly names its Session character; role defaults to source for the first item and target for the second.",
+                ["description"] = "Exactly one immutable Session clip reference. Comparison callers analyze each candidate separately.",
                 ["minItems"] = 1,
-                ["maxItems"] = 2,
+                ["maxItems"] = 1,
                 ["items"] = new JObject
                 {
                     ["type"] = "object",

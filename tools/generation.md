@@ -141,7 +141,7 @@ if request_names_one_or_more_actions():
     if request_semantics_include_fix_or_variant_of_named_actions() and related_clips is empty:
         record_context_evidence("No matching action clip found; this is a new baseline generation.")
     if related_clips is not empty:
-        related_analysis = animation_analyze(related_clips, picture={"output": "composite"}, resolution=512)
+        related_analysis = animation_analyze(related_clips)
         source_profile = related_analysis.clips[0].motion_profile
         source_keyframes = related_analysis.clips[0].keyframes
         if request_is_repair_or_variant_of_related_clip():
@@ -183,7 +183,6 @@ function execute_generate_skill(request):
     if REQUEST_IS_RANGE_OPERATION == YES:
         ASSERT request_explicitly_supplies_start_frame_end_frame_and_character()
         final_output = kimodo_record_range({
-            session_id: session_id,
             start_frame: request.start_frame,
             end_frame: request.end_frame,
             character: character,
@@ -215,7 +214,6 @@ function execute_generate_skill(request):
             TARGET_CHARACTER
         )
         final_output = kimodo_retarget_animation({
-            session_id: session_id,
             source_character: character,
             animation: source_clip,
             target_character: target_character,
@@ -237,14 +235,10 @@ function execute_generate_skill(request):
     if HAS_SOURCE_ANIMATION == YES:
         source_clip = ensure_clip_with_session_add(session, character, SOURCE_CLIP)
         source_analysis = animation_analyze({
-            session_id: session_id,
             clips: [{
-                role: "source",
                 character: character,
                 clip: source_clip
-            }],
-            picture: {"output": "composite"},
-            resolution: 512
+            }]
         })
         source_image_path = source_analysis.pictures.image_path
         source_picture_map = source_analysis.pictures.images
@@ -310,6 +304,7 @@ function execute_generate_skill(request):
     if constraints is not empty:
         args.constraints = constraints
 
+    # Advanced overrides are opt-in; ordinary generation omits this entire block.
     copy_only_user_supplied_optional_fields(
         request,
         args,
@@ -374,7 +369,6 @@ function execute_generate_skill(request):
             TARGET_CHARACTER
         )
         retargeted_output = kimodo_retarget_animation({
-            session_id: session_id,
             source_character: character,
             animation: generated_ref.clip,
             target_character: target_character,
@@ -395,14 +389,10 @@ function execute_generate_skill(request):
 
 function verify_final_output(session_id, final_ref, runtime_evidence):
     final_analysis = animation_analyze({
-        session_id: session_id,
         clips: [{
-            role: "target",
             character: final_ref.character,
             clip: final_ref.clip
-        }],
-        picture: {"output": "composite"},
-        resolution: 512
+        }]
     })
 
     final_image_path = final_analysis.pictures.image_path
@@ -506,7 +496,6 @@ function ensure_character_with_session_add(session, character_ref):
         return character_ref
 
     added_character = session_add({
-        session_id: session.session_id,
         kind: "character",
         character: character_ref
     })
@@ -517,7 +506,6 @@ function ensure_clip_with_session_add(session, character_ref, clip_ref):
         return clip_ref
 
     added_clip = session_add({
-        session_id: session.session_id,
         kind: "clip",
         character: character_ref,
         clip: clip_ref

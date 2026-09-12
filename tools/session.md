@@ -7,7 +7,7 @@ description: Prepare, reuse, and close the current animation Session and load on
 
 负责 `session_get_or_create`、`session_add` 和 `session_close` 的生命周期编排。
 
-`session_get_or_create` 会立即建立专用可见 Session GameObject（基础地面、灯光、角色容器与 Timeline Director）。加入角色时复制源对象到该对象下，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`；源场景对象不会被用于后续评估或渲染。
+`session_get_or_create` 会立即建立专用可见 Session GameObject（角色容器与 Timeline Director）。Session 不创建灯光；灯光仅可由分析截图流程临时创建，并在每次渲染完成后销毁。加入角色时复制源对象到该对象下，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`；源场景对象不会被用于后续评估或渲染。
 
 Session 不再创建或切换 Unity Preview Scene。每个 Session 使用一个不保存的根 GameObject；关闭或切换时仅禁用旧根对象，便于在编辑器中检查历史对象。
 
