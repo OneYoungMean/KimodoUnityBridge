@@ -96,7 +96,7 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
+                        "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, and evidence paths. Completed Clips are never modified.",
                         Properties(
                             RequiredAnalysisClips(),
                             new PropertyDefinition("picture", new JObject

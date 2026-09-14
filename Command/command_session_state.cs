@@ -1231,7 +1231,6 @@ namespace KimodoUnityBridge.Command
                 ["clip"] = subject.Animation.Name,
                 ["analysis_schema_version"] = AnalysisContractVersion,
                 ["analysis_mode"] = humanoid ? "humanoid" : "mesh",
-                ["keyframes"] = subject.Record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
                 ["phase_track_version"] = humanoid
                     ? subject.Record.Analysis?.Value<string>("phase_track_version") ?? string.Empty
                     : "NOT_APPLICABLE",

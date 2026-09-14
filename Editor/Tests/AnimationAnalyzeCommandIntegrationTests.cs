@@ -68,6 +68,7 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(analysis["pictures"]?.Value<int>("tile_count"), Is.EqualTo(20));
                 JObject clipAnalysis = analysis["clips"]?.Children<JObject>().Single();
                 Assert.That(clipAnalysis?.Value<string>("phase_track_version"), Is.EqualTo("1-temporal-cluster-v1"));
+                Assert.That(clipAnalysis?["keyframes"], Is.Null);
                 JArray phases = clipAnalysis?["phase_track"] as JArray;
                 Assert.That(phases, Is.Not.Null.And.Not.Empty);
                 Assert.That(phases.First().Value<int>("start_frame"), Is.EqualTo(0));
