@@ -61,7 +61,12 @@
         "properties": {
           "kind": {
             "type": "string",
-            "enum": ["character", "track", "clip", "constraint"]
+            "enum": [
+              "character",
+              "track",
+              "clip",
+              "constraint"
+            ]
           },
           "name": {
             "type": "string",
@@ -72,7 +77,10 @@
             "description": "Optional character name to disambiguate clips, tracks, or constraints."
           }
         },
-        "required": ["kind", "name"],
+        "required": [
+          "kind",
+          "name"
+        ],
         "additionalProperties": false
       }
     },
@@ -179,13 +187,27 @@
             "properties": {
               "tiles": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "key_pose", "step_pose"] },
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "3d_track",
+                    "height_time_track",
+                    "3d_ghost",
+                    "3d_ghost_track",
+                    "key_pose",
+                    "step_pose"
+                  ]
+                },
                 "minItems": 1,
                 "uniqueItems": true
               },
               "output": {
                 "type": "string",
-                "enum": ["composite", "tiles", "both"],
+                "enum": [
+                  "composite",
+                  "tiles",
+                  "both"
+                ],
                 "default": "composite"
               }
             }
@@ -195,7 +217,7 @@
             "minimum": 64,
             "maximum": 4096,
             "description": "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
-          },
+          }
         },
         "required": [
           "clips"
@@ -325,18 +347,30 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "x": { "type": "boolean" },
-                      "y": { "type": "boolean" },
-                      "z": { "type": "boolean" }
+                      "x": {
+                        "type": "boolean"
+                      },
+                      "y": {
+                        "type": "boolean"
+                      },
+                      "z": {
+                        "type": "boolean"
+                      }
                     }
                   },
                   "lock_rot": {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "x": { "type": "boolean" },
-                      "y": { "type": "boolean" },
-                      "z": { "type": "boolean" }
+                      "x": {
+                        "type": "boolean"
+                      },
+                      "y": {
+                        "type": "boolean"
+                      },
+                      "z": {
+                        "type": "boolean"
+                      }
                     }
                   }
                 }
@@ -348,10 +382,19 @@
             "additionalProperties": false,
             "description": "Optional Root2D path override. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition.",
             "properties": {
-              "start_angle": { "type": "number" },
-              "end_angle": { "type": "number" },
-              "distance": { "type": "number", "minimum": 0 },
-              "heading": { "type": "number" }
+              "start_angle": {
+                "type": "number"
+              },
+              "end_angle": {
+                "type": "number"
+              },
+              "distance": {
+                "type": "number",
+                "minimum": 0
+              },
+              "heading": {
+                "type": "number"
+              }
             }
           },
           "generation": {
@@ -359,10 +402,22 @@
             "additionalProperties": false,
             "description": "Optional model and deterministic generation settings.",
             "properties": {
-              "model": { "type": "string" },
-              "text_encoder": { "type": "string", "enum": ["high_performance", "high_precision"] },
-              "seed": { "type": "integer" },
-              "diffusion_steps": { "type": "integer" }
+              "model": {
+                "type": "string"
+              },
+              "text_encoder": {
+                "type": "string",
+                "enum": [
+                  "high_performance",
+                  "high_precision"
+                ]
+              },
+              "seed": {
+                "type": "integer"
+              },
+              "diffusion_steps": {
+                "type": "integer"
+              }
             }
           },
           "output": {
@@ -370,9 +425,20 @@
             "additionalProperties": false,
             "description": "Optional animation output settings.",
             "properties": {
-              "mode": { "type": "string", "enum": ["humanoid_muscle", "character_bone", "model_bone"] },
-              "folder": { "type": "string" },
-              "name": { "type": "string" }
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "humanoid_muscle",
+                  "character_bone",
+                  "model_bone"
+                ]
+              },
+              "folder": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
             }
           },
           "analysis_option": {
@@ -705,6 +771,109 @@
         },
         "required": [
           "source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "pose_set",
+      "description": "Modify an External Pose slot. Supply root, muscles, effector, or any combination.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pose": {
+            "type": "object",
+            "description": "External Pose slot in the current Session.",
+            "additionalProperties": false,
+            "properties": {
+              "track": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "track",
+              "index"
+            ]
+          },
+          "root": {
+            "type": "object",
+            "description": "Root position and rotation."
+          },
+          "muscles": {
+            "type": "object",
+            "description": "Map of muscle channel names to values."
+          },
+          "effector": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "left_hand": {
+                "type": "object",
+                "description": "Effector target position and/or rotation.",
+                "properties": {
+                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                },
+                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
+                "additionalProperties": false
+              },
+              "right_hand": {
+                "type": "object",
+                "description": "Effector target position and/or rotation.",
+                "properties": {
+                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                },
+                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
+                "additionalProperties": false
+              },
+              "left_foot": {
+                "type": "object",
+                "description": "Effector target position and/or rotation.",
+                "properties": {
+                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                },
+                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
+                "additionalProperties": false
+              },
+              "right_foot": {
+                "type": "object",
+                "description": "Effector target position and/or rotation.",
+                "properties": {
+                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                },
+                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "required": [
+          "pose"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "root"
+            ]
+          },
+          {
+            "required": [
+              "muscles"
+            ]
+          },
+          {
+            "required": [
+              "effector"
+            ]
+          }
         ],
         "additionalProperties": false
       }

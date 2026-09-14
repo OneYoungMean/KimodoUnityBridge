@@ -36,6 +36,7 @@ namespace KimodoUnityBridge.Command
                 [RetargetAnimationCommand] = RetargetAnimation,
                 [GenerateAnimationCommand] = GenerateAnimationAsset,
                 [PoseGetCommand] = PoseGet,
+                [PoseSetCommand] = PoseSet,
                 [PoseSetRootTransformCommand] = PoseSetRootTransform,
                 [PoseSetMuscleCommand] = PoseSetMuscle,
                 [GetGenerationCommand] = GetGeneration,
@@ -385,6 +386,56 @@ namespace KimodoUnityBridge.Command
         private static PropertyDefinition RequiredPoseReference(string name)
         {
             return new PropertyDefinition(name, PoseReferenceSchema(), true);
+        }
+
+        private static JObject PoseSetSchema()
+        {
+            JObject transform = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["position"] = new JObject { ["type"] = "array", ["minItems"] = 3, ["maxItems"] = 3, ["items"] = new JObject { ["type"] = "number" } },
+                    ["rotation"] = new JObject { ["type"] = "array", ["minItems"] = 4, ["maxItems"] = 4, ["items"] = new JObject { ["type"] = "number" } }
+                },
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("position") },
+                    new JObject { ["required"] = new JArray("rotation") })
+            };
+            JObject effectors = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["left_hand"] = transform.DeepClone(), ["right_hand"] = transform.DeepClone(),
+                    ["left_foot"] = transform.DeepClone(), ["right_foot"] = transform.DeepClone()
+                },
+                ["minProperties"] = 1
+            };
+            foreach (string key in new[] { "left_hand", "right_hand", "left_foot", "right_foot" })
+            {
+                JObject value = (JObject)effectors["properties"][key];
+                value["description"] = "Effector target position and/or rotation.";
+            }
+            return new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["pose"] = PoseReferenceSchema(),
+                    ["root"] = new JObject { ["type"] = "object", ["description"] = "Root position and rotation." },
+                    ["muscles"] = new JObject { ["type"] = "object", ["description"] = "Map of muscle channel names to values." },
+                    ["effector"] = effectors
+                },
+                ["required"] = new JArray("pose"),
+                ["anyOf"] = new JArray(
+                    new JObject { ["required"] = new JArray("root") },
+                    new JObject { ["required"] = new JArray("muscles") },
+                    new JObject { ["required"] = new JArray("effector") }),
+                ["additionalProperties"] = false
+            };
         }
 
         private static JObject PoseReferenceSchema()
