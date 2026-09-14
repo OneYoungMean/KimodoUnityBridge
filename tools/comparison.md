@@ -50,13 +50,11 @@ TARGET_SEMANTICS = OPTIONAL("<requested action semantics / 指定动作语义>")
 
 function compare(candidate_1, candidate_2):
     session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
-    session_id = session.session_id
 
     candidate_1 = ensure_loaded_with_session_add(session, candidate_1)
     candidate_2 = ensure_loaded_with_session_add(session, candidate_2)
 
     analysis = animation_analyze({
-        session_id: session_id,
         clips: [
             {
                 role: "source",
@@ -73,7 +71,7 @@ function compare(candidate_1, candidate_2):
         resolution: 512
     })
     ASSERT analysis.analysis_schema_version == "2-phase-track-v1"
-    ASSERT analysis.pictures.render_version == "37-phase-track-clustering"
+    ASSERT analysis.pictures.render_version == "51-unified-picture-space"
 
     image_path = analysis.pictures.image_path
     picture_map = analysis.pictures.images
@@ -249,7 +247,6 @@ function compare_one_quality_criterion(CRITERION, candidate_1, candidate_2, targ
 function ensure_loaded_with_session_add(session, candidate):
     if candidate.character is not in session.session.characters:
         added_character = session_add({
-            session_id: session.session_id,
             kind: "character",
             character: candidate.character
         })
@@ -257,7 +254,6 @@ function ensure_loaded_with_session_add(session, candidate):
 
     if candidate.clip is not under candidate.character:
         added_clip = session_add({
-            session_id: session.session_id,
             kind: "clip",
             character: candidate.character,
             clip: candidate.clip

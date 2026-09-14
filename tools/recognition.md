@@ -54,7 +54,7 @@ function recognize_clip(analysis, semantic_alternatives, clip_index = 0):
     if analysis.analysis_schema_version != "2-phase-track-v1":
         return not_verified_all_tasks("analysis_schema_version_mismatch")
     image = analysis.pictures.image_path
-    if analysis.pictures.render_version != "37-phase-track-clustering":
+    if analysis.pictures.render_version != "51-unified-picture-space":
         return not_verified_all_tasks("render_version_mismatch")
     picture_map = tiles_for_clip(analysis.pictures.images, clip_index)
     ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image) == YES
@@ -168,7 +168,7 @@ Rules:
 TASK definitions:
 - trajectory_shape: inspect root2d_pelvis_projection only; return closed_loop,
   open_path, near_static, or unclear.
-- action_semantics: use only semantic_alternatives and inspect keyframes,
+- action_semantics: use only semantic_alternatives and inspect phase-track anchors,
   foot_transitions, and test_pose tiles; if alternatives cannot be separated,
   return unknown.
 - visual_motion_quality: report smooth_appearance only for an unbroken visible
@@ -206,7 +206,6 @@ function identify_semantics(alternatives, character_ref, clip_ref):
     character = ensure_character_in_session(session, character_ref)
     clip = ensure_clip_in_session(session, character, clip_ref)
     analysis = animation_analyze({
-        session_id: session.session_id,
         clips: [{role: "source", character: character, clip: clip}],
         picture: {"output": "composite"},
         resolution: 512
