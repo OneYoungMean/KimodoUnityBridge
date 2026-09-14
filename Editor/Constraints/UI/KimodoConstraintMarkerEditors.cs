@@ -6,6 +6,7 @@ using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
@@ -19,6 +20,48 @@ namespace KimodoBridge.Editor
         {
             track = marker?.parent as TrackAsset;
             return track != null;
+        }
+
+        /// <summary>
+        /// Resolves the Animator bound to a marker's track, walking parent
+        /// tracks when the leaf track has no binding of its own.
+        /// </summary>
+        internal static bool TryGetTrackAnimatorBinding(
+            PlayableDirector director,
+            TrackAsset track,
+            out Animator animator)
+        {
+            animator = null;
+            if (director == null)
+            {
+                return false;
+            }
+
+            TrackAsset currentTrack = track;
+            while (currentTrack != null)
+            {
+                UnityEngine.Object binding = director.GetGenericBinding(currentTrack);
+                if (binding is Animator boundAnimator && boundAnimator != null)
+                {
+                    animator = boundAnimator;
+                    return true;
+                }
+
+                if (binding is GameObject boundObject && boundObject != null)
+                {
+                    Animator component = boundObject.GetComponent<Animator>() ??
+                        boundObject.GetComponentInChildren<Animator>(true);
+                    if (component != null)
+                    {
+                        animator = component;
+                        return true;
+                    }
+                }
+
+                currentTrack = currentTrack.parent as TrackAsset;
+            }
+
+            return false;
         }
 
         internal static string GetCachedIntString(int value)

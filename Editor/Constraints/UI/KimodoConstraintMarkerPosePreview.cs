@@ -35,10 +35,12 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 return false;
             }
 
-            Animator animator = director.GetGenericBinding(track) as Animator;
-            if (animator == null)
+            if (!KimodoConstraintMarkerEditorUtility.TryGetTrackAnimatorBinding(
+                    director,
+                    track,
+                    out Animator animator))
             {
-                error = "animation track has no animator binding";
+                error = "animation track and its parent tracks have no animator binding";
                 return false;
             }
 

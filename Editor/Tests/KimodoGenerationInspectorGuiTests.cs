@@ -315,6 +315,37 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void ConstraintPreviewBinding_WalksParentTracks()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoParentTrackBindingTest");
+            GameObject animatorRoot = new GameObject("KimodoParentTrackBindingAnimator");
+            try
+            {
+                GroupTrack parentTrack = timeline.CreateTrack<GroupTrack>(null, "Character");
+                AnimationTrack childTrack = timeline.CreateTrack<AnimationTrack>(parentTrack, "Pose");
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                Animator expected = animatorRoot.AddComponent<Animator>();
+                director.SetGenericBinding(parentTrack, expected);
+
+                Assert.That(
+                    KimodoConstraintMarkerEditorUtility.TryGetTrackAnimatorBinding(
+                        director,
+                        childTrack,
+                        out Animator resolved),
+                    Is.True);
+                Assert.That(resolved, Is.SameAs(expected));
+            }
+            finally
+            {
+                Object.DestroyImmediate(animatorRoot);
+                Object.DestroyImmediate(directorRoot);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
         private static RetargetSkeleton BindTestSkeleton(
             PlayableDirector director,
             AnimationTrack track,
