@@ -131,7 +131,8 @@ namespace KimodoBridge
             if (valid)
             {
                 target.t = position;
-                // Constraint effector rotations remain bind-relative world deltas.
+                // Hand goals use Unity's axis-corrected goal frame. Feet keep
+                // the legacy bind-relative transport below.
                 target.q = ResolveEffectorTransportRotation(cache, bone, rotation);
             }
             else
@@ -153,15 +154,28 @@ namespace KimodoBridge
             HumanBodyBones bone,
             Quaternion currentWorld)
         {
-            if (cache == null || !cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            if (cache == null)
             {
                 return currentWorld;
             }
 
-            // Store the world-space change relative to the bind pose. The
-            // solver restores the absolute world rotation before applying the
-            // Humanoid IK goal conversion.
-            return currentWorld * Quaternion.Inverse(initialWorld);
+            if (bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand)
+            {
+                Quaternion post = AvatarRuntimeAccess.GetAvatarPostRotationOrIdentity(cache.avatar, (int)bone);
+                Quaternion goalOffset = bone == HumanBodyBones.LeftHand
+                    ? new Quaternion(0.707107f, 0f, 0.707107f, 0f)
+                    : new Quaternion(0f, 0.707107f, 0f, 0.707107f);
+                // Native Unity: goal rotation = bone rotation * PostQ * hand offset.
+                return (currentWorld * post * goalOffset).normalized;
+            }
+
+            if (!cache.GetBoneBindWorldRotation(bone, out Quaternion initialWorld))
+            {
+                return currentWorld;
+            }
+
+            // Feet retain the existing bind-relative transport protocol.
+            return (currentWorld * Quaternion.Inverse(initialWorld)).normalized;
         }
 
         private static KimodoMarkerSampleResult CreateSampleShell(

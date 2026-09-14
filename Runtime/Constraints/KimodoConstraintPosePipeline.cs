@@ -273,9 +273,7 @@ namespace KimodoBridge
                 Quaternion rotation)
             {
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                // human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
-                //todo :fix this 
-                human.SetGoalWeightRotation(goal,0f);
+                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
                 if (!enabled)
                 {
                     return;
@@ -469,8 +467,8 @@ namespace KimodoBridge
             position = value.t;
             if (bone == HumanBodyBones.LeftHand || bone == HumanBodyBones.RightHand)
             {
-                // Effector q is the bind-relative delta expected directly by
-                // the Humanoid IK goal; it is not a world or track rotation.
+                // Hand q is the Unity public IK-goal rotation produced by
+                // boneWorld * Avatar.GetPostRotation * handGoalOffset.
                 rotation = value.q.normalized;
             }
             else
