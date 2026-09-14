@@ -21,7 +21,7 @@ namespace KimodoUnityBridge.Command.Tests
                 "session_get_or_create", "session_get_raw", "session_add", "session_close",
                 "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
                 "animation_analyze",
-                "pose_get", "pose_set_root_transform", "pose_set_muscle",
+                "pose_get", "pose_set", "pose_set_root_transform", "pose_set_muscle",
                 "kimodo_record_range", "kimodo_retarget_animation"
             }, names);
         }
@@ -201,6 +201,8 @@ namespace KimodoUnityBridge.Command.Tests
                 .Single(value => value.Value<string>("name") == "pose_get")["inputSchema"] as JObject;
             JObject poseSet = json["tools"].Values<JObject>()
                 .Single(value => value.Value<string>("name") == "pose_set_root_transform")["inputSchema"] as JObject;
+            JObject poseSetUnified = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "pose_set")["inputSchema"] as JObject;
 
             CollectionAssert.AreEquivalent(
                 new[] { "character", "clip", "frame" },
@@ -209,6 +211,13 @@ namespace KimodoUnityBridge.Command.Tests
                 new[] { "track", "index" },
                 poseSet?["properties"]?["pose"]?["required"]?.Values<string>());
             Assert.That(poseSet?["properties"]?["pose"]?["properties"]?["marker_id"], Is.Null);
+            Assert.That(poseSetUnified?["properties"]?["root"], Is.Not.Null);
+            Assert.That(poseSetUnified?["properties"]?["muscles"], Is.Not.Null);
+            JObject effector = poseSetUnified?["properties"]?["effector"] as JObject;
+            Assert.That(effector, Is.Not.Null);
+            CollectionAssert.AreEquivalent(
+                new[] { "left_hand", "right_hand", "left_foot", "right_foot" },
+                effector?["properties"]?.Children<JProperty>().Select(property => property.Name));
         }
 
     }
