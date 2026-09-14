@@ -1797,12 +1797,13 @@ namespace KimodoUnityBridge.Command
                     RemoveRecordedRootMotion(boneFrames);
                 }
 
-                string assetName = arguments.Value<string>("name")?.Trim();
+                JObject outputOptions = arguments["output"] as JObject;
+                string assetName = outputOptions?.Value<string>("name")?.Trim();
                 if (string.IsNullOrWhiteSpace(assetName))
                 {
                     assetName = $"{source.Name}_Record_{DateTime.Now:yyyyMMdd_HHmmss_fff}";
                 }
-                string folder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder"));
+                string folder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder"));
                 output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(assetName, folder);
                 output.frameRate = frameRate;
                 WriteRecordedBoneCurves(output, transforms, paths, boneFrames, frameRate);
@@ -1853,14 +1854,15 @@ namespace KimodoUnityBridge.Command
                 AnimationClip output = null;
                 try
                 {
-                    string assetName = arguments.Value<string>("name")?.Trim();
+                    JObject outputOptions = arguments["output"] as JObject;
+                    string assetName = outputOptions?.Value<string>("name")?.Trim();
                     if (string.IsNullOrWhiteSpace(assetName))
                     {
                         assetName = $"{sourceAnimation.Name}_To_{target.Name}";
                     }
                     output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                         assetName,
-                        KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder")));
+                        KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder")));
                     KimodoEditorClipUtility.CopyClipData(sourceAnimation.Clip, output);
                     AnimationClip providedHumanoidClip = sourceAnimation.Clip.isHumanMotion
                         ? sourceAnimation.Clip

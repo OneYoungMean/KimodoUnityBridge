@@ -90,7 +90,6 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(SessionAddCommand,
                         "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object (use character=@active_animator for the selected/open Animator); kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredEnum("kind", "character", "clip", "animator"),
                             Required("character", "string", "Scene character name/path for kind=character, or @active_animator for the currently selected/open Animator; target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
@@ -99,7 +98,6 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(AnimationAnalyzeCommand,
                         "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
                             new PropertyDefinition("picture", new JObject
                             {
@@ -117,23 +115,19 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(RecordRangeCommand,
                         "Record a Session time range into an AnimationClip and append it to the source character.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
                             Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
                             Required("character", "string", "Safe source character name in the current Session."),
                             Optional("remove_root_motion", "boolean", "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."),
                             Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
-                            Optional("name", "string", "Requested safe output animation name."),
-                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
+                            OptionalOutput())),
                     CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current Session character and append the result.",
                         Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             Required("source_character", "string", "Safe source character name in the selected Session."),
                             Required("animation", "string", "Safe source animation name."),
                             Required("target_character", "string", "Safe target character name in the selected Session."),
-                            Optional("name", "string", "Requested safe output animation name."),
-                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."))),
+                            OptionalOutput())),
                     CommandDefinition(GenerateAnimationCommand,
                         "Start asynchronous generation for a character in the current Session. The accepted request is recorded in session.json and must be polled by request_id.",
                         Properties(

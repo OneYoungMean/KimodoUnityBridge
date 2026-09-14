@@ -197,6 +197,7 @@ namespace KimodoUnityBridge.Command
             }, "Optional animation output settings.");
         }
 
+
         private static PropertyDefinition OptionalArray(string name, string itemType, string description)
         {
             return new PropertyDefinition(name, new JObject
