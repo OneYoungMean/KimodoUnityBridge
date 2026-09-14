@@ -60,7 +60,7 @@ namespace KimodoUnityBridge.Command.Tests
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = addedClip.Value<string>("name")
                     }),
-                    ["level"] = "middle", ["resolution"] = 512
+                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = 512
                 });
                 Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("2-phase-track-v1"));
                 Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("37-phase-track-clustering"));
@@ -186,7 +186,7 @@ namespace KimodoUnityBridge.Command.Tests
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = animationName
                     }),
-                    ["level"] = "middle", ["resolution"] = 512
+                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = 512
                 });
                 string relativePng = analysis["pictures"]?.Value<string>("image_path");
                 string absolutePng = string.IsNullOrWhiteSpace(relativePng)

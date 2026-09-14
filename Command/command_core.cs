@@ -97,12 +97,16 @@ namespace KimodoUnityBridge.Command
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
                              Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one or two immutable Session clips and render visual evidence synchronously. Humanoid results use analysis_schema_version=2-phase-track-v1 and phase_track_version=1-temporal-cluster-v1: contiguous, non-overlapping temporal phase/transition intervals with anchor frames replace uniform keyframe sampling. Use level=-test for one clip and a fixed 20-tile 16:9 contact/keyframe diagnostic using backend keyframes. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Mesh-only results return phase_track=NOT_APPLICABLE and omit Humanoid trajectory/contact data. Completed Clips are never modified.",
+                        "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
                         Properties(
                             Optional("session_id", "string", "Session id; omitted uses the current Session."),
                             RequiredAnalysisClips(),
-                            OptionalEnumWithDefault("level", "middle", "low", "middle", "high", "-test"),
-                            Optional("analysis_option", "object", "Optional backend analysis options. In -test mode keyframe_count defaults to 8 and may be overridden by the caller."),
+                            new PropertyDefinition("picture", new JObject
+                            {
+                                ["type"] = "object",
+                                ["description"] = "Unified graph-space picture request with tiles and output mode."
+                            }, false),
+                            Optional("analysis_option", "object", "Optional backend analysis options."),
                             new PropertyDefinition("resolution", new JObject
                             {
                                 ["type"] = "integer",
@@ -136,7 +140,13 @@ namespace KimodoUnityBridge.Command
                             Required("character", "string", "Safe character name in the current Session."),
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
-                            Optional("loop", "boolean", "Enable bounded loop preprocessing; over-limit requests fall back to normal generation."),
+                            OptionalLoop(),
+                            Optional("loop_lock_position_x", "boolean", "When loop is enabled, copy the first frame's pos.x to the tail frame; defaults to false."),
+                            Optional("loop_lock_position_y", "boolean", "When loop is enabled, copy the first frame's pos.y to the tail frame; defaults to true."),
+                            Optional("loop_lock_position_z", "boolean", "When loop is enabled, copy the first frame's pos.z to the tail frame; defaults to false."),
+                            Optional("loop_lock_rotation_x", "boolean", "When loop is enabled, copy the first frame's rot.x to the tail frame; defaults to true."),
+                            Optional("loop_lock_rotation_y", "boolean", "When loop is enabled, copy the first frame's rot.y to the tail frame; defaults to false."),
+                            Optional("loop_lock_rotation_z", "boolean", "When loop is enabled, copy the first frame's rot.z to the tail frame; defaults to true."),
                             Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."),
                             Enum("text_encoder_model", "high_performance", "high_precision"),
                             Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
@@ -147,6 +157,8 @@ namespace KimodoUnityBridge.Command
                             Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
                             Optional("path_begin_angle_degrees", "number", "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
                             Optional("path_end_angle_degrees", "number", "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
+                            Optional("override_path_distance", "boolean", "When Path Angle is enabled, replace the measured baseline path distance with path_distance."),
+                            Optional("path_distance", "number", "Fixed Unity-unit path distance used when override_path_distance is true."),
                             Optional("override_heading_degrees", "number", "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."),
                             OptionalConstraints("constraints", "Point constraints and reusable root_path constraints for the generated clip."))),
                     CommandDefinition(PoseGetCommand,
@@ -279,7 +291,7 @@ namespace KimodoUnityBridge.Command
                         new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
                         new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<request_id>" }, ["repeat_until"] = "status is completed, failed, or canceled" },
-                        new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["level"] = "middle" }, ["save"] = "pictures.image_path" },
+                        new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["picture"] = new JObject { ["output"] = "both" } }, ["save"] = "pictures.image_path" },
                         new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
                     },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
@@ -535,8 +547,25 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
                 }
-                bool loopRequested = arguments.Value<bool?>("loop") ??
-                    prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
+                JObject loopObject = arguments["loop"] as JObject;
+                bool loopRequested = loopObject != null
+                    ? loopObject.Value<bool?>("enabled") ?? true
+                    : arguments.Value<bool?>("loop") ??
+                        prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
+                JObject lockPosition = loopObject?["lock_pos"] as JObject;
+                JObject lockRotation = loopObject?["lock_rot"] as JObject;
+                bool loopLockPositionX = lockPosition?.Value<bool?>("x") ??
+                    arguments.Value<bool?>("loop_lock_position_x") ?? false;
+                bool loopLockPositionY = lockPosition?.Value<bool?>("y") ??
+                    arguments.Value<bool?>("loop_lock_position_y") ?? true;
+                bool loopLockPositionZ = lockPosition?.Value<bool?>("z") ??
+                    arguments.Value<bool?>("loop_lock_position_z") ?? false;
+                bool loopLockRotationX = lockRotation?.Value<bool?>("x") ??
+                    arguments.Value<bool?>("loop_lock_rotation_x") ?? true;
+                bool loopLockRotationY = lockRotation?.Value<bool?>("y") ??
+                    arguments.Value<bool?>("loop_lock_rotation_y") ?? false;
+                bool loopLockRotationZ = lockRotation?.Value<bool?>("z") ??
+                    arguments.Value<bool?>("loop_lock_rotation_z") ?? true;
                 bool hasPathBeginAngle = arguments["path_begin_angle_degrees"] != null;
                 float pathBeginAngleDegrees = hasPathBeginAngle
                     ? ReadFiniteFloat(arguments["path_begin_angle_degrees"], "path_begin_angle_degrees")
@@ -546,6 +575,14 @@ namespace KimodoUnityBridge.Command
                     ? ReadFiniteFloat(arguments["path_end_angle_degrees"], "path_end_angle_degrees")
                     : 0f;
                 bool overridePathAngle = hasPathBeginAngle || hasPathEndAngle;
+                bool overridePathDistance = arguments.Value<bool?>("override_path_distance") ?? false;
+                float pathDistance = overridePathDistance
+                    ? ReadFiniteFloat(arguments["path_distance"], "path_distance")
+                    : 0f;
+                if (overridePathDistance && pathDistance < 0f)
+                {
+                    throw new InvalidOperationException("path_distance must be non-negative.");
+                }
                 // Directional language is part of the generation contract,
                 // not merely prompt decoration. When callers omit explicit
                 // PathAngle values, resolve the character's current planar
@@ -559,6 +596,10 @@ namespace KimodoUnityBridge.Command
                     pathBeginAngleDegrees = inferredPathAngle;
                     pathEndAngleDegrees = inferredPathAngle;
                     overridePathAngle = true;
+                }
+                if (overridePathDistance && !overridePathAngle)
+                {
+                    throw new InvalidOperationException("override_path_distance requires Path Angle override.");
                 }
                 bool overrideHeading = arguments["override_heading_degrees"] != null;
                 float headingDegrees = overrideHeading
@@ -610,9 +651,17 @@ namespace KimodoUnityBridge.Command
                 playableClip.randomSeed = false;
                 playableClip.seed = seed;
                 playableClip.generateLoop = loopRequested;
+                playableClip.loopLockPositionX = loopLockPositionX;
+                playableClip.loopLockPositionY = loopLockPositionY;
+                playableClip.loopLockPositionZ = loopLockPositionZ;
+                playableClip.loopLockRotationX = loopLockRotationX;
+                playableClip.loopLockRotationY = loopLockRotationY;
+                playableClip.loopLockRotationZ = loopLockRotationZ;
                 playableClip.overridePathAngle = overridePathAngle;
                 playableClip.pathBeginAngleDegrees = pathBeginAngleDegrees;
                 playableClip.pathEndAngleDegrees = pathEndAngleDegrees;
+                playableClip.overridePathDistance = overridePathDistance;
+                playableClip.pathDistance = pathDistance;
                 playableClip.overrideHeading = overrideHeading;
                 playableClip.headingDegrees = headingDegrees;
                 playableClip.loop = loopRequested
@@ -675,6 +724,28 @@ namespace KimodoUnityBridge.Command
                 if (loopRequested)
                 {
                     startedResponse["loop"] = true;
+                    startedResponse["loop_options"] = new JObject
+                    {
+                        ["enabled"] = true,
+                        ["lock_pos"] = new JObject
+                        {
+                            ["x"] = loopLockPositionX,
+                            ["y"] = loopLockPositionY,
+                            ["z"] = loopLockPositionZ
+                        },
+                        ["lock_rot"] = new JObject
+                        {
+                            ["x"] = loopLockRotationX,
+                            ["y"] = loopLockRotationY,
+                            ["z"] = loopLockRotationZ
+                        }
+                    };
+                    startedResponse["loop_lock_position_x"] = loopLockPositionX;
+                    startedResponse["loop_lock_position_y"] = loopLockPositionY;
+                    startedResponse["loop_lock_position_z"] = loopLockPositionZ;
+                    startedResponse["loop_lock_rotation_x"] = loopLockRotationX;
+                    startedResponse["loop_lock_rotation_y"] = loopLockRotationY;
+                    startedResponse["loop_lock_rotation_z"] = loopLockRotationZ;
                     startedResponse["loop_source_duration_frames"] = durationFrames;
                     startedResponse["loop_extended_duration_frames"] = durationFrames * 2;
                 }
@@ -682,6 +753,11 @@ namespace KimodoUnityBridge.Command
                 {
                     startedResponse["path_begin_angle_degrees"] = pathBeginAngleDegrees;
                     startedResponse["path_end_angle_degrees"] = pathEndAngleDegrees;
+                    if (overridePathDistance)
+                    {
+                        startedResponse["override_path_distance"] = true;
+                        startedResponse["path_distance"] = pathDistance;
+                    }
                 }
                 if (overrideHeading)
                 {

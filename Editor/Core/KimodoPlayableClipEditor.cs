@@ -24,9 +24,17 @@ namespace KimodoBridge.Editor
         private SerializedProperty randomProp;
         private SerializedProperty seed;
         private SerializedProperty generateLoopProp;
+        private SerializedProperty loopLockPositionXProp;
+        private SerializedProperty loopLockPositionYProp;
+        private SerializedProperty loopLockPositionZProp;
+        private SerializedProperty loopLockRotationXProp;
+        private SerializedProperty loopLockRotationYProp;
+        private SerializedProperty loopLockRotationZProp;
         private SerializedProperty overridePathAngleProp;
         private SerializedProperty pathBeginAngleDegreesProp;
         private SerializedProperty pathEndAngleDegreesProp;
+        private SerializedProperty overridePathDistanceProp;
+        private SerializedProperty pathDistanceProp;
         private SerializedProperty overrideHeadingProp;
         private SerializedProperty headingDegreesProp;
         private SerializedProperty inOutConstraintModeProp;
@@ -66,7 +74,6 @@ namespace KimodoBridge.Editor
         private GUIStyle trajectoryContinuityFoldoutStyle;
         private double lastRepaintTime;
         private bool repaintQueued;
-        private int analysisLevelIndex;
 
         private void OnEnable()
         {
@@ -120,9 +127,17 @@ namespace KimodoBridge.Editor
             randomProp = serializedObject.FindProperty("randomSeed");
             seed = serializedObject.FindProperty("seed");
             generateLoopProp = serializedObject.FindProperty("generateLoop");
+            loopLockPositionXProp = serializedObject.FindProperty("loopLockPositionX");
+            loopLockPositionYProp = serializedObject.FindProperty("loopLockPositionY");
+            loopLockPositionZProp = serializedObject.FindProperty("loopLockPositionZ");
+            loopLockRotationXProp = serializedObject.FindProperty("loopLockRotationX");
+            loopLockRotationYProp = serializedObject.FindProperty("loopLockRotationY");
+            loopLockRotationZProp = serializedObject.FindProperty("loopLockRotationZ");
             overridePathAngleProp = serializedObject.FindProperty("overridePathAngle");
             pathBeginAngleDegreesProp = serializedObject.FindProperty("pathBeginAngleDegrees");
             pathEndAngleDegreesProp = serializedObject.FindProperty("pathEndAngleDegrees");
+            overridePathDistanceProp = serializedObject.FindProperty("overridePathDistance");
+            pathDistanceProp = serializedObject.FindProperty("pathDistance");
             overrideHeadingProp = serializedObject.FindProperty("overrideHeading");
             headingDegreesProp = serializedObject.FindProperty("headingDegrees");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
@@ -378,15 +393,12 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.Space(4f);
-            string[] analysisLevels = { "Standard", "-test" };
-            analysisLevelIndex = EditorGUILayout.Popup("Analysis Mode", analysisLevelIndex, analysisLevels);
             if (!GUILayout.Button("Analyze Selected Clip(s)"))
             {
                 return;
             }
 
-            string analysisLevel = analysisLevelIndex == 1 ? "-test" : "middle";
-            if (!KimodoClipAnalysisService.TryAnalyzeSelected(clip, out List<KimodoClipAnalysisResult> results, out string error, analysisLevel))
+            if (!KimodoClipAnalysisService.TryAnalyzeSelected(clip, out List<KimodoClipAnalysisResult> results, out string error))
             {
                 Debug.LogError("[Kimodo Analysis] " + error);
                 return;
@@ -398,28 +410,27 @@ namespace KimodoBridge.Editor
             }
             int totalFrames = results.Sum(item => item.FrameSamples?.Count ?? 0);
             int keyframeCount = results.Sum(item => (item.Analysis?["keyframes"] as Newtonsoft.Json.Linq.JArray)?.Count ?? 0);
-            Debug.Log($"[Kimodo Analysis] level={analysisLevel}, clips={results.Count}, frames={totalFrames}, keyframes={keyframeCount}, markers={markerCount}");
+            Debug.Log($"[Kimodo Analysis] picture=all-standard, clips={results.Count}, frames={totalFrames}, keyframes={keyframeCount}, markers={markerCount}");
             string imagePath = string.Empty;
             string renderError = string.Empty;
-            bool rendered = TryRenderAnalysisPicture(results, analysisLevel, 512, out imagePath, out renderError);
+            bool rendered = TryRenderAnalysisPicture(results, 512, out imagePath, out renderError);
             if (rendered)
             {
-                Debug.Log($"[Kimodo Analysis] level={analysisLevel} image_path={imagePath}");
+                Debug.Log($"[Kimodo Analysis] picture=all-standard image_path={imagePath}");
                 foreach (KimodoClipAnalysisResult result in results)
                 {
-                    Debug.Log("[Kimodo Analysis] level=" + analysisLevel + " analysis=" +
+                    Debug.Log("[Kimodo Analysis] picture=all-standard analysis=" +
                         (result.Analysis?.ToString(Formatting.None) ?? "{}") + "; image_path=" + imagePath);
                 }
             }
             else
             {
-                Debug.LogWarning($"[Kimodo Analysis] level={analysisLevel} image_path=<not generated>; render_error={renderError}");
+                Debug.LogWarning($"[Kimodo Analysis] picture=all-standard image_path=<not generated>; render_error={renderError}");
             }
         }
 
         private static bool TryRenderAnalysisPicture(
             IReadOnlyList<KimodoClipAnalysisResult> results,
-            string level,
             int resolution,
             out string imagePath,
             out string error)
@@ -435,7 +446,7 @@ namespace KimodoBridge.Editor
                 if (method == null) { error = "Analysis picture bridge is unavailable until the Command assembly is loaded."; return false; }
                 object[] args =
                 {
-                    results.Select(item => item.TimelineClip).ToArray(), level, resolution, null, null
+                    results.Select(item => item.TimelineClip).ToArray(), null, resolution, null, null
                 };
                 bool success = (bool)method.Invoke(null, args);
                 imagePath = args[3] as string ?? string.Empty;
@@ -506,6 +517,13 @@ namespace KimodoBridge.Editor
                         "Loop generation exceeds the 600-frame limit and will fall back to normal generation.",
                         MessageType.Warning);
                 }
+                if (!generateLoopProp.hasMultipleDifferentValues && generateLoopProp.boolValue)
+                {
+                    EditorGUI.indentLevel++;
+                    DrawLoopAxisRow("Lock Pos", loopLockPositionXProp, loopLockPositionYProp, loopLockPositionZProp);
+                    DrawLoopAxisRow("Lock Rot", loopLockRotationXProp, loopLockRotationYProp, loopLockRotationZProp);
+                    EditorGUI.indentLevel--;
+                }
             }
             if (overridePathAngleProp != null)
             {
@@ -527,6 +545,10 @@ namespace KimodoBridge.Editor
                             pathEndAngleDegreesProp,
                             new GUIContent("Path End Angle", "Absolute Unity yaw: 0 faces +Z, 90 faces +X, and -90 faces -X."));
                     }
+                    if (overridePathDistanceProp != null)
+                        EditorGUILayout.PropertyField(overridePathDistanceProp, new GUIContent("Override Distance", "Use a fixed path distance instead of measuring the baseline path."));
+                    if (overridePathDistanceProp != null && overridePathDistanceProp.boolValue && pathDistanceProp != null)
+                        EditorGUILayout.PropertyField(pathDistanceProp, new GUIContent("Distance", "Path length in Unity units."));
                     EditorGUI.indentLevel--;
                 }
             }
@@ -547,6 +569,23 @@ namespace KimodoBridge.Editor
                 }
             }
             EditorGUI.indentLevel--;
+        }
+
+        private static void DrawLoopAxisRow(string label, SerializedProperty x, SerializedProperty y, SerializedProperty z)
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.PrefixLabel(label);
+                DrawLoopAxisToggle("X", x);
+                DrawLoopAxisToggle("Y", y);
+                DrawLoopAxisToggle("Z", z);
+            }
+        }
+
+        private static void DrawLoopAxisToggle(string axis, SerializedProperty property)
+        {
+            if (property != null)
+                property.boolValue = EditorGUILayout.ToggleLeft(axis, property.boolValue, GUILayout.Width(42f));
         }
 
         private void DrawSplinePathSection(TimelineClip timelineClip)

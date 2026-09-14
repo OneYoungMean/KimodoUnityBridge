@@ -897,7 +897,13 @@ namespace KimodoBridge.Editor
                         finalRequest.RuntimeTrimStartFrame,
                         finalRequest.TargetFrameCount,
                         finalRequest.EffectiveRuntimeFrameCount,
-                        finalRequest.TargetFrameRate);
+                        finalRequest.TargetFrameRate,
+                        clip.loopLockPositionX,
+                        clip.loopLockPositionY,
+                        clip.loopLockPositionZ,
+                        clip.loopLockRotationX,
+                        clip.loopLockRotationY,
+                        clip.loopLockRotationZ);
                     combinedConstraints = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
                         combinedConstraints,
                         loopConstraintJson);
@@ -916,7 +922,8 @@ namespace KimodoBridge.Editor
                         combinedConstraints,
                         clip.overrideHeading
                             ? KimodoRawMotionConstraintBuilder.HeadingOverrideFrameInterval
-                            : 0);
+                            : 0,
+                        clip.overridePathDistance ? Mathf.Max(0f, clip.pathDistance) : -1f);
                     if (clip.overrideHeading)
                     {
                         pathConstraintJson = KimodoRawMotionConstraintBuilder.OverrideRoot2DHeadingsJson(

@@ -208,7 +208,7 @@ function identify_semantics(alternatives, character_ref, clip_ref):
     analysis = animation_analyze({
         session_id: session.session_id,
         clips: [{role: "source", character: character, clip: clip}],
-        level: "middle",
+        picture: {"output": "composite"},
         resolution: 512
     })
 

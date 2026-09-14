@@ -112,6 +112,34 @@ namespace KimodoUnityBridge.Command
             Color tint,
             float alpha)
         {
+            return CreateSnapshotVirtualPose(snapshot, tint, alpha, null, false);
+        }
+
+        private static TestVirtualPose CreateTestVirtualPose(
+            TestPoseSnapshot snapshot,
+            Color tint,
+            float alpha,
+            Vector3? targetPosition)
+        {
+            return CreateSnapshotVirtualPose(snapshot, tint, alpha, targetPosition, false);
+        }
+
+        private static TestVirtualPose CreateGhostVirtualPose(
+            TestPoseSnapshot snapshot,
+            Color tint,
+            float alpha,
+            Vector3 targetPosition)
+        {
+            return CreateSnapshotVirtualPose(snapshot, tint, alpha, targetPosition, true);
+        }
+
+        private static TestVirtualPose CreateSnapshotVirtualPose(
+            TestPoseSnapshot snapshot,
+            Color tint,
+            float alpha,
+            Vector3? targetPosition,
+            bool useGhostMaterial)
+        {
             GameObject preview = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(snapshot.SourcePrefab));
             preview.name = "Kimodo Test Virtual Pose";
             preview.hideFlags = HideFlags.HideAndDontSave;
@@ -124,10 +152,12 @@ namespace KimodoUnityBridge.Command
             }
             snapshot.Apply(preview);
             var transientMaterials = new List<Material>();
-            // Comparison render: keep the original/default material path.
-            TintPreview(preview, tint, transientMaterials);
+            bool usesGhostMaterial = useGhostMaterial && ConfigureTestGhostMaterial(preview, tint, alpha, transientMaterials);
+            if (!usesGhostMaterial) TintPreview(preview, tint, transientMaterials);
             SetPreviewRenderersEnabled(preview, false);
-            return new TestVirtualPose(preview, transientMaterials, alpha, false);
+            return targetPosition.HasValue
+                ? new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition.Value)
+                : new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
         }
 
         private static TestVirtualPose CreateGhostVirtualPose(
@@ -168,6 +198,14 @@ namespace KimodoUnityBridge.Command
                 if (bounds.size.x < 3f) bounds.Expand(new Vector3(3f - bounds.size.x, 0f, 0f));
                 if (bounds.size.z < 3f) bounds.Expand(new Vector3(0f, 0f, 3f - bounds.size.z));
                 return bounds;
+            }
+        }
+
+        private static Bounds CalculateRawPreviewPoseBounds(SubjectPictureData subject, int localFrame)
+        {
+            using (EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, localFrame))
+            {
+                return CalculateSkinnedBounds(preview.Root);
             }
         }
 
