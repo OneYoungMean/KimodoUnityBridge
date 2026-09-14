@@ -41,7 +41,7 @@ namespace KimodoUnityBridge.Command.Tests
                 "session_get_or_create", "session_get_raw", "session_add", "session_close",
                 "kimodo_generate_animation", "kimodo_get_generation", "kimodo_cancel_generation",
                 "animation_analyze",
-                "pose_get", "pose_set_root_transform", "pose_set_muscle",
+                "pose_get", "pose_set", "pose_set_root_transform", "pose_set_muscle",
                 "kimodo_record_range", "kimodo_retarget_animation"
             }, definitions["tools"].Values<JObject>().Select(tool => tool.Value<string>("name")));
         }

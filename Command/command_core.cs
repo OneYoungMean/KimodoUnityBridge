@@ -30,6 +30,7 @@ namespace KimodoUnityBridge.Command
         public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
+        public const string PoseSetCommand = "pose_set";
         public const string PoseSetRootTransformCommand = "pose_set_root_transform";
         public const string PoseSetMuscleCommand = "pose_set_muscle";
         public const string GetGenerationCommand = "kimodo_get_generation";
@@ -144,6 +145,9 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
+                    CommandDefinition(PoseSetCommand,
+                        "Modify an External Pose slot. Supply root, muscles, effector, or any combination.",
+                        PoseSetSchema()),
                     CommandDefinition(PoseSetRootTransformCommand,
                         "Modify the root transform of an External Pose slot.",
                         Properties(
@@ -248,7 +252,7 @@ namespace KimodoUnityBridge.Command
                         Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
-                        Route("materialize or edit a pose", PoseGetCommand, "then pose_set_root_transform / pose_set_muscle"),
+                        Route("materialize or edit a pose", PoseGetCommand, "then pose_set / pose_set_root_transform / pose_set_muscle"),
                         Route("obtain a reusable root trajectory", AnimationAnalyzeCommand, "then reference root_trajectory.path from a generation root_path constraint"),
                         Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },

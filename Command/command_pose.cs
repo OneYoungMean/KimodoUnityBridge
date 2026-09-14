@@ -85,6 +85,72 @@ namespace KimodoUnityBridge.Command
             });
         });
 
+        public static string PoseSet(string argumentsJson) => Execute(argumentsJson, arguments =>
+        {
+            TimelineSessionRecord session = RequireCurrentTimelineSession();
+            PoseReference reference = RequirePoseReference(arguments["pose"] as JObject);
+            KimodoConstraintMarker marker = RequirePoseMarker(reference, out TimelineCharacterRecord character);
+            JObject root = arguments["root"] as JObject;
+            JObject muscles = arguments["muscles"] as JObject;
+            JObject effectors = arguments["effector"] as JObject;
+            if (root == null && muscles == null && effectors == null)
+            {
+                throw new InvalidOperationException("pose_set requires root, muscles, or effector.");
+            }
+
+            KimodoMarkerSampleResult sample = marker.SampleData;
+            if (root != null)
+            {
+                ApplyPoseRootTransform(sample, root);
+            }
+            if (muscles != null)
+            {
+                if (!muscles.Properties().Any())
+                {
+                    throw new InvalidOperationException("muscles must contain at least one channel.");
+                }
+                if (sample.sampleData == null || !sample.sampleData.IsValid)
+                {
+                    throw new InvalidOperationException("Pose has no valid 70-value sampleData payload.");
+                }
+                foreach (JProperty property in muscles.Properties())
+                {
+                    int index = ResolveCanonicalMuscleIndex(property.Name);
+                    sample.sampleData.data[index] = ReadFiniteFloat(property.Value, $"muscles.{property.Name}");
+                }
+            }
+            if (effectors != null)
+            {
+                if (!effectors.Properties().Any())
+                    throw new InvalidOperationException("effector must contain at least one end effector.");
+                foreach (JProperty property in effectors.Properties())
+                {
+                    JObject value = property.Value as JObject ?? throw new InvalidOperationException($"effector.{property.Name} must be an object.");
+                    KimodoRigidTransform target = GetEndEffector(sample, property.Name);
+                    if (value["position"] is JArray position) target.t = ReadVector3(position, $"effector.{property.Name}.position");
+                    if (value["rotation"] is JArray rotation) target.q = ReadQuaternion(rotation, $"effector.{property.Name}.rotation");
+                    if (value["position"] == null && value["rotation"] == null)
+                        throw new InvalidOperationException($"effector.{property.Name} must contain position or rotation.");
+                    switch (property.Name)
+                    {
+                        case "left_hand": sample.effectors.leftHand = target; sample.validMask.leftHand = true; break;
+                        case "right_hand": sample.effectors.rightHand = target; sample.validMask.rightHand = true; break;
+                        case "left_foot": sample.effectors.leftFoot = target; sample.validMask.leftFoot = true; break;
+                        case "right_foot": sample.effectors.rightFoot = target; sample.validMask.rightFoot = true; break;
+                        default: throw new InvalidOperationException($"Unsupported end effector '{property.Name}'.");
+                    }
+                }
+            }
+            marker.CommitSampleData();
+            EditorUtility.SetDirty(marker);
+            SaveTimelineSession(session);
+            return Ok(new JObject
+            {
+                ["pose"] = PoseReferenceJson(character.PoseCacheTrack.name, reference.Index),
+                ["data"] = BuildPoseJson(sample)
+            });
+        });
+
         private static void ApplyPoseRootTransform(KimodoMarkerSampleResult sample, JObject root)
         {
             if (sample == null) throw new ArgumentNullException(nameof(sample));

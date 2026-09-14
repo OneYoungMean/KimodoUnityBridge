@@ -12,7 +12,7 @@ The maintained public commands are:
 - Session/content: `session_get_or_create`, `session_add`, `session_close`
 - Async tasks: `kimodo_generate_animation` returns a generation `request_id`; `kimodo_get_generation` polls either task type; `kimodo_cancel_generation` cancels generation only
 - Analysis/evidence: `animation_analyze`
-- Pose editing: `pose_get`, `pose_set_root_transform`, `pose_set_muscle`
+- Pose editing: `pose_get`, `pose_set` (or the focused root/muscle setters)
 - Asset output: `kimodo_record_range`, `kimodo_retarget_animation`
 
 ## Current boundaries
