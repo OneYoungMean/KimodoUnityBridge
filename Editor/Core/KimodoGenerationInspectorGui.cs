@@ -107,8 +107,8 @@ namespace KimodoBridge.Editor
         internal static string GetRuntimePlacementHint()
         {
             return Application.platform == RuntimePlatform.OSXEditor
-                ? "Runtime target: Kimodo model — Metal/MPS (CPU fallback); Text Encoder — Metal/MPS (CPU fallback)."
-                : "Runtime target: Kimodo model — GPU/CPU automatic; Text Encoder — GPU/CPU automatic.";
+                ? "Runtime target: Kimodo model - Metal/MPS (CPU fallback); Text Encoder - Metal/MPS (CPU fallback)."
+                : "Runtime target: Kimodo model - GPU/CPU automatic; Text Encoder - GPU/CPU automatic.";
         }
 
         internal static void DrawResolvedTextEncoderStatus()

@@ -475,7 +475,6 @@ namespace KimodoUnityBridge.Command
                     layer = SessionCaptureLayer
                 };
                 director.transform.SetParent(sessionRoot.transform, false);
-                CreateSessionBasics(sessionRoot, safeName);
                 var session = new TimelineSessionRecord(sessionId, metadata.sessionName, director, timeline, path, metadata.isAutomatic, metadata, sessionRoot);
                 foreach (KimodoCommandCharacterMetadata savedCharacter in metadata.characters ?? new List<KimodoCommandCharacterMetadata>())
                 {

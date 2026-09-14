@@ -149,7 +149,6 @@ namespace KimodoUnityBridge.Command
                 .Where(item => item != null && item.transform.parent == null &&
                     item.name.StartsWith("KimodoSession_", StringComparison.Ordinal)))
             {
-                RemoveSessionLights(root);
                 root.SetActive(root == session?.SessionRoot);
             }
             foreach (PlayableDirector director in Resources.FindObjectsOfTypeAll<PlayableDirector>())
@@ -225,8 +224,6 @@ namespace KimodoUnityBridge.Command
             PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
             director.playableAsset = timelineAsset;
             director.time = 0.0;
-
-            CreateSessionBasics(sessionRoot, safeName);
             var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata, sessionRoot);
 
             PersistTimelineSessionMetadata(record);
@@ -253,26 +250,6 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        internal static void CreateSessionBasics(GameObject sessionRoot, string safeName)
-        {
-            if (sessionRoot == null) return;
-            RemoveSessionLights(sessionRoot);
-        }
-
-        private static void RemoveSessionLights(GameObject sessionRoot)
-        {
-            if (sessionRoot == null) return;
-            foreach (Light light in sessionRoot.GetComponentsInChildren<Light>(true))
-            {
-                if (light != null) UnityEngine.Object.DestroyImmediate(light);
-            }
-            foreach (Transform child in sessionRoot.GetComponentsInChildren<Transform>(true)
-                .Where(item => item != null && item.name.StartsWith("Kimodo_PreviewLight_", StringComparison.Ordinal)))
-            {
-                if (child != null) UnityEngine.Object.DestroyImmediate(child.gameObject);
-            }
-        }
-
         private static GameObject CloneCharacterToSession(TimelineSessionRecord session, GameObject source)
         {
             if (source == null || session == null || session.SessionRoot == null || source.transform.IsChildOf(session.SessionRoot.transform))
@@ -294,7 +271,6 @@ namespace KimodoUnityBridge.Command
                 candidate.Rebind();
                 candidate.Update(0f);
             }
-            RemoveSessionLights(clone);
             return clone;
         }
 

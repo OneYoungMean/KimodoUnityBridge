@@ -276,7 +276,7 @@ namespace KimodoUnityBridge.Command
                         tileIndex++;
                     }
                 }
-                DrawTestAnalysisHeader(canvas, data.Subject.Animation?.Name, data.Pelvis.Length / SessionFrameRate, DateTime.Now);
+                DrawTestAnalysisHeader(canvas, data.Subject.Animation?.Name, (float)data.Pelvis.Length / (float)SessionFrameRate, DateTime.Now);
                 canvas.Apply(false, false);
                 return canvas;
             }

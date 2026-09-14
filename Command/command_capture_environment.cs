@@ -684,6 +684,9 @@ namespace KimodoUnityBridge.Command
             return animator != null ? animator.transform.position : preview.transform.position;
         }
 
+        // Evidence lights are capture-only fixtures. The owning render path adds
+        // them to its temporary object list and destroys that list in finally;
+        // Session creation and character cloning must never create lights.
         private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
         {
             bool isBuiltIn = IsBuiltInCapturePipeline();

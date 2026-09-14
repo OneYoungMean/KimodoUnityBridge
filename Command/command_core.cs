@@ -95,7 +95,7 @@ namespace KimodoUnityBridge.Command
                             Required("character", "string", "Scene character name/path for kind=character, or @active_animator for the currently selected/open Animator; target Session character name otherwise."),
                             Optional("clip", "string", "Project AnimationClip name for kind=clip."),
                              Optional("animator", "string", "Scene Animator name/path for kind=animator."),
-                             Advanced(Optional("ignore_warning", "boolean", "Advanced: import all transition variants when the projected transition count exceeds 128; defaults to false."))),
+                            Advanced(Optional("ignore_warning", "boolean", "Advanced: import all transition variants when the projected transition count exceeds 128; defaults to false.")))),
                     CommandDefinition(AnimationAnalyzeCommand,
                         "Analyze exactly one immutable Session clip and render the fixed 16:9 test picture evidence. Comparison callers analyze candidates separately. Select a single tile with picture.output=tile and picture.tile_index. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
                         Properties(
@@ -109,7 +109,7 @@ namespace KimodoUnityBridge.Command
                                 ["minimum"] = 64,
                                 ["maximum"] = 4096,
                                 ["description"] = "Advanced final picture tile resolution in pixels; accepts 64 through 4096. Defaults to 512."
-                            }, false))),
+                             }, false)))),
                     CommandDefinition(RecordRangeCommand,
                         "Record a Session time range into an AnimationClip and append it to the source character.",
                         Properties(
@@ -153,7 +153,7 @@ namespace KimodoUnityBridge.Command
                         "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
                         Properties(
                             RequiredPoseSource("source"),
-                            Advanced(Optional("full_data", "boolean", "Advanced: return all 49 muscles and TQ channels; defaults to false."))),
+                            Advanced(Optional("full_data", "boolean", "Advanced: return all 49 muscles and TQ channels; defaults to false.")))),
                     CommandDefinition(PoseSetRootTransformCommand,
                         "Modify the root transform of an External Pose slot.",
                         Properties(
@@ -167,12 +167,7 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(GetGenerationCommand,
                         "Get status, progress, remaining seconds, and message for an install or generation request. Generated animation metadata and its project-relative asset path are included only after a generation completes.",
                         Properties(
-                            Required("request_id", "string", "Request id returned by kimodo_install_server or kimodo_generate_animation."))),
-                    CommandDefinition(CancelGenerationCommand,
-                        "Cancel an active animation generation request. Installation requests cannot be canceled.",
-                        Properties(
-                            Required("request_id", "string", "Generation request id returned by kimodo_generate_animation."),
-                            Optional("reason", "string", "Optional cancellation reason.")))
+                            Required("request_id", "string", "Request id returned by kimodo_install_server or kimodo_generate_animation.")))
                 }
             }.ToString(Formatting.None);
         }
