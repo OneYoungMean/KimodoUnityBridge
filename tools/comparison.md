@@ -55,28 +55,39 @@ function compare(candidate_1, candidate_2):
     candidate_1 = ensure_loaded_with_session_add(session, candidate_1)
     candidate_2 = ensure_loaded_with_session_add(session, candidate_2)
 
-    candidate_1_analysis = animation_analyze({
-        clips: [{character: candidate_1.character, clip: candidate_1.clip}]
+    analysis = animation_analyze({
+        session_id: session_id,
+        clips: [
+            {
+                role: "source",
+                character: candidate_1.character,
+                clip: candidate_1.clip
+            },
+            {
+                role: "target",
+                character: candidate_2.character,
+                clip: candidate_2.clip
+            }
+        ],
+       picture: {"output": "composite"},
+        resolution: 512
     })
-    candidate_2_analysis = animation_analyze({
-        clips: [{character: candidate_2.character, clip: candidate_2.clip}]
-    })
-    ASSERT candidate_1_analysis.analysis_schema_version == "2-phase-track-v1"
-    ASSERT candidate_2_analysis.pictures.render_version == "52-test-analysis-picture"
+    ASSERT analysis.analysis_schema_version == "2-phase-track-v1"
+    ASSERT analysis.pictures.render_version == "37-phase-track-clustering"
 
-    # For a single evidence tile, add picture={output: "tile", tile_index: N}.
-
-    candidate_1_tiles = candidate_1_analysis.pictures.images
-    candidate_2_tiles = candidate_2_analysis.pictures.images
-    CANDIDATE_MAPPING_VALID = tile_maps_are_unambiguous(candidate_1_tiles, candidate_2_tiles)
-    VISUAL_OPENED = OPEN_WITH_AVAILABLE_VISUAL_TOOL(candidate_1_analysis.pictures.image_path) and
-        OPEN_WITH_AVAILABLE_VISUAL_TOOL(candidate_2_analysis.pictures.image_path)
+    image_path = analysis.pictures.image_path
+    picture_map = analysis.pictures.images
+    candidate_1_tiles, candidate_2_tiles =
+        map_tiles_by_role_and_character_and_clip(picture_map)
+    CANDIDATE_MAPPING_VALID =
+        mapping_is_unambiguous(candidate_1_tiles, candidate_2_tiles)
+    VISUAL_OPENED = OPEN_WITH_AVAILABLE_VISUAL_TOOL(image_path)
 
     candidate_1_recognition = recognize_clip(
-        candidate_1_analysis, TARGET_SEMANTICS, clip_index = 0
+        analysis, TARGET_SEMANTICS, clip_index = 0
     )
     candidate_2_recognition = recognize_clip(
-        candidate_2_analysis, TARGET_SEMANTICS, clip_index = 0
+        analysis, TARGET_SEMANTICS, clip_index = 1
     )
     criterion_observations = compare_quality_criteria(
         candidate_1_recognition, candidate_2_recognition, TARGET_SEMANTICS
@@ -238,6 +249,7 @@ function compare_one_quality_criterion(CRITERION, candidate_1, candidate_2, targ
 function ensure_loaded_with_session_add(session, candidate):
     if candidate.character is not in session.session.characters:
         added_character = session_add({
+            session_id: session.session_id,
             kind: "character",
             character: candidate.character
         })
@@ -245,6 +257,7 @@ function ensure_loaded_with_session_add(session, candidate):
 
     if candidate.clip is not under candidate.character:
         added_clip = session_add({
+            session_id: session.session_id,
             kind: "clip",
             character: candidate.character,
             clip: candidate.clip

@@ -117,10 +117,41 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition(name, type, description, false);
         }
 
-        private static PropertyDefinition Advanced(PropertyDefinition definition)
+        private static PropertyDefinition OptionalLoop()
         {
-            definition.Schema["x-kimodo-advanced"] = true;
-            return definition;
+            JObject axis = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["x"] = new JObject { ["type"] = "boolean" },
+                    ["y"] = new JObject { ["type"] = "boolean" },
+                    ["z"] = new JObject { ["type"] = "boolean" }
+                }
+            };
+            JObject structured = new JObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = new JObject
+                {
+                    ["enabled"] = new JObject
+                    {
+                        ["type"] = "boolean",
+                        ["description"] = "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
+                    },
+                    ["lock_pos"] = axis.DeepClone(),
+                    ["lock_rot"] = axis.DeepClone()
+                }
+            };
+            return new PropertyDefinition("loop", new JObject
+            {
+                ["description"] = "Enable loop preprocessing, or provide per-axis endpoint locks with {enabled, lock_pos:{x,y,z}, lock_rot:{x,y,z}}.",
+                ["oneOf"] = new JArray(
+                    new JObject { ["type"] = "boolean" },
+                    structured)
+            }, false);
         }
 
         private static PropertyDefinition OptionalArray(string name, string itemType, string description)
@@ -148,9 +179,9 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition("clips", new JObject
             {
                 ["type"] = "array",
-                ["description"] = "Exactly one immutable Session clip reference. Comparison callers analyze each candidate separately.",
+                ["description"] = "One or two immutable Session clip references. Every item explicitly names its Session character; role defaults to source for the first item and target for the second.",
                 ["minItems"] = 1,
-                ["maxItems"] = 1,
+                ["maxItems"] = 2,
                 ["items"] = new JObject
                 {
                     ["type"] = "object",

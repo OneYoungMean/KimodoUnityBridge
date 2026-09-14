@@ -223,7 +223,13 @@ namespace KimodoBridge
             int runtimeTrimStartFrame,
             int targetFrameCount,
             int runtimeFrameCount,
-            float frameRate)
+            float frameRate,
+            bool lockPositionX = false,
+            bool lockPositionY = true,
+            bool lockPositionZ = false,
+            bool lockRotationX = true,
+            bool lockRotationY = false,
+            bool lockRotationZ = true)
         {
             if (motion == null || motion.FrameCount != targetFrameCount ||
                 runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f)
@@ -268,12 +274,23 @@ namespace KimodoBridge
             first.sampleTime = runtimeTrimStartFrame / (double)frameRate;
             KimodoConstraintInternalData terminal = first.Clone();
             terminal.sampleTime = terminalFrame / (double)frameRate;
-            terminal.rootPosition = tail.rootPosition;
+            terminal.rootPosition = new Vector3(
+                lockPositionX ? first.rootPosition.x : tail.rootPosition.x,
+                lockPositionY ? first.rootPosition.y : tail.rootPosition.y,
+                lockPositionZ ? first.rootPosition.z : tail.rootPosition.z);
             Quaternion firstYawRotation = Quaternion.Euler(0f, firstYaw, 0f);
             Quaternion tailYawRotation = Quaternion.Euler(0f, tailYaw, 0f);
             Quaternion firstTilt = Quaternion.Inverse(firstYawRotation) * firstRotation;
+            Quaternion tailTilt = Quaternion.Inverse(tailYawRotation) * tailRotation;
+            Vector3 firstTiltEuler = ToSignedEuler(firstTilt);
+            Vector3 tailTiltEuler = ToSignedEuler(tailTilt);
+            Quaternion terminalTilt = Quaternion.Euler(
+                lockRotationX ? firstTiltEuler.x : tailTiltEuler.x,
+                0f,
+                lockRotationZ ? firstTiltEuler.z : tailTiltEuler.z);
+            Quaternion terminalYaw = Quaternion.Euler(0f, lockRotationY ? firstYaw : tailYaw, 0f);
             terminal.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
-                tailYawRotation * firstTilt);
+                terminalYaw * terminalTilt);
 
             var constraints = new JArray
             {
@@ -290,6 +307,15 @@ namespace KimodoBridge
             return constraints.ToString(Formatting.None);
         }
 
+        private static Vector3 ToSignedEuler(Quaternion rotation)
+        {
+            Vector3 euler = rotation.eulerAngles;
+            return new Vector3(
+                Mathf.DeltaAngle(0f, euler.x),
+                Mathf.DeltaAngle(0f, euler.y),
+                Mathf.DeltaAngle(0f, euler.z));
+        }
+
         internal static string BuildPathAngleConstraintJson(
             KimodoRawMotionData motion,
             string modelName,
@@ -300,7 +326,8 @@ namespace KimodoBridge
             int runtimeFrameCount,
             float frameRate,
             string existingConstraintsJson,
-            int regularFrameInterval = 0)
+            int regularFrameInterval = 0,
+            float distanceOverride = -1f)
         {
             if (motion == null || motion.FrameCount != targetFrameCount ||
                 runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f ||
@@ -332,6 +359,7 @@ namespace KimodoBridge
                     new Vector2(root.x, root.z));
                 previousRoot = root;
             }
+            if (distanceOverride >= 0f) pathLength = distanceOverride;
 
             int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
             var frames = new HashSet<int> { runtimeTrimStartFrame, terminalFrame };

@@ -38,7 +38,8 @@ namespace KimodoUnityBridge.Command
         }
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string UnifiedAnalysisPictureRenderVersion = "52-test-analysis-picture";
+        private const string TestAnalysisPictureRenderVersion = "37-phase-track-clustering";
+        private const string UnifiedAnalysisPictureRenderVersion = "51-unified-picture-space";
         private const int PictureSupersample = 2;
         private const float TestPoseJointCameraOffsetMeters = .2f;
         private const float TestPoseFootForwardCameraOffsetMeters = .3f;

@@ -84,8 +84,7 @@
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Advanced: explicit Session id; omit to use the current Session.",
-            "x-kimodo-advanced": true
+            "description": "Session id; omitted uses the current Session."
           }
         },
         "required": [],
@@ -100,8 +99,7 @@
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Advanced: explicit Session id; omit to use the current Session.",
-            "x-kimodo-advanced": true
+            "description": "Session id; omitted uses the current Session."
           },
           "kind": {
             "type": "string",
@@ -125,8 +123,7 @@
           },
           "ignore_warning": {
             "type": "boolean",
-            "description": "Advanced: import all transition variants when the projected transition count exceeds 128; defaults to false.",
-            "x-kimodo-advanced": true
+            "description": "Import all transition variants when the projected transition count exceeds 128; defaults to false."
           }
         },
         "required": [
@@ -138,20 +135,19 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze exactly one immutable Session clip and render the fixed 16:9 test picture evidence. Comparison callers analyze candidates separately. Select a single tile with picture.output=tile and picture.tile_index. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
+      "description": "Analyze one immutable Session clip and render unified picture evidence. Picture tiles are explicitly selected from the standard graph-space types and can be returned as a composite image, individual tile images, or both. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Advanced: explicit Session id; omit to use the current Session.",
-            "x-kimodo-advanced": true
+            "description": "Session id; omitted uses the current Session."
           },
           "clips": {
             "type": "array",
-            "description": "Exactly one immutable Session clip reference. Comparison callers analyze each candidate separately.",
+            "description": "One or two immutable Session clip references. Every item explicitly names its Session character; role defaults to source for the first item and target for the second.",
             "minItems": 1,
-            "maxItems": 1,
+            "maxItems": 2,
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -179,8 +175,7 @@
           "picture": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Advanced: unified graph-space picture request. Omit to render all standard tiles as one composite. Use output=tile with a 1-based tile_index to export one tile only; in that mode resolution is the output height and defaults to 720.",
-            "x-kimodo-advanced": true,
+            "description": "Unified graph-space picture request. Omit to render all standard tiles as one composite.",
             "properties": {
               "tiles": {
                 "type": "array",
@@ -190,13 +185,8 @@
               },
               "output": {
                 "type": "string",
-                "enum": ["composite", "tile"],
+                "enum": ["composite", "tiles", "both"],
                 "default": "composite"
-              },
-              "tile_index": {
-                "type": "integer",
-                "minimum": 1,
-                "description": "Advanced: 1-based tile number; required only when output is tile."
               }
             }
           },
@@ -204,13 +194,11 @@
             "type": "integer",
             "minimum": 64,
             "maximum": 4096,
-            "description": "Advanced: final picture tile resolution in pixels; accepts 64 through 4096. Defaults to 512.",
-            "x-kimodo-advanced": true
+            "description": "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
           },
           "analysis_option": {
             "type": "object",
-            "description": "Advanced backend analysis options; omit for the standard analyzer.",
-            "x-kimodo-advanced": true
+            "description": "Optional backend analysis options."
           }
         },
         "required": [
@@ -227,8 +215,7 @@
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Advanced: explicit Session id; omit to use the current Session.",
-            "x-kimodo-advanced": true
+            "description": "Session id; omitted uses the current Session."
           },
           "start_frame": {
             "type": "integer",
@@ -244,23 +231,19 @@
           },
           "remove_root_motion": {
             "type": "boolean",
-            "description": "Advanced: keep vertical motion but remove horizontal root translation and yaw; defaults to false.",
-            "x-kimodo-advanced": true
+            "description": "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."
           },
           "speed": {
             "type": "number",
-            "description": "Advanced: playback speed multiplier; defaults to 1.0.",
-            "x-kimodo-advanced": true
+            "description": "Playback speed multiplier; defaults to 1.0."
           },
           "name": {
             "type": "string",
-            "description": "Advanced: requested safe output animation name.",
-            "x-kimodo-advanced": true
+            "description": "Requested safe output animation name."
           },
           "output_folder": {
             "type": "string",
-            "description": "Advanced: Unity folder under Assets; defaults to Assets/KimodoGeneratedClips.",
-            "x-kimodo-advanced": true
+            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
           }
         },
         "required": [
@@ -279,8 +262,7 @@
         "properties": {
           "session_id": {
             "type": "string",
-            "description": "Advanced: explicit Session id; omit to use the current Session.",
-            "x-kimodo-advanced": true
+            "description": "Session id; omitted uses the current Session."
           },
           "source_character": {
             "type": "string",
@@ -296,13 +278,11 @@
           },
           "name": {
             "type": "string",
-            "description": "Advanced: requested safe output animation name.",
-            "x-kimodo-advanced": true
+            "description": "Requested safe output animation name."
           },
           "output_folder": {
             "type": "string",
-            "description": "Advanced: Unity folder under Assets; defaults to Assets/KimodoGeneratedClips.",
-            "x-kimodo-advanced": true
+            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
           }
         },
         "required": [
@@ -315,7 +295,7 @@
     },
     {
       "name": "kimodo_generate_animation",
-      "description": "Start asynchronous generation for a character in the current Session. Core input is character and prompt; advanced model, sampling, output, path, and constraint overrides are optional. The accepted request is recorded in session.json and must be polled by request_id.",
+      "description": "Start asynchronous generation for a character in the current Session. The accepted request is recorded in session.json and must be polled by request_id.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -329,17 +309,77 @@
           },
           "duration_frames": {
             "type": "integer",
-            "description": "Advanced: duration in 60 FPS Session frames; defaults to 300.",
-            "x-kimodo-advanced": true
+            "description": "Duration in 60 FPS Session frames; defaults to 300."
           },
           "loop": {
+            "description": "Enable loop preprocessing, or provide per-axis endpoint locks with {enabled, lock_pos:{x,y,z}, lock_rot:{x,y,z}}.",
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "type": "boolean",
+                    "description": "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
+                  },
+                  "lock_pos": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": { "type": "boolean" },
+                      "y": { "type": "boolean" },
+                      "z": { "type": "boolean" }
+                    }
+                  },
+                  "lock_rot": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": { "type": "boolean" },
+                      "y": { "type": "boolean" },
+                      "z": { "type": "boolean" }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "loop_lock_position_y": {
             "type": "boolean",
-            "description": "Enable bounded loop preprocessing; over-limit requests fall back to normal generation."
+            "default": true,
+            "description": "When loop is enabled, copy the first frame's pos.y to the tail frame."
+          },
+          "loop_lock_position_x": {
+            "type": "boolean",
+            "default": false,
+            "description": "When loop is enabled, copy the first frame's pos.x to the tail frame."
+          },
+          "loop_lock_position_z": {
+            "type": "boolean",
+            "default": false,
+            "description": "When loop is enabled, copy the first frame's pos.z to the tail frame."
+          },
+          "loop_lock_rotation_x": {
+            "type": "boolean",
+            "default": true,
+            "description": "When loop is enabled, copy the first frame's rot.x to the tail frame."
+          },
+          "loop_lock_rotation_y": {
+            "type": "boolean",
+            "default": false,
+            "description": "When loop is enabled, copy the first frame's rot.y to the tail frame."
+          },
+          "loop_lock_rotation_z": {
+            "type": "boolean",
+            "default": true,
+            "description": "When loop is enabled, copy the first frame's rot.z to the tail frame."
           },
           "model": {
             "type": "string",
-            "description": "Advanced: registered model name/configuration id; omit to use Project Settings default.",
-            "x-kimodo-advanced": true
+            "description": "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."
           },
           "text_encoder_model": {
             "type": "string",
@@ -347,18 +387,15 @@
               "high_performance",
               "high_precision"
             ],
-            "default": "high_performance",
-            "x-kimodo-advanced": true
+            "default": "high_performance"
           },
           "seed": {
             "type": "integer",
-            "description": "Advanced: deterministic seed; omitted chooses a random seed.",
-            "x-kimodo-advanced": true
+            "description": "Deterministic seed; omitted chooses a random seed."
           },
           "diffusion_steps": {
             "type": "integer",
-            "description": "Advanced: diffusion steps; omitted uses the model default.",
-            "x-kimodo-advanced": true
+            "description": "Diffusion steps; omitted uses the model default."
           },
           "output_mode": {
             "type": "string",
@@ -367,43 +404,44 @@
               "character_bone",
               "model_bone"
             ],
-            "default": "humanoid_muscle",
-            "x-kimodo-advanced": true
+            "default": "humanoid_muscle"
           },
           "output_folder": {
             "type": "string",
-            "description": "Advanced: Unity folder under Assets; defaults to Assets/KimodoGeneratedClips.",
-            "x-kimodo-advanced": true
+            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
           },
           "name": {
             "type": "string",
-            "description": "Advanced: requested safe animation name; defaults to the prompt.",
-            "x-kimodo-advanced": true
+            "description": "Requested safe animation name; defaults to the prompt."
           },
           "analysis_option": {
             "type": "object",
-            "description": "Advanced backend analysis options; omit for the standard phase-track analyzer.",
-            "x-kimodo-advanced": true
+            "description": "Optional analysis object for phase-track analysis. Legacy uniform keyframe_count/max_count controls are removed; Humanoid phase_track intervals and anchors are produced by the analyzer."
           },
           "path_begin_angle_degrees": {
             "type": "number",
-            "description": "Advanced: absolute Unity yaw for the Root2D path start.",
-            "x-kimodo-advanced": true
+            "description": "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
           },
           "path_end_angle_degrees": {
             "type": "number",
-            "description": "Advanced: absolute Unity yaw for the Root2D path end.",
-            "x-kimodo-advanced": true
+            "description": "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
+          },
+          "override_path_distance": {
+            "type": "boolean",
+            "description": "When Path Angle is enabled, replace the measured baseline path distance with path_distance."
+          },
+          "path_distance": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Fixed Unity-unit path distance used when override_path_distance is true."
           },
           "override_heading_degrees": {
             "type": "number",
-            "description": "Advanced: fixed absolute Unity yaw for Root2D constraints.",
-            "x-kimodo-advanced": true
+            "description": "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."
           },
           "constraints": {
             "type": "array",
-            "description": "Advanced point constraints and reusable root_path constraints.",
-            "x-kimodo-advanced": true,
+            "description": "Point constraints and reusable root_path constraints for the generated clip.",
             "items": {
               "oneOf": [
                 {
@@ -722,8 +760,7 @@
           },
           "full_data": {
             "type": "boolean",
-            "description": "Advanced: return all 49 muscles and TQ channels; defaults to false.",
-            "x-kimodo-advanced": true
+            "description": "Return all 49 muscles and TQ channels; defaults to false."
           }
         },
         "required": [

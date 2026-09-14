@@ -54,7 +54,7 @@ function recognize_clip(analysis, semantic_alternatives, clip_index = 0):
     if analysis.analysis_schema_version != "2-phase-track-v1":
         return not_verified_all_tasks("analysis_schema_version_mismatch")
     image = analysis.pictures.image_path
-    if analysis.pictures.render_version != "52-test-analysis-picture":
+    if analysis.pictures.render_version != "37-phase-track-clustering":
         return not_verified_all_tasks("render_version_mismatch")
     picture_map = tiles_for_clip(analysis.pictures.images, clip_index)
     ASSERT OPEN_WITH_AVAILABLE_VISUAL_TOOL(image) == YES
@@ -206,11 +206,11 @@ function identify_semantics(alternatives, character_ref, clip_ref):
     character = ensure_character_in_session(session, character_ref)
     clip = ensure_clip_in_session(session, character, clip_ref)
     analysis = animation_analyze({
-        clips: [{character: character, clip: clip}]
+        session_id: session.session_id,
+        clips: [{role: "source", character: character, clip: clip}],
+        picture: {"output": "composite"},
+        resolution: 512
     })
-
-    # To request one tile only, use picture={output: "tile", tile_index: N}
-    # and optionally resolution=<height>; default height is 720px.
 
     image_path = analysis.pictures.image_path
     picture_map = analysis.pictures.images

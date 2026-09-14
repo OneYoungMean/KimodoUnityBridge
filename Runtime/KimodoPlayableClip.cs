@@ -69,6 +69,18 @@ namespace KimodoBridge
         public int seed = 42;
         [Tooltip("Generate a baseline motion, constrain its first pose at the end, then generate an extended motion and keep its middle section.")]
         public bool generateLoop;
+        [Tooltip("When looping, copy the first frame's X root position to the loop tail.")]
+        public bool loopLockPositionX;
+        [Tooltip("When looping, copy the first frame's Y root position to the loop tail.")]
+        public bool loopLockPositionY = true;
+        [Tooltip("When looping, copy the first frame's Z root position to the loop tail.")]
+        public bool loopLockPositionZ;
+        [Tooltip("When looping, copy the first frame's X root rotation to the loop tail.")]
+        public bool loopLockRotationX = true;
+        [Tooltip("When looping, copy the first frame's Y root rotation to the loop tail.")]
+        public bool loopLockRotationY;
+        [Tooltip("When looping, copy the first frame's Z root rotation to the loop tail.")]
+        public bool loopLockRotationZ = true;
         [Tooltip("Regenerate with the same seed and override the Root2D path using absolute begin/end Unity yaw angles.")]
         public bool overridePathAngle;
         [Tooltip("Absolute Unity yaw for the PathAngle Bezier start tangent.")]
@@ -76,6 +88,10 @@ namespace KimodoBridge
         [FormerlySerializedAs("pathAngleDegrees")]
         [Tooltip("Absolute Unity yaw for the PathAngle Bezier end tangent.")]
         public float pathEndAngleDegrees;
+        [Tooltip("When overriding Path Angle, replace the measured path length with this value.")]
+        public bool overridePathDistance;
+        [Min(0f)]
+        public float pathDistance;
         [Tooltip("Override second-pass Root2D headings every 30 frames with one absolute Unity yaw.")]
         public bool overrideHeading;
         [Tooltip("Absolute Unity yaw in degrees. Positive turns right; negative turns left; zero faces Unity forward.")]

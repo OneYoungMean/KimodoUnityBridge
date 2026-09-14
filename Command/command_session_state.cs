@@ -224,6 +224,8 @@ namespace KimodoUnityBridge.Command
             PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
             director.playableAsset = timelineAsset;
             director.time = 0.0;
+
+            CreateSessionBasics(sessionRoot, safeName);
             var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata, sessionRoot);
 
             PersistTimelineSessionMetadata(record);
@@ -248,6 +250,18 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException(error);
             }
+        }
+
+        internal static void CreateSessionBasics(GameObject sessionRoot, string safeName)
+        {
+            if (sessionRoot == null) return;
+            GameObject lightObject = new GameObject($"Kimodo_PreviewLight_{safeName}");
+            lightObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
+            lightObject.transform.SetParent(sessionRoot.transform, false);
+            Light light = lightObject.AddComponent<Light>();
+            light.type = LightType.Directional;
+            light.intensity = IsBuiltInCapturePipeline() ? .25f : 1f;
+            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
         }
 
         private static GameObject CloneCharacterToSession(TimelineSessionRecord session, GameObject source)
@@ -968,12 +982,16 @@ namespace KimodoUnityBridge.Command
             {
                 TimelineSessionRecord session = RequireTimelineSession(arguments);
                 JArray requestedClips = arguments["clips"] as JArray;
-                if (requestedClips == null || requestedClips.Count != 1)
+                if (requestedClips == null || requestedClips.Count < 1 || requestedClips.Count > 2)
                 {
-                    throw new InvalidOperationException("animation_analyze requires exactly one {character,clip,role?} object; analyze comparison clips separately.");
+                    throw new InvalidOperationException("clips must contain one or two {character,clip,role?} objects.");
                 }
 
                 JObject picture = AnalysisPictureRequest.Parse(arguments["picture"] as JObject).ToJson();
+                if (requestedClips.Count != 1)
+                {
+                    throw new InvalidOperationException("picture rendering currently accepts exactly one clip.");
+                }
                 int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
                 JObject requestedAnalysisOptions = null;
                 string requestedAnalysisOptionsJson = ParseAnalysisOptionsJson(arguments);

@@ -151,7 +151,7 @@ namespace KimodoBridge.Editor
                     ModelName = modelName,
                     TextEncoderMode = KimodoPlayableClipGenerationSettings.instance.DefaultTextEncoderMode,
                     ModelsRoot = KimodoPlayableClipGenerationSettings.instance.LocalModelsPath,
-                    AnalysisOptionsJson = new JObject().ToString(Formatting.None)
+                    AnalysisOptionsJson = new JObject { ["keyframe_count"] = 8 }.ToString(Formatting.None)
                 };
                 if (!KimodoPlayableClipGenerationExecutionService.Analysis(input, out string json, out byte[] denseKmb, out error))
                 {
