@@ -141,28 +141,10 @@ namespace KimodoUnityBridge.Command
                             Required("prompt", "string", "Motion prompt."),
                             Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
                             OptionalLoop(),
-                            Optional("loop_lock_position_x", "boolean", "When loop is enabled, copy the first frame's pos.x to the tail frame; defaults to false."),
-                            Optional("loop_lock_position_y", "boolean", "When loop is enabled, copy the first frame's pos.y to the tail frame; defaults to true."),
-                            Optional("loop_lock_position_z", "boolean", "When loop is enabled, copy the first frame's pos.z to the tail frame; defaults to false."),
-                            Optional("loop_lock_rotation_x", "boolean", "When loop is enabled, copy the first frame's rot.x to the tail frame; defaults to true."),
-                            Optional("loop_lock_rotation_y", "boolean", "When loop is enabled, copy the first frame's rot.y to the tail frame; defaults to false."),
-                            Optional("loop_lock_rotation_z", "boolean", "When loop is enabled, copy the first frame's rot.z to the tail frame; defaults to true."),
                             OptionalPath(),
                             OptionalGeneration(),
                             OptionalOutput(),
-                            Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."),
-                            Enum("text_encoder_model", "high_performance", "high_precision"),
-                            Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
-                            Optional("diffusion_steps", "integer", "Diffusion steps; omitted uses the model default."),
-                            Enum("output_mode", "humanoid_muscle", "character_bone", "model_bone"),
-                            Optional("output_folder", "string", "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."),
-                            Optional("name", "string", "Requested safe animation name; defaults to the prompt."),
                             Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
-                            Optional("path_begin_angle_degrees", "number", "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
-                            Optional("path_end_angle_degrees", "number", "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."),
-                            Optional("override_path_distance", "boolean", "When Path Angle is enabled, replace the measured baseline path distance with path_distance."),
-                            Optional("path_distance", "number", "Fixed Unity-unit path distance used when override_path_distance is true."),
-                            Optional("override_heading_degrees", "number", "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."),
                             OptionalConstraints("constraints", "Point constraints and reusable root_path constraints for the generated clip."))),
                     CommandDefinition(PoseGetCommand,
                         "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
@@ -537,9 +519,9 @@ namespace KimodoUnityBridge.Command
                 JObject pathOptions = arguments["path"] as JObject;
                 JObject generationOptions = arguments["generation"] as JObject;
                 JObject outputOptions = arguments["output"] as JObject;
-                string outputMode = ParseOutputMode(outputOptions?.Value<string>("mode") ?? arguments.Value<string>("output_mode"));
-                string requestedModel = (generationOptions?.Value<string>("model") ?? arguments.Value<string>("model"))?.Trim();
-                string requestedTextEncoder = (generationOptions?.Value<string>("text_encoder") ?? arguments.Value<string>("text_encoder_model"))?.Trim();
+                string outputMode = ParseOutputMode(outputOptions?.Value<string>("mode"));
+                string requestedModel = generationOptions?.Value<string>("model")?.Trim();
+                string requestedTextEncoder = generationOptions?.Value<string>("text_encoder")?.Trim();
                 string modelName = ResolveModelName(requestedModel);
                 KimodoTextEncoderMode textEncoderMode = ResolveTextEncoderMode(requestedTextEncoder);
                 JObject modelConfiguration = null;
@@ -560,34 +542,28 @@ namespace KimodoUnityBridge.Command
                         prompt.IndexOf("loop", StringComparison.OrdinalIgnoreCase) >= 0;
                 JObject lockPosition = loopObject?["lock_pos"] as JObject;
                 JObject lockRotation = loopObject?["lock_rot"] as JObject;
-                bool loopLockPositionX = lockPosition?.Value<bool?>("x") ??
-                    arguments.Value<bool?>("loop_lock_position_x") ?? false;
-                bool loopLockPositionY = lockPosition?.Value<bool?>("y") ??
-                    arguments.Value<bool?>("loop_lock_position_y") ?? true;
-                bool loopLockPositionZ = lockPosition?.Value<bool?>("z") ??
-                    arguments.Value<bool?>("loop_lock_position_z") ?? false;
-                bool loopLockRotationX = lockRotation?.Value<bool?>("x") ??
-                    arguments.Value<bool?>("loop_lock_rotation_x") ?? true;
-                bool loopLockRotationY = lockRotation?.Value<bool?>("y") ??
-                    arguments.Value<bool?>("loop_lock_rotation_y") ?? false;
-                bool loopLockRotationZ = lockRotation?.Value<bool?>("z") ??
-                    arguments.Value<bool?>("loop_lock_rotation_z") ?? true;
-                bool hasPathBeginAngle = pathOptions?["start_angle"] != null || arguments["path_begin_angle_degrees"] != null;
+                bool loopLockPositionX = lockPosition?.Value<bool?>("x") ?? false;
+                bool loopLockPositionY = lockPosition?.Value<bool?>("y") ?? true;
+                bool loopLockPositionZ = lockPosition?.Value<bool?>("z") ?? false;
+                bool loopLockRotationX = lockRotation?.Value<bool?>("x") ?? true;
+                bool loopLockRotationY = lockRotation?.Value<bool?>("y") ?? false;
+                bool loopLockRotationZ = lockRotation?.Value<bool?>("z") ?? true;
+                bool hasPathBeginAngle = pathOptions?["start_angle"] != null;
                 float pathBeginAngleDegrees = hasPathBeginAngle
-                    ? ReadFiniteFloat(pathOptions?["start_angle"] ?? arguments["path_begin_angle_degrees"], "path.start_angle")
+                    ? ReadFiniteFloat(pathOptions["start_angle"], "path.start_angle")
                     : 0f;
-                bool hasPathEndAngle = pathOptions?["end_angle"] != null || arguments["path_end_angle_degrees"] != null;
+                bool hasPathEndAngle = pathOptions?["end_angle"] != null;
                 float pathEndAngleDegrees = hasPathEndAngle
-                    ? ReadFiniteFloat(pathOptions?["end_angle"] ?? arguments["path_end_angle_degrees"], "path.end_angle")
+                    ? ReadFiniteFloat(pathOptions["end_angle"], "path.end_angle")
                     : 0f;
                 bool overridePathAngle = hasPathBeginAngle || hasPathEndAngle;
-                bool overridePathDistance = pathOptions?["distance"] != null || arguments.Value<bool?>("override_path_distance") == true;
+                bool overridePathDistance = pathOptions?["distance"] != null;
                 float pathDistance = overridePathDistance
-                    ? ReadFiniteFloat(pathOptions?["distance"] ?? arguments["path_distance"], "path.distance")
+                    ? ReadFiniteFloat(pathOptions["distance"], "path.distance")
                     : 0f;
                 if (overridePathDistance && pathDistance < 0f)
                 {
-                    throw new InvalidOperationException("path_distance must be non-negative.");
+                    throw new InvalidOperationException("path.distance must be non-negative.");
                 }
                 // Directional language is part of the generation contract,
                 // not merely prompt decoration. When callers omit explicit
@@ -605,11 +581,11 @@ namespace KimodoUnityBridge.Command
                 }
                 if (overridePathDistance && !overridePathAngle)
                 {
-                    throw new InvalidOperationException("override_path_distance requires Path Angle override.");
+                    throw new InvalidOperationException("path.distance requires a path angle override.");
                 }
-                bool overrideHeading = pathOptions?["heading"] != null || arguments["override_heading_degrees"] != null;
+                bool overrideHeading = pathOptions?["heading"] != null;
                 float headingDegrees = overrideHeading
-                    ? ReadFiniteFloat(pathOptions?["heading"] ?? arguments["override_heading_degrees"], "path.heading")
+                    ? ReadFiniteFloat(pathOptions["heading"], "path.heading")
                     : 0f;
                 bool loopFallback = loopRequested && durationFrames > 300;
                 string loopWarning = loopFallback
@@ -623,12 +599,12 @@ namespace KimodoUnityBridge.Command
                 float duration = (float)(durationFrames / SessionFrameRate);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
-                int seed = generationOptions?.Value<int?>("seed") ?? arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
+                int seed = generationOptions?.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
                 int steps = generationOptions?.Value<int?>("diffusion_steps") ?? ResolveDiffusionSteps(arguments, modelName, modelConfiguration);
-                string outputFolder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder") ?? arguments.Value<string>("output_folder"));
-                string requestedAnimationName = string.IsNullOrWhiteSpace(outputOptions?.Value<string>("name") ?? arguments.Value<string>("name"))
+                string outputFolder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder"));
+                string requestedAnimationName = string.IsNullOrWhiteSpace(outputOptions?.Value<string>("name"))
                     ? prompt
-                    : (outputOptions?.Value<string>("name") ?? arguments.Value<string>("name")).Trim();
+                    : outputOptions.Value<string>("name").Trim();
                 Avatar originAvatar = KimodoTimelineGenerationOutputPlanner.ResolveOriginRetargetAvatar(modelName);
                 if (!KimodoRetargetCoreUtility.IsValidHumanoid(originAvatar))
                 {
@@ -746,28 +722,18 @@ namespace KimodoUnityBridge.Command
                             ["z"] = loopLockRotationZ
                         }
                     };
-                    startedResponse["loop_lock_position_x"] = loopLockPositionX;
-                    startedResponse["loop_lock_position_y"] = loopLockPositionY;
-                    startedResponse["loop_lock_position_z"] = loopLockPositionZ;
-                    startedResponse["loop_lock_rotation_x"] = loopLockRotationX;
-                    startedResponse["loop_lock_rotation_y"] = loopLockRotationY;
-                    startedResponse["loop_lock_rotation_z"] = loopLockRotationZ;
                     startedResponse["loop_source_duration_frames"] = durationFrames;
                     startedResponse["loop_extended_duration_frames"] = durationFrames * 2;
                 }
                 if (overridePathAngle)
                 {
-                    startedResponse["path_begin_angle_degrees"] = pathBeginAngleDegrees;
-                    startedResponse["path_end_angle_degrees"] = pathEndAngleDegrees;
-                    if (overridePathDistance)
+                    startedResponse["path"] = new JObject
                     {
-                        startedResponse["override_path_distance"] = true;
-                        startedResponse["path_distance"] = pathDistance;
-                    }
-                }
-                if (overrideHeading)
-                {
-                    startedResponse["override_heading_degrees"] = headingDegrees;
+                        ["start_angle"] = pathBeginAngleDegrees,
+                        ["end_angle"] = pathEndAngleDegrees
+                    };
+                    if (overridePathDistance) ((JObject)startedResponse["path"])["distance"] = pathDistance;
+                    if (overrideHeading) ((JObject)startedResponse["path"])["heading"] = headingDegrees;
                 }
                 if (loopWarning != null)
                 {

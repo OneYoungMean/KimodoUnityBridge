@@ -347,36 +347,6 @@
               }
             ]
           },
-          "loop_lock_position_y": {
-            "type": "boolean",
-            "default": true,
-            "description": "When loop is enabled, copy the first frame's pos.y to the tail frame."
-          },
-          "loop_lock_position_x": {
-            "type": "boolean",
-            "default": false,
-            "description": "When loop is enabled, copy the first frame's pos.x to the tail frame."
-          },
-          "loop_lock_position_z": {
-            "type": "boolean",
-            "default": false,
-            "description": "When loop is enabled, copy the first frame's pos.z to the tail frame."
-          },
-          "loop_lock_rotation_x": {
-            "type": "boolean",
-            "default": true,
-            "description": "When loop is enabled, copy the first frame's rot.x to the tail frame."
-          },
-          "loop_lock_rotation_y": {
-            "type": "boolean",
-            "default": false,
-            "description": "When loop is enabled, copy the first frame's rot.y to the tail frame."
-          },
-          "loop_lock_rotation_z": {
-            "type": "boolean",
-            "default": true,
-            "description": "When loop is enabled, copy the first frame's rot.z to the tail frame."
-          },
           "path": {
             "type": "object",
             "additionalProperties": false,
@@ -409,67 +379,9 @@
               "name": { "type": "string" }
             }
           },
-          "model": {
-            "type": "string",
-            "description": "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."
-          },
-          "text_encoder_model": {
-            "type": "string",
-            "enum": [
-              "high_performance",
-              "high_precision"
-            ],
-            "default": "high_performance"
-          },
-          "seed": {
-            "type": "integer",
-            "description": "Deterministic seed; omitted chooses a random seed."
-          },
-          "diffusion_steps": {
-            "type": "integer",
-            "description": "Diffusion steps; omitted uses the model default."
-          },
-          "output_mode": {
-            "type": "string",
-            "enum": [
-              "humanoid_muscle",
-              "character_bone",
-              "model_bone"
-            ],
-            "default": "humanoid_muscle"
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
-          },
-          "name": {
-            "type": "string",
-            "description": "Requested safe animation name; defaults to the prompt."
-          },
           "analysis_option": {
             "type": "object",
             "description": "Optional analysis object for phase-track analysis. Legacy uniform keyframe_count/max_count controls are removed; Humanoid phase_track intervals and anchors are produced by the analyzer."
-          },
-          "path_begin_angle_degrees": {
-            "type": "number",
-            "description": "Absolute Unity yaw for the Root2D path start; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
-          },
-          "path_end_angle_degrees": {
-            "type": "number",
-            "description": "Absolute Unity yaw for the Root2D path end; providing either path angle enables same-seed Path Override, and an omitted peer defaults to zero."
-          },
-          "override_path_distance": {
-            "type": "boolean",
-            "description": "When Path Angle is enabled, replace the measured baseline path distance with path_distance."
-          },
-          "path_distance": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Fixed Unity-unit path distance used when override_path_distance is true."
-          },
-          "override_heading_degrees": {
-            "type": "number",
-            "description": "Regenerate with the same seed and apply this absolute Unity yaw to Root2D constraints every 30 frames; positive turns right and zero faces Unity forward."
           },
           "constraints": {
             "type": "array",

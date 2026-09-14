@@ -190,7 +190,7 @@ function execute_generate_skill(request):
             remove_root_motion: request.remove_root_motion if supplied,
             speed: request.speed if supplied,
             name: request.name if supplied,
-            output_folder: request.output_folder if supplied
+            output_folder: request.output.folder if supplied
         })
         final_ref = {
             character: final_output.character,
@@ -220,7 +220,7 @@ function execute_generate_skill(request):
             animation: source_clip,
             target_character: target_character,
             name: request.name if supplied,
-            output_folder: request.output_folder if supplied
+            output_folder: request.output.folder if supplied
         })
         final_ref = {
             character: final_output.character,
@@ -381,7 +381,7 @@ function execute_generate_skill(request):
             animation: generated_ref.clip,
             target_character: target_character,
             name: request.retarget_name if supplied,
-            output_folder: request.output_folder if supplied
+            output_folder: request.output.folder if supplied
         })
         generated_ref = {
             character: retargeted_output.character,
@@ -530,14 +530,13 @@ function derive_supported_correction_from_failed_macros():
     if PATH_MATCH == NO and explicit_path_directions_exist():
         return same_seed_request_with(
             seed = LAST_COMPLETED_SEED,
-            path_begin_angle_degrees = PATH_BEGIN_YAW_DEGREES,
-            path_end_angle_degrees = PATH_END_YAW_DEGREES
+            path = { start_angle: PATH_BEGIN_YAW_DEGREES, end_angle: PATH_END_YAW_DEGREES }
         )
 
     if HEADING_MATCH == NO and explicit_fixed_heading_exists():
         return same_seed_request_with(
             seed = LAST_COMPLETED_SEED,
-            override_heading_degrees = FIXED_HEADING_DEGREES
+            path.heading = FIXED_HEADING_DEGREES
         )
 
     if POSE_MATCH == NO or CONTACT_MATCH == NO:
@@ -568,7 +567,7 @@ ASSERT failed_canceled_or_fallback_results_are_reported_as_returned()
 
 ## Root path and path-angle constraints / Root 路径统一采样
 
-`root_path` 与 `path_begin_angle_degrees/path_end_angle_degrees` 使用同一条
+`root_path` 与 `path.start_angle/path.end_angle` 使用同一条
 稀疏 Root2D 约束管线。两者的区别仅在路径采样对象：
 
 ```pseudo
@@ -584,8 +583,8 @@ if PATH_ANGLE_OVERRIDE:
     first_pass_clip = materialize_first_pass_motion_as_transient_animationclip()
     path_samples = sample_animationclip_root_trajectory_with_angles(
         first_pass_clip,
-        path_begin_angle_degrees,
-        path_end_angle_degrees
+        path.start_angle,
+        path.end_angle
     )
 
 emit_one_sparse_root2d_constraint(path_samples, sample_frames)
