@@ -196,10 +196,6 @@
             "maximum": 4096,
             "description": "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
           },
-          "analysis_option": {
-            "type": "object",
-            "description": "Optional backend analysis options."
-          }
         },
         "required": [
           "clips"

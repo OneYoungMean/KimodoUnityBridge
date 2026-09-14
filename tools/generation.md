@@ -317,7 +317,7 @@ function execute_generate_skill(request):
         request,
         args,
         fields = [
-            "generation", "output", "analysis_option"
+            "generation", "output"
         ]
     )
 

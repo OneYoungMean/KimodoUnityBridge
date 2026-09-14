@@ -66,6 +66,9 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(generate?["properties"]?["path_begin_angle_degrees"], Is.Null);
             Assert.That(generate?["properties"]?["output_mode"], Is.Null);
             Assert.That(generate?["properties"]?["model"], Is.Null);
+            JObject analyze = json["tools"].Values<JObject>()
+                .Single(value => value.Value<string>("name") == "animation_analyze")["inputSchema"] as JObject;
+            Assert.That(analyze?["properties"]?["analysis_option"], Is.Null);
             Assert.That(generate?["properties"]?["constraints"]?.ToString(), Does.Not.Contain("knots"));
             Assert.That(generate?["properties"]?["override_path_angle_degrees"], Is.Null);
             Assert.That(generate?["properties"]?["path_begin_angle_degrees"]?["type"]?.Value<string>(),

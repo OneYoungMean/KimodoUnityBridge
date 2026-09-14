@@ -104,7 +104,6 @@ namespace KimodoUnityBridge.Command
                                 ["type"] = "object",
                                 ["description"] = "Unified graph-space picture request with tiles and output mode."
                             }, false),
-                            Optional("analysis_option", "object", "Optional backend analysis options."),
                             new PropertyDefinition("resolution", new JObject
                             {
                                 ["type"] = "integer",
