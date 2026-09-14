@@ -377,6 +377,38 @@
             "default": true,
             "description": "When loop is enabled, copy the first frame's rot.z to the tail frame."
           },
+          "path": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional Root2D path override. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition.",
+            "properties": {
+              "start_angle": { "type": "number" },
+              "end_angle": { "type": "number" },
+              "distance": { "type": "number", "minimum": 0 },
+              "heading": { "type": "number" }
+            }
+          },
+          "generation": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional model and deterministic generation settings.",
+            "properties": {
+              "model": { "type": "string" },
+              "text_encoder": { "type": "string", "enum": ["high_performance", "high_precision"] },
+              "seed": { "type": "integer" },
+              "diffusion_steps": { "type": "integer" }
+            }
+          },
+          "output": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Optional animation output settings.",
+            "properties": {
+              "mode": { "type": "string", "enum": ["humanoid_muscle", "character_bone", "model_bone"] },
+              "folder": { "type": "string" },
+              "name": { "type": "string" }
+            }
+          },
           "model": {
             "type": "string",
             "description": "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."

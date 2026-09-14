@@ -301,11 +301,14 @@ function execute_generate_skill(request):
     if SHOULD_OVERRIDE_PATH_DIRECTIONS == YES:
         // Supply both values deliberately; do not rely on the omitted-peer default.
         // 明确提供起点和终点，不能依赖缺省另一端为零。
-        args.path_begin_angle_degrees = PATH_BEGIN_YAW_DEGREES
-        args.path_end_angle_degrees = PATH_END_YAW_DEGREES
+        args.path = {
+            start_angle: PATH_BEGIN_YAW_DEGREES,
+            end_angle: PATH_END_YAW_DEGREES,
+            distance: OVERRIDE_DISTANCE,
+            heading: FIXED_HEADING_DEGREES,
+        }
 
     if SHOULD_OVERRIDE_FIXED_HEADING == YES:
-        args.override_heading_degrees = FIXED_HEADING_DEGREES
 
     if constraints is not empty:
         args.constraints = constraints
@@ -314,8 +317,7 @@ function execute_generate_skill(request):
         request,
         args,
         fields = [
-            "model", "text_encoder_model", "seed", "diffusion_steps",
-            "output_mode", "output_folder", "name", "analysis_option"
+            "generation", "output", "analysis_option"
         ]
     )
 

@@ -147,6 +147,9 @@ namespace KimodoUnityBridge.Command
                             Optional("loop_lock_rotation_x", "boolean", "When loop is enabled, copy the first frame's rot.x to the tail frame; defaults to true."),
                             Optional("loop_lock_rotation_y", "boolean", "When loop is enabled, copy the first frame's rot.y to the tail frame; defaults to false."),
                             Optional("loop_lock_rotation_z", "boolean", "When loop is enabled, copy the first frame's rot.z to the tail frame; defaults to true."),
+                            OptionalPath(),
+                            OptionalGeneration(),
+                            OptionalOutput(),
                             Optional("model", "string", "Registered model name/configuration id; omitted uses the Project Settings default. Use kimodo_help({section:'models'}) to query models."),
                             Enum("text_encoder_model", "high_performance", "high_precision"),
                             Optional("seed", "integer", "Deterministic seed; omitted chooses a random seed."),
@@ -531,9 +534,12 @@ namespace KimodoUnityBridge.Command
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 string prompt = RequiredStringValue(arguments, "prompt");
                 ResolvedCharacter character = ResolveCharacter(session, RequiredStringValue(arguments, "character"));
-                string outputMode = ParseOutputMode(arguments.Value<string>("output_mode"));
-                string requestedModel = arguments.Value<string>("model")?.Trim();
-                string requestedTextEncoder = arguments.Value<string>("text_encoder_model")?.Trim();
+                JObject pathOptions = arguments["path"] as JObject;
+                JObject generationOptions = arguments["generation"] as JObject;
+                JObject outputOptions = arguments["output"] as JObject;
+                string outputMode = ParseOutputMode(outputOptions?.Value<string>("mode") ?? arguments.Value<string>("output_mode"));
+                string requestedModel = (generationOptions?.Value<string>("model") ?? arguments.Value<string>("model"))?.Trim();
+                string requestedTextEncoder = (generationOptions?.Value<string>("text_encoder") ?? arguments.Value<string>("text_encoder_model"))?.Trim();
                 string modelName = ResolveModelName(requestedModel);
                 KimodoTextEncoderMode textEncoderMode = ResolveTextEncoderMode(requestedTextEncoder);
                 JObject modelConfiguration = null;
@@ -566,18 +572,18 @@ namespace KimodoUnityBridge.Command
                     arguments.Value<bool?>("loop_lock_rotation_y") ?? false;
                 bool loopLockRotationZ = lockRotation?.Value<bool?>("z") ??
                     arguments.Value<bool?>("loop_lock_rotation_z") ?? true;
-                bool hasPathBeginAngle = arguments["path_begin_angle_degrees"] != null;
+                bool hasPathBeginAngle = pathOptions?["start_angle"] != null || arguments["path_begin_angle_degrees"] != null;
                 float pathBeginAngleDegrees = hasPathBeginAngle
-                    ? ReadFiniteFloat(arguments["path_begin_angle_degrees"], "path_begin_angle_degrees")
+                    ? ReadFiniteFloat(pathOptions?["start_angle"] ?? arguments["path_begin_angle_degrees"], "path.start_angle")
                     : 0f;
-                bool hasPathEndAngle = arguments["path_end_angle_degrees"] != null;
+                bool hasPathEndAngle = pathOptions?["end_angle"] != null || arguments["path_end_angle_degrees"] != null;
                 float pathEndAngleDegrees = hasPathEndAngle
-                    ? ReadFiniteFloat(arguments["path_end_angle_degrees"], "path_end_angle_degrees")
+                    ? ReadFiniteFloat(pathOptions?["end_angle"] ?? arguments["path_end_angle_degrees"], "path.end_angle")
                     : 0f;
                 bool overridePathAngle = hasPathBeginAngle || hasPathEndAngle;
-                bool overridePathDistance = arguments.Value<bool?>("override_path_distance") ?? false;
+                bool overridePathDistance = pathOptions?["distance"] != null || arguments.Value<bool?>("override_path_distance") == true;
                 float pathDistance = overridePathDistance
-                    ? ReadFiniteFloat(arguments["path_distance"], "path_distance")
+                    ? ReadFiniteFloat(pathOptions?["distance"] ?? arguments["path_distance"], "path.distance")
                     : 0f;
                 if (overridePathDistance && pathDistance < 0f)
                 {
@@ -601,9 +607,9 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException("override_path_distance requires Path Angle override.");
                 }
-                bool overrideHeading = arguments["override_heading_degrees"] != null;
+                bool overrideHeading = pathOptions?["heading"] != null || arguments["override_heading_degrees"] != null;
                 float headingDegrees = overrideHeading
-                    ? ReadFiniteFloat(arguments["override_heading_degrees"], "override_heading_degrees")
+                    ? ReadFiniteFloat(pathOptions?["heading"] ?? arguments["override_heading_degrees"], "path.heading")
                     : 0f;
                 bool loopFallback = loopRequested && durationFrames > 300;
                 string loopWarning = loopFallback
@@ -617,12 +623,12 @@ namespace KimodoUnityBridge.Command
                 float duration = (float)(durationFrames / SessionFrameRate);
                 string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
-                int seed = arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
-                int steps = ResolveDiffusionSteps(arguments, modelName, modelConfiguration);
-                string outputFolder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(arguments.Value<string>("output_folder"));
-                string requestedAnimationName = string.IsNullOrWhiteSpace(arguments.Value<string>("name"))
+                int seed = generationOptions?.Value<int?>("seed") ?? arguments.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
+                int steps = generationOptions?.Value<int?>("diffusion_steps") ?? ResolveDiffusionSteps(arguments, modelName, modelConfiguration);
+                string outputFolder = KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder") ?? arguments.Value<string>("output_folder"));
+                string requestedAnimationName = string.IsNullOrWhiteSpace(outputOptions?.Value<string>("name") ?? arguments.Value<string>("name"))
                     ? prompt
-                    : arguments.Value<string>("name").Trim();
+                    : (outputOptions?.Value<string>("name") ?? arguments.Value<string>("name")).Trim();
                 Avatar originAvatar = KimodoTimelineGenerationOutputPlanner.ResolveOriginRetargetAvatar(modelName);
                 if (!KimodoRetargetCoreUtility.IsValidHumanoid(originAvatar))
                 {

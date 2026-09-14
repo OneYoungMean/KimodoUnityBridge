@@ -58,6 +58,10 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(generate?["properties"]?["loop"]?["oneOf"], Is.Not.Null);
             Assert.That(generate?["properties"]?["loop"]?["oneOf"]?.ToString(), Does.Contain("lock_pos"));
             Assert.That(generate?["properties"]?["loop"]?["oneOf"]?.ToString(), Does.Contain("lock_rot"));
+            Assert.That(generate?["properties"]?["path"]?["properties"]?["distance"]?["minimum"]?.Value<float>(), Is.EqualTo(0f));
+            Assert.That(generate?["properties"]?["generation"]?["properties"]?["text_encoder"], Is.Not.Null);
+            Assert.That(generate?["properties"]?["output"]?["properties"]?["mode"]?["enum"]?.Values<string>(),
+                Does.Contain("humanoid_muscle"));
             Assert.That(generate?["properties"]?["constraints"]?.ToString(), Does.Not.Contain("knots"));
             Assert.That(generate?["properties"]?["override_path_angle_degrees"], Is.Null);
             Assert.That(generate?["properties"]?["path_begin_angle_degrees"]?["type"]?.Value<string>(),
