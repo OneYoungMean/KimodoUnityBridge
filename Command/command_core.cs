@@ -110,7 +110,7 @@ namespace KimodoUnityBridge.Command
                                 ["type"] = "integer",
                                 ["minimum"] = 64,
                                 ["maximum"] = 4096,
-                                ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 512."
+                                ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 1920."
                             }, false))),
                     CommandDefinition(RecordRangeCommand,
                         "Record a Session time range into an AnimationClip and append it to the source character.",

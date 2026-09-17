@@ -690,6 +690,13 @@ namespace KimodoUnityBridge.Command
             trace.PlayableClip.clip = result.GeneratedClip;
             trace.Animation.ApplyResult(result.GeneratedClip, analysis, result.MotionBytes, result.StartFrame, result.EndFrameExclusive);
 
+            // Update duration_frames to reflect actual generated clip length
+            if (result.GeneratedClip != null && analysis != null)
+            {
+                int actualFrames = Mathf.RoundToInt(result.GeneratedClip.length * result.GeneratedClip.frameRate);
+                analysis["duration_frames"] = actualFrames;
+            }
+
             JArray keyframes = analysis?["keyframes"] as JArray ?? new JArray();
             if (keyframes.Count > 0)
             {
@@ -1498,7 +1505,7 @@ namespace KimodoUnityBridge.Command
 
         private static int ResolveAnalysisPictureResolution(JToken value)
         {
-            if (value == null || value.Type == JTokenType.Null) return 512;
+            if (value == null || value.Type == JTokenType.Null) return 1920;
             if (value.Type != JTokenType.Integer)
             {
                 throw new InvalidOperationException("resolution must be a positive integer pixel size.");

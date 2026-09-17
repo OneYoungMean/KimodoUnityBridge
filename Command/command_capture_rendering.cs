@@ -654,10 +654,11 @@ namespace KimodoUnityBridge.Command
                 sampledRootRotation * Vector3.forward);
             CalculateTestViewExtents(viewPoints, tile.Direction, out _, out float horizontal, out float vertical, out _);
             float aspect = targetWidth / (float)Mathf.Max(1, targetHeight);
-            // Render only at the quality needed by the final tile. The old
-            // fixed 2048px buffer made a 264px tile unnecessarily expensive.
-            // Keep a 2x supersample for edges, with a bounded upper limit.
-            int sourceHeight = Mathf.Clamp(Mathf.Max(256, targetHeight * 2), 256, 1024);
+            // Render at 2x the target tile resolution for edge quality, with a
+            // reasonable upper bound that scales with the requested resolution.
+            // The max is 4x the target to handle high-resolution analysis pictures
+            // (e.g., 1920 → 710px tiles → 2840px max render, not capped at 1024).
+            int sourceHeight = Mathf.Clamp(Mathf.Max(256, targetHeight * 2), 256, targetHeight * 4);
             int sourceWidth = Math.Max(1, Mathf.RoundToInt(sourceHeight * aspect));
             using (TestPosePlan posePlan = BuildTestPosePlan(tile.Subject, new[] { frame }))
             {

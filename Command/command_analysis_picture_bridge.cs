@@ -105,7 +105,7 @@ namespace KimodoUnityBridge.Command
                     session,
                     subjects,
                     pictureRequest.ToJson(),
-                    resolution < 64 ? 512 : resolution);
+                    resolution < 64 ? 1920 : resolution);
                 imagePath = pictures?.Value<string>("image_path") ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(imagePath)) { error = "Analysis picture rendering completed without an image path."; return false; }
                 return true;

@@ -769,14 +769,16 @@ namespace KimodoUnityBridge.Command
                 "3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "key_pose", "step_pose"
             };
 
-            private AnalysisPictureRequest(IReadOnlyList<string> tileTypes, string output)
+            private AnalysisPictureRequest(IReadOnlyList<string> tileTypes, string output, string environment)
             {
                 TileTypes = tileTypes;
                 Output = output;
+                Environment = environment;
             }
 
             public IReadOnlyList<string> TileTypes { get; }
             public string Output { get; }
+            public string Environment { get; }
             public bool WritesComposite => Output == "composite" || Output == "both";
             public bool WritesTiles => Output == "tiles" || Output == "both";
 
@@ -787,7 +789,8 @@ namespace KimodoUnityBridge.Command
                 return new JObject
                 {
                     ["tiles"] = new JArray(TileTypes),
-                    ["output"] = Output
+                    ["output"] = Output,
+                    ["environment"] = new JObject { ["mode"] = Environment }
                 };
             }
 
@@ -811,7 +814,17 @@ namespace KimodoUnityBridge.Command
                     if (!types.Contains(tile, StringComparer.Ordinal)) types.Add(tile);
                 }
                 if (types.Count == 0) throw new InvalidOperationException("picture.tiles must contain at least one tile type.");
-                return new AnalysisPictureRequest(types, output);
+                return new AnalysisPictureRequest(types, output, ParseEnvironmentMode(value?["environment"] as JObject));
+            }
+
+            private static string ParseEnvironmentMode(JObject environment)
+            {
+                string mode = (environment?.Value<string>("mode") ?? "isolated").Trim().ToLowerInvariant();
+                if (mode != "preserve" && mode != "isolated")
+                {
+                    throw new InvalidOperationException("picture.environment.mode must be preserve or isolated.");
+                }
+                return mode;
             }
         }
 
