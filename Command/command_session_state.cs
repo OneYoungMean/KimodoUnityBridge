@@ -989,16 +989,12 @@ namespace KimodoUnityBridge.Command
             {
                 TimelineSessionRecord session = RequireTimelineSession(arguments);
                 JArray requestedClips = arguments["clips"] as JArray;
-                if (requestedClips == null || requestedClips.Count < 1 || requestedClips.Count > 2)
+                if (requestedClips == null || requestedClips.Count != 1)
                 {
-                    throw new InvalidOperationException("clips must contain one or two {character,clip,role?} objects.");
+                    throw new InvalidOperationException("animation_analyze requires exactly one {character,clip,role?} object; analyze comparison clips separately.");
                 }
 
                 JObject picture = AnalysisPictureRequest.Parse(arguments["picture"] as JObject).ToJson();
-                if (requestedClips.Count != 1)
-                {
-                    throw new InvalidOperationException("picture rendering currently accepts exactly one clip.");
-                }
                 int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
                 JObject requestedAnalysisOptions = null;
                 string requestedAnalysisOptionsJson = ParseAnalysisOptionsJson(arguments);

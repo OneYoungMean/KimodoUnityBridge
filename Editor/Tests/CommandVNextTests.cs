@@ -35,7 +35,7 @@ namespace KimodoUnityBridge.Command.Tests
 
             Assert.That(schema?["required"]?.Values<string>(), Does.Contain("clips"));
             Assert.That(schema?["properties"]?["clips"]?["minItems"]?.Value<int>(), Is.EqualTo(1));
-            Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(2));
+            Assert.That(schema?["properties"]?["clips"]?["maxItems"]?.Value<int>(), Is.EqualTo(1));
             Assert.That(schema?["properties"]?["picture"]?.Value<string>("type"), Is.EqualTo("object"));
             JObject definition = json["tools"].Values<JObject>()
                 .Single(value => value.Value<string>("name") == "animation_analyze");

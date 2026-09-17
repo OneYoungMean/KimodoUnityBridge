@@ -289,17 +289,26 @@ namespace KimodoUnityBridge.Command
 
             public static PictureTile TestOverview(SubjectPictureData subject, string type, Vector3 direction)
             {
-                var description = new JObject
-                {
-                    ["presentation"] = type,
-                    ["test"] = true
-                };
+                // The 3d_track slot is rendered as the Root2D pelvis projection
+                // (see RenderPictureTile), so it must describe itself as that
+                // tile rather than as a plain overview.
+                PictureTile root2D = type == "3d_track" ? TestRoot2D(subject, direction) : null;
+                var description = root2D != null
+                    ? root2D.Description
+                    : new JObject
+                    {
+                        ["presentation"] = type,
+                        ["test"] = true
+                    };
                 return new PictureTile(subject, "test_overview_" + type, description)
                 {
                     Direction = direction,
                     Orthographic = true,
                     TestTileType = type,
-                    ShowTestTrajectories = type == "3d_ghost_track"
+                    ShowTestTrajectories = type == "3d_ghost_track",
+                    TrajectoryFrames = root2D?.TrajectoryFrames ?? new List<int>(),
+                    PrimaryFrames = root2D?.PrimaryFrames ?? new HashSet<int>(),
+                    StationaryBoostFrames = root2D?.StationaryBoostFrames ?? new HashSet<int>()
                 };
             }
 
