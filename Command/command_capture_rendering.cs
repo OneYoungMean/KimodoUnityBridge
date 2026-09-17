@@ -968,12 +968,11 @@ namespace KimodoUnityBridge.Command
 
         private static RenderTexture RenderCameraToTexture(Camera camera, int width, int height, Color background, RenderTextureFormat format, bool randomWrite)
         {
-            if (IsHdrpCapturePipeline())
-            {
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = background;
-                return RenderHdrpAovToTexture(camera, width, height, format, "Color");
-            }
+            // Analysis layers must be captured through a plain camera target
+            // texture. The HDRP AOV request route (RenderHdrpAovToTexture) hands
+            // back an all-black buffer for these transient analysis cameras, so
+            // CompositePose/BlendLayer composited nothing and every character tile
+            // rendered black.
             RenderTexture target = NewAnalysisRenderTexture(width, height, format, randomWrite);
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = background;
@@ -985,12 +984,9 @@ namespace KimodoUnityBridge.Command
 
         private static RenderTexture RenderCameraDepthToTexture(Camera camera, Shader depthShader, int width, int height)
         {
-            if (IsHdrpCapturePipeline())
-            {
-                camera.clearFlags = CameraClearFlags.SolidColor;
-                camera.backgroundColor = Color.clear;
-                return RenderHdrpAovToTexture(camera, width, height, RenderTextureFormat.ARGBFloat, "DepthStencil");
-            }
+            // Keep the hardware-depth encoding in step with the compositor's
+            // _ReversedZ convention; the HDRP DepthStencil AOV is not the same
+            // quantity.
             RenderTexture target = NewAnalysisRenderTexture(width, height, RenderTextureFormat.ARGBFloat, false, 24);
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = Color.clear;
