@@ -235,6 +235,11 @@ namespace KimodoUnityBridge.Command
         {
             if (subject == null) throw new InvalidOperationException("-test analysis requires one clip.");
             SubjectPictureData data = BuildSubjectPictureData(session, subject);
+            EnsurePhaseTrack(data);
+            AnalysisCache[data.Subject.Record.Id] = data.Subject.Record;
+            WriteJsonAtomically(
+                AnalysisCachePath(session, data.Subject.Record.Id),
+                data.Subject.Record.ToJson());
             var tiles = BuildTestAnalysisTiles(data);
             TestPictureLayout layout = TestPictureLayout.ForResolution(requestedResolution);
             DateTime capturedAt = DateTime.Now;
