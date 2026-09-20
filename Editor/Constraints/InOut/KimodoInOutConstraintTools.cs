@@ -11,6 +11,130 @@ namespace KimodoBridge.Editor
         private const string FullBodyConstraintType = "fullbody";
         private const double BoundarySampleEpsilonSeconds = 1e-7;
 
+        // Window lengths and sampling positions use the model's FPS, independent of Timeline's UI FPS.
+        internal static int ResolveWindowFrameCount(KimodoInOutConstraintRequest request, bool isBegin)
+        {
+            if (request == null || request.Mode == KimodoInOutConstraintMode.None ||
+                !(isBegin ? request.EnableBegin : request.EnableEnd)) return 0;
+            int requested = Mathf.Clamp(isBegin ? request.BeginWindowFrames : request.EndWindowFrames,
+                1, KimodoMotionModelProfiles.MaxGenerationFrames);
+            var context = request.TimelineContext;
+            if (context == null) return Math.Min(requested, Math.Max(1, request.GenerationFrames));
+            TimelineClip range = request.Mode == KimodoInOutConstraintMode.Inside
+                ? context.SourceClip : isBegin ? context.PreviousTimelineClip : context.NextTimelineClip;
+            if (range == null) return 0;
+            double fps = KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName);
+            double boundary = ResolveWindowBoundaryTime(request, isBegin);
+            bool forward = (request.Mode == KimodoInOutConstraintMode.Inside) == isBegin;
+            double available = forward ? Math.Max(range.start, range.end - 1.0 / fps) - boundary
+                : boundary - range.start;
+            int count = Math.Max(1, (int)Math.Floor(Math.Max(0.0, available) * fps + 1e-5) + 1);
+            return Math.Min(Math.Min(requested, count), Math.Max(1, request.GenerationFrames));
+        }
+
+        private static double ResolveWindowBoundaryTime(KimodoInOutConstraintRequest request, bool isBegin)
+        {
+            var context = request.TimelineContext;
+            double step = 1.0 / KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName);
+            if (request.Mode == KimodoInOutConstraintMode.Outside)
+                return ClampTimelineSampleTime(isBegin ? context.PreviousTimelineClip : context.NextTimelineClip,
+                    isBegin ? context.SourceClip.start - step : context.SourceClip.end + BoundarySampleEpsilonSeconds, step);
+            return ClampTimelineSampleTime(context.SourceClip,
+                isBegin ? context.SourceClip.start : context.SourceClip.end - step, step);
+        }
+
+        internal static void BuildBoundarySampleTimes(KimodoInOutConstraintRequest request, bool isBegin,
+            out double[] timelineTimes, out double[] exportTimes)
+        {
+            int frames = ResolveWindowFrameCount(request, isBegin);
+            int count = frames == 0 ? 0 : Mathf.Clamp(isBegin ? request.BeginSampleCount : request.EndSampleCount, 1, frames);
+            timelineTimes = new double[count];
+            exportTimes = new double[count];
+            if (count == 0) return;
+            double fps = KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName);
+            bool forward = (request.Mode == KimodoInOutConstraintMode.Inside) == isBegin;
+            double first = ResolveWindowBoundaryTime(request, isBegin) - (forward ? 0 : (frames - 1) / fps);
+            int exportStart = isBegin ? 0 : Math.Max(0, request.GenerationFrames - frames);
+            for (int i = 0; i < count; i++)
+            {
+                // A single sample always keeps the seam pose; two or more include both endpoints.
+                int frame = count == 1 ? (forward ? 0 : frames - 1)
+                    : (int)Math.Round(i * (frames - 1.0) / (count - 1), MidpointRounding.AwayFromZero);
+                timelineTimes[i] = first + frame / fps;
+                exportTimes[i] = (exportStart + frame) / fps;
+            }
+        }
+
+        internal static bool TrySampleBoundaries(KimodoInOutConstraintRequest request,
+            out List<KimodoMarkerSampleResult> beginSamples, out List<KimodoMarkerSampleResult> endSamples,
+            out string warning, out string error)
+        {
+            beginSamples = new List<KimodoMarkerSampleResult>();
+            endSamples = new List<KimodoMarkerSampleResult>();
+            warning = error = string.Empty;
+            if (request == null || request.TimelineContext == null ||
+                KimodoMotionModelProfiles.TryGetArdy(request.ModelName, out _))
+            {
+                if (request?.TimelineContext == null && request?.Mode != KimodoInOutConstraintMode.None &&
+                    ((request?.BeginSampleCount ?? 1) > 1 || (request?.EndSampleCount ?? 1) > 1))
+                {
+                    error = "Multi-frame In/Out sampling requires a Timeline context.";
+                    return false;
+                }
+                if (!TrySampleBoundaryPair(request, out var begin, out var end, out warning, out error)) return false;
+                if (begin != null) beginSamples.Add(begin);
+                if (end != null) endSamples.Add(end);
+                return true;
+            }
+            BuildBoundarySampleTimes(request, true, out var inTimes, out var inExports);
+            BuildBoundarySampleTimes(request, false, out var outTimes, out var outExports);
+            if (inTimes.Length + outTimes.Length == 0) return true;
+            if (request.Mode == KimodoInOutConstraintMode.Inside &&
+                ResolveWindowFrameCount(request, true) + ResolveWindowFrameCount(request, false) > request.GenerationFrames &&
+                (inTimes.Length > 1 || outTimes.Length > 1))
+            {
+                error = "In and Out sampling windows overlap. Reduce their window frame counts.";
+                return false;
+            }
+            var times = new List<double>(inTimes);
+            times.AddRange(outTimes);
+            var exports = new List<double>(inExports);
+            exports.AddRange(outExports);
+            if (!KimodoTimelineSamplingSession.TryCreate(request.TimelineContext, request.ModelName, out var sampler, out error))
+                return false;
+            using (sampler)
+            {
+                if (!sampler.TryCaptureTargetBoneSamples(times.ToArray(),
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName), out var bones, out error)) return false;
+                for (int i = 0; i < times.Count; i++)
+                {
+                    if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                        bones[i], sampler.TargetCache, request.ModelName, FullBodyConstraintType, exports[i], out var sample, out error))
+                        return false;
+                    sample.enableMask = KimodoConstraintMask.ForType(FullBodyConstraintType);
+                    (i < inTimes.Length ? beginSamples : endSamples).Add(sample);
+                }
+            }
+            return true;
+        }
+
+        internal static void ResolveOutsideContextFrames(TimelineClip clip, out int before, out int after)
+        {
+            before = after = 0;
+            if (clip?.asset is not KimodoPlayableClip playable ||
+                playable.inOutConstraintMode != KimodoInOutConstraintMode.Outside ||
+                KimodoMotionModelProfiles.TryGetArdy(playable.bridgeModelName, out _)) return;
+            KimodoInOutConstraintAdapter.TryResolveNeighborTimelineClips(clip, out var previous, out var next);
+            var request = KimodoInOutConstraintAdapter.BuildTimelineRequest(new KimodoTimelineInOutConstraintContext
+            {
+                SourceClip = clip, PreviousTimelineClip = previous, NextTimelineClip = next,
+                ModelName = playable.bridgeModelName
+            }, playable.inOutConstraintMode, false, true, playable.enableInConstraint, playable.enableOutConstraint,
+                KimodoMotionModelProfiles.MaxGenerationFrames, null);
+            before = ResolveWindowFrameCount(request, true);
+            after = ResolveWindowFrameCount(request, false);
+        }
+
         internal static bool TrySampleBoundaryPair(
             KimodoInOutConstraintRequest request,
             out KimodoMarkerSampleResult beginSample,

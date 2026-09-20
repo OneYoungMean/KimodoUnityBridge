@@ -10,6 +10,73 @@ namespace KimodoUnityBridge.Command.Tests
 {
     public sealed class CommandVNextTests
     {
+        [Test, Category("BridgeRegression")]
+        public void SessionClose_SchemaAndHelpExposeKeepObject()
+        {
+            JObject definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());
+            JObject definition = definitions["tools"].Values<JObject>().Single(x => x.Value<string>("name") == "session_close");
+            Assert.That(definition["inputSchema"]["properties"]["keepObject"].Value<string>("type"), Is.EqualTo("boolean"));
+            JObject help = JObject.Parse(command_dispatcher.Invoke("kimodo_help", "{\"command\":\"session_close\"}"));
+            Assert.That(help.Value<bool>("ok"), Is.True);
+            Assert.That(help.ToString(), Does.Contain("keepObject"));
+        }
+
+        [TestCase("{}", true)]
+        [TestCase("{\"keepObject\":true}", true)]
+        [TestCase("{\"keepObject\":false}", false)]
+        [Category("BridgeRegression")]
+        public void SessionClose_ControlsOnlySessionSceneObjects(string arguments, bool keepObject)
+        {
+            const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
+            System.Type context = typeof(command_context);
+            FieldInfo current = context.GetField("currentTimelineSession", flags);
+            FieldInfo restored = context.GetField("timelineSessionsRestored", flags);
+            var sessions = (System.Collections.IDictionary)context.GetField("TimelineSessions", flags).GetValue(null);
+            object previous = current.GetValue(null);
+            object wasRestored = restored.GetValue(null);
+            string name = "CloseRegression_" + System.Guid.NewGuid().ToString("N");
+            var root = new GameObject(name);
+            var child = new GameObject("Director");
+            child.transform.SetParent(root.transform);
+            var director = child.AddComponent<UnityEngine.Playables.PlayableDirector>();
+            var timeline = ScriptableObject.CreateInstance<UnityEngine.Timeline.TimelineAsset>();
+            director.playableAsset = timeline;
+            var unrelated = new GameObject("UnrelatedCloseRegression");
+            try
+            {
+                System.Type recordType = context.GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
+                object record = System.Activator.CreateInstance(recordType, new object[]
+                {
+                    System.Guid.NewGuid(), name, director, timeline, string.Empty, false, null, root
+                });
+                sessions[name] = record;
+                current.SetValue(null, record);
+                restored.SetValue(null, true);
+                JObject result = JObject.Parse(command_dispatcher.Invoke("session_close", arguments));
+                Assert.That(result.Value<bool>("ok"), Is.True, result.ToString());
+                Assert.That(result.Value<bool>("keepObject"), Is.EqualTo(keepObject));
+                Assert.That(root != null, Is.EqualTo(keepObject));
+                Assert.That(director != null, Is.EqualTo(keepObject));
+                Assert.That(sessions.Contains(name), Is.EqualTo(keepObject));
+                Assert.That(current.GetValue(null), Is.Null);
+                Assert.That(timeline != null && unrelated != null, Is.True);
+                if (keepObject)
+                {
+                    Assert.That(root.activeSelf, Is.False);
+                    Assert.That(director.enabled, Is.False);
+                }
+            }
+            finally
+            {
+                sessions.Remove(name);
+                current.SetValue(null, previous);
+                restored.SetValue(null, wasRestored);
+                if (root != null) Object.DestroyImmediate(root);
+                Object.DestroyImmediate(timeline);
+                Object.DestroyImmediate(unrelated);
+            }
+        }
+
         [Test]
         public void CommandDefinitions_ExposeOnlyTheVNextSurface()
         {

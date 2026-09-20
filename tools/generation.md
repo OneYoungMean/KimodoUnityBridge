@@ -5,6 +5,16 @@ description: Generate, verify, and derive Unity animation Clips from explicit mo
 
 # Generation tool / Generation 工具
 
+## Timeline In/Out sampling / Timeline 衔接采样
+
+Kimodo Timeline clips expose `In Window Frames`, `In Sample Count`, `Out Window Frames`, and `Out Sample Count` when the corresponding In/Out toggle is enabled. These frame counts use the selected model's FPS (Kimodo: 30 FPS), not the Session command time base of 60 FPS. Existing clips default to one frame and one sample. C# samples the evaluated Timeline, including clip speed, blending and offsets, and exports the poses through the existing FullBody protocol. ARDY retains its existing single-frame boundary and history path; these new controls apply to Kimodo.
+
+Inside samples the current clip's opening/closing windows. Outside samples the previous clip's tail and the next clip's beginning. Outside context extends the backend request and is trimmed from the result, keeping the requested output duration and avoiding replay of the previous tail. For example, a 60-frame output with a 7-frame In window and a 4-frame Out window requests 71 frames and keeps frames `[7, 67)`. With three samples per window, constraints land at `[0, 3, 6]` and `[67, 69, 70]`. In connected generation, internal In windows constrain the preceding portion of the aggregate; only the group's outer context extends its duration.
+
+Samples are evenly spaced on integer model frames; two or more samples include both endpoints, while one sample keeps the pose nearest the seam. Short source ranges limit the effective window and sample count. Overlapping Inside windows are rejected rather than silently overriding poses. `Show Constraint` displays the actual samples on a selected clip (In: blue; Out: orange); `Refresh` resamples them. Export applies one shared world-to-track transform to all samples, preserving relative motion.
+
+Session is a generation workspace, not the final playback Timeline. These controls belong to `KimodoPlayableClip` in the actual Timeline and do not require constructing a Session. Generation completion alone does not establish visual seam quality: verify consecutive playback of the resulting clips, including root motion and foot contacts.
+
 ## Decision program / 决策程序
 
 ```pseudo

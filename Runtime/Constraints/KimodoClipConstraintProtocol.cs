@@ -177,6 +177,7 @@ namespace KimodoBridge
         {
             var output = new JArray();
             AppendTo(output, modelName, attachments);
+            output = KimodoConstraintProtocolNormalizer.NormalizeRoot2DIntoFullBody(output);
             return output.Count > 0
                 ? output.ToString(Formatting.None)
                 : string.IsNullOrWhiteSpace(json) ? string.Empty : "[]";

@@ -21,6 +21,7 @@ namespace KimodoBridge.Editor
             var result = new List<KimodoClipConstraint>();
             if (playableClip == null) return result;
             if (includeTimelineInConstraint &&
+                KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
                 playableClip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
                 playableClip.enableInConstraint &&
                 HasBeginBoundary(playableClip, timelineClip))

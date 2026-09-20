@@ -40,6 +40,10 @@ namespace KimodoBridge.Editor
         private SerializedProperty inOutConstraintModeProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
+        private SerializedProperty inConstraintWindowFrames;
+        private SerializedProperty inConstraintSampleCount;
+        private SerializedProperty outConstraintWindowFrames;
+        private SerializedProperty outConstraintSampleCount;
         private SerializedProperty ardyAutoHistory;
         private SerializedProperty ardyHistoryWeight;
         private SerializedProperty ardyTargetMaxSpeed;
@@ -143,6 +147,10 @@ namespace KimodoBridge.Editor
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
+            inConstraintWindowFrames = serializedObject.FindProperty("inConstraintWindowFrames");
+            inConstraintSampleCount = serializedObject.FindProperty("inConstraintSampleCount");
+            outConstraintWindowFrames = serializedObject.FindProperty("outConstraintWindowFrames");
+            outConstraintSampleCount = serializedObject.FindProperty("outConstraintSampleCount");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
             ardyTargetMaxSpeed = serializedObject.FindProperty("ardyTargetMaxSpeed");
@@ -259,7 +267,9 @@ namespace KimodoBridge.Editor
             int previousInOutMode = inOutConstraintModeProp?.enumValueIndex ?? 0;
             bool previousInEnabled = enableInConstraint?.boolValue ?? false;
             bool previousOutEnabled = enableOutConstraint?.boolValue ?? false;
+            EditorGUI.BeginChangeCheck();
             DrawTrajectoryAndContinuitySection(timelineClip, hasTimelineDuration);
+            if (EditorGUI.EndChangeCheck()) KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
             if (showConstraint != null)
             {
                 bool wasShown = showConstraint.boolValue;
@@ -503,6 +513,18 @@ namespace KimodoBridge.Editor
                     }
                 }
             }
+            if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None &&
+                !KimodoMotionModelProfiles.TryGetArdy(bridgeModelName.stringValue, out _))
+            {
+                if (enableInConstraint.boolValue)
+                    DrawBoundarySampling("In", inConstraintWindowFrames, inConstraintSampleCount);
+                if (enableOutConstraint.boolValue)
+                    DrawBoundarySampling("Out", outConstraintWindowFrames, outConstraintSampleCount);
+                EditorGUILayout.HelpBox(
+                    $"Window frames use {KimodoMotionModelProfiles.ResolveGenerationFrameRate(bridgeModelName.stringValue):0.##} FPS. " +
+                    "Outside windows extend generation with neighboring motion, then are trimmed from the output. " +
+                    "Short source clips limit the available window. Show Constraint displays the sampled poses.", MessageType.Info);
+            }
             if (generateLoopProp != null)
             {
                 EditorGUILayout.PropertyField(
@@ -569,6 +591,19 @@ namespace KimodoBridge.Editor
                 }
             }
             EditorGUI.indentLevel--;
+        }
+
+        private static void DrawBoundarySampling(string label, SerializedProperty frames, SerializedProperty samples)
+        {
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(frames, new GUIContent(label + " Window Frames"));
+            if (EditorGUI.EndChangeCheck())
+                frames.intValue = Mathf.Clamp(frames.intValue, 1, KimodoMotionModelProfiles.MaxGenerationFrames);
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(samples, new GUIContent(label + " Sample Count",
+                "Evenly spaced samples including both endpoints. One sample keeps only the seam pose."));
+            if (EditorGUI.EndChangeCheck())
+                samples.intValue = Mathf.Clamp(samples.intValue, 1, KimodoMotionModelProfiles.MaxGenerationFrames);
         }
 
         private static void DrawLoopAxisRow(string label, SerializedProperty x, SerializedProperty y, SerializedProperty z)

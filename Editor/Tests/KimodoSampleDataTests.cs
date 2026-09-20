@@ -8,6 +8,65 @@ namespace KimodoBridge.Editor.Tests
 {
     public sealed class KimodoSampleDataTests
     {
+        [Test, Category("BridgeRegression")]
+        public void MixDefaults_DoNotEnableUndeclaredChannels()
+        {
+            Assert.That(KimodoConstraintMask.ForType("mix").IsEmpty, Is.True);
+            var sample = new KimodoMarkerSampleResult { constraintMode = "mix" };
+            EnableAllEffectors(sample);
+            sample.enableMask = KimodoConstraintMask.ForType("mix");
+            Assert.That(ResolveTypes(sample), Is.Empty);
+        }
+
+        [Test, Category("BridgeRegression")]
+        public void MixAutoSampleWriteback_PreservesIntentAndZeroTargets()
+        {
+            var marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                marker.ConstraintMode = KimodoConstraintMode.Mix;
+                marker.autoSample = true;
+                marker.SampleData.enableMask = new KimodoConstraintMask { leftHand = true };
+                marker.SampleData.effectors.leftHand.t = Vector3.one;
+                var sampled = CreateFullBody(1, 0f, true);
+                EnableAllEffectors(sampled);
+                Assert.That(KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
+                    marker, sampled, out string error), Is.True, error);
+                Assert.That(marker.SampleData.constraintMode, Is.EqualTo("mix"));
+                Assert.That(marker.SampleData.enableMask.muscle, Is.False);
+                Assert.That(marker.SampleData.enableMask.rightHand, Is.False);
+                Assert.That(marker.SampleData.enableMask.leftFoot, Is.False);
+                Assert.That(marker.SampleData.enableMask.rightFoot, Is.False);
+                Assert.That(marker.SampleData.effectors.leftHand.t, Is.EqualTo(Vector3.zero));
+                CollectionAssert.AreEqual(new[] { "left-hand" }, ResolveTypes(marker.SampleData));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(marker); }
+        }
+
+        [TestCase(true), TestCase(false), Category("BridgeRegression")]
+        public void MixManualWriteback_PreservesExplicitEffectorSwitch(bool enabled)
+        {
+            var marker = ScriptableObject.CreateInstance<KimodoConstraintMarker>();
+            try
+            {
+                marker.ConstraintMode = KimodoConstraintMode.Mix;
+                marker.autoSample = false;
+                marker.SampleData.enableMask = new KimodoConstraintMask { leftHand = !enabled };
+                marker.SampleData.validMask = new KimodoConstraintMask { leftHand = true };
+                var edited = marker.SampleData.Clone();
+                edited.enableMask.leftHand = enabled;
+                Assert.That(KimodoMarkerSamplingEditorUtility.TryWriteConstraintMarkerSample(
+                    marker, edited, out string error), Is.True, error);
+                CollectionAssert.AreEqual(enabled ? new[] { "left-hand" } : Array.Empty<string>(),
+                    ResolveTypes(marker.SampleData));
+                var composed = KimodoConstraintSampleComposer.ComposeCanonicalSamples(
+                    new[] { edited, marker.SampleData }, 30.0);
+                CollectionAssert.AreEqual(enabled ? new[] { "left-hand" } : Array.Empty<string>(),
+                    ResolveTypes(composed[0]));
+            }
+            finally { UnityEngine.Object.DestroyImmediate(marker); }
+        }
+
         [Test]
         public void SampleDataLayout_Uses70ValuesAndRoundTripsTransforms()
         {

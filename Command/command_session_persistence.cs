@@ -26,6 +26,7 @@ namespace KimodoUnityBridge.Command
         public string sessionJsonPath;
         public bool isAutomatic;
         public bool isCurrent;
+        public bool sceneObjectsRemoved;
         public string updatedAtUtc;
         public List<KimodoCommandCharacterMetadata> characters = new List<KimodoCommandCharacterMetadata>();
         public List<KimodoCommandAnimationMetadata> animations = new List<KimodoCommandAnimationMetadata>();
@@ -434,9 +435,10 @@ namespace KimodoUnityBridge.Command
             ["updated_at_utc"] = value.updatedAtUtc ?? string.Empty
         };
 
-        private static void EnsureTimelineSessionsRestored()
+        private static void EnsureTimelineSessionsRestored(string requestedName = null)
         {
-            if (timelineSessionsRestored)
+            if (timelineSessionsRestored && (string.IsNullOrWhiteSpace(requestedName) ||
+                TimelineSessions.ContainsKey(requestedName)))
             {
                 return;
             }
@@ -459,6 +461,13 @@ namespace KimodoUnityBridge.Command
                     Debug.LogWarning($"[Kimodo] Ignoring Session '{metadata.sessionName}' with unsupported schema '{metadata.schemaVersion}'. Expected '{SessionJsonSchemaVersion}'.");
                     continue;
                 }
+                if (TimelineSessions.ContainsKey(metadata.sessionName) ||
+                    (metadata.sceneObjectsRemoved && !string.Equals(
+                        metadata.sessionName, requestedName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                metadata.sceneObjectsRemoved = false;
                 PlayableDirector director = Resources.FindObjectsOfTypeAll<PlayableDirector>()
                     .FirstOrDefault(item => item != null && item.playableAsset == timeline && item.gameObject.scene.IsValid());
                 if (director == null)
@@ -554,7 +563,7 @@ namespace KimodoUnityBridge.Command
                 }
                 restored.Add(session);
             }
-            currentTimelineSession = restored.Where(item => item.Metadata.isCurrent)
+            currentTimelineSession ??= restored.Where(item => item.Metadata.isCurrent)
                 .OrderByDescending(item => item.Metadata.updatedAtUtc).FirstOrDefault();
             if (currentTimelineSession != null)
             {

@@ -191,6 +191,7 @@ namespace KimodoBridge.Editor
                 items.Add(item);
             }
 
+            AppendSelectedBoundaryPreviews(groups, contexts);
             foreach (KeyValuePair<string, ConstraintPreviewContext> previous in RenderedContexts)
             {
                 if (!contexts.ContainsKey(previous.Key))
@@ -210,6 +211,51 @@ namespace KimodoBridge.Editor
                 }
             }
             SceneView.RepaintAll();
+        }
+
+        private static void AppendSelectedBoundaryPreviews(
+            Dictionary<string, List<ConstraintPreviewItem>> groups,
+            Dictionary<string, ConstraintPreviewContext> contexts)
+        {
+            foreach (TimelineClip timelineClip in TimelineEditor.selectedClips ?? Array.Empty<TimelineClip>())
+            {
+                if (timelineClip?.asset is not KimodoPlayableClip playable || !playable.showConstraint ||
+                    playable.inOutConstraintMode == KimodoInOutConstraintMode.None ||
+                    !KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out var source, out _)) continue;
+                int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration,
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(playable.bridgeModelName));
+                if (!KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(timelineClip,
+                    playable.inOutConstraintMode, playable.enableInConstraint, playable.enableOutConstraint, frameCount,
+                    out var begins, out var ends, out string warning))
+                {
+                    Debug.LogWarning($"[Kimodo][InOutConstraint] Preview: {warning}");
+                    continue;
+                }
+                var avatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(source.Track, source.Animator);
+                var context = new ConstraintPreviewContext(KimodoUnityObjectIdUtility.IdHash(playable),
+                    KimodoUnityObjectIdUtility.IdHash(source.Animator), KimodoUnityObjectIdUtility.IdHash(source.Track),
+                    source.ModelName, KimodoRigProfileDatabase.ResolveRigTypeFromModelName(source.ModelName), avatar.Avatar);
+                if (!groups.TryGetValue(context.PreviewKey, out var items))
+                {
+                    groups.Add(context.PreviewKey, items = new List<ConstraintPreviewItem>());
+                    contexts.Add(context.PreviewKey, context);
+                }
+                AddBoundaryItems(items, begins, "in", new Color(0.3f, 0.8f, 1f));
+                AddBoundaryItems(items, ends, "out", new Color(1f, 0.65f, 0.3f));
+            }
+        }
+
+        private static void AddBoundaryItems(List<ConstraintPreviewItem> items,
+            List<KimodoMarkerSampleResult> samples, string boundary, Color color)
+        {
+            if (samples == null) return;
+            for (int i = 0; i < samples.Count; i++)
+                items.Add(new ConstraintPreviewItem
+                {
+                    EntryId = boundary + ":" + i, SampleData = samples[i], ConstraintType = "fullbody",
+                    PreviewSemantic = ConstraintPreviewSemantic.InOutPosePreview,
+                    HandlesEnabled = false, PreviewColor = color, ColorMode = PreviewColorMode.Override
+                });
         }
 
         private static List<KimodoConstraintMarker> CollectSelectedConstraintMarkers()

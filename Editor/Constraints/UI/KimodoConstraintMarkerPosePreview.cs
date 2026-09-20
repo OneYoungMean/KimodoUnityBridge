@@ -103,9 +103,8 @@ public static bool TryBuildRenderContextForMarker(KimodoConstraintMarker marker,
                 SampleData = normalizedSample,
                 ConstraintType = marker.ConstraintType,
                 ConstraintMode = marker.ConstraintMode,
-                // Root2D uses the same FK/root pipeline as FullBody, while
-                // its effector stage is explicitly disabled. Its only
-                // presentation difference is the single root handle.
+                // Root2D displays its support pose through the FullBody
+                // preview calculation, with only the root handle enabled.
                 PreviewSemantic = ConstraintPreviewSemantic.ExistingFullBodyPreview,
                 HandlesEnabled = handlesEnabled && !marker.IsAnalysis,
                 HighlightJoints = KimodoMarkerSamplingUtility.BuildHighlightJointsForMarker(marker, context.ModelName),

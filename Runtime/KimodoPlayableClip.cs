@@ -111,6 +111,14 @@ namespace KimodoBridge
         public bool enableInConstraint = true;
         [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
         public bool enableOutConstraint = true;
+        [Min(1), Tooltip("Number of model-rate frames covered by the In constraint window.")]
+        public int inConstraintWindowFrames = 1;
+        [Min(1), Tooltip("Number of evenly spaced FullBody samples in the In window, including its endpoints.")]
+        public int inConstraintSampleCount = 1;
+        [Min(1), Tooltip("Number of model-rate frames covered by the Out constraint window.")]
+        public int outConstraintWindowFrames = 1;
+        [Min(1), Tooltip("Number of evenly spaced FullBody samples in the Out window, including its endpoints.")]
+        public int outConstraintSampleCount = 1;
         [Tooltip("Adapt ARDY history from previous root speed: 0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1.")]
         public bool ardyAutoHistory = true;
         [Range(0f, 1f)]

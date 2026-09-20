@@ -256,12 +256,15 @@ namespace KimodoBridge
                     targetRotation = currentHipsRotation;
                 }
 
-                float scale = Mathf.Max(1e-6f, human.humanScale);
-                Vector3 deltaPosition = (targetPosition - currentHipsPosition) / scale;
                 Quaternion deltaRotation = rootHeading
                     ? (targetRotation * Quaternion.Inverse(currentHipsRotation)).normalized
                     : Quaternion.identity;
-                human.bodyPosition += deltaPosition;
+                // AnimationHumanStream.bodyPosition is world-space COM, unlike
+                // the human-scale-normalized HumanPose.bodyPosition used by
+                // MuscleSample. Rotate its offset about Hips and translate in
+                // world units so the requested Hips position stays fixed.
+                human.bodyPosition = targetPosition +
+                    deltaRotation * (human.bodyPosition - currentHipsPosition);
                 human.bodyRotation = (deltaRotation * human.bodyRotation).normalized;
             }
 

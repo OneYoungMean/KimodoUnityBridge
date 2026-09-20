@@ -390,14 +390,15 @@ namespace KimodoBridge.Editor
             int groupSeed = entries[0].Clip.randomSeed
                 ? Guid.NewGuid().GetHashCode() & int.MaxValue
                 : entries[0].Clip.seed;
-            BuildConnectedRequests(entries, profile, groupSeed, progress, token);
+            BuildConnectedRequests(entries, profile, groupSeed, progress, token, out int contextBefore, out int contextAfter);
             int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
+            int runtimeFrameCount = totalFrameCount + contextBefore + contextAfter;
             KimodoEditorGenerateRequest firstRequest = entries[0].Request;
             KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                 firstRequest,
                 firstRequest.Prompt?.Trim() ?? string.Empty,
                 profile.ModelName).GenerationRequest;
-            generation.duration = totalFrameCount / profile.SourceFps;
+            generation.duration = runtimeFrameCount / profile.SourceFps;
             generation.time_as_double = 0.0;
             generation.seed = groupSeed;
             generation.steps = profile.IsArdy
@@ -413,6 +414,8 @@ namespace KimodoBridge.Editor
                 generation.ardy_playback_reserve_seconds = 0.0;
             }
             AddTimelineSegments(entries, profile, generation);
+            generation.timeline_segments[0].duration += contextBefore / profile.SourceFps;
+            generation.timeline_segments[generation.timeline_segments.Count - 1].duration += contextAfter / profile.SourceFps;
 
             firstRequest.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating connected Timeline KMB...");
             var pipeline = new KimodoBridgeCommand();
@@ -428,10 +431,10 @@ namespace KimodoBridge.Editor
             {
                 throw new InvalidOperationException("Connected Timeline generation returned no motion.");
             }
-            if (aggregate.MotionData.FrameCount != totalFrameCount)
+            if (aggregate.MotionData.FrameCount != runtimeFrameCount)
             {
                 throw new InvalidOperationException(
-                    $"Connected generation returned {aggregate.MotionData.FrameCount} frames; expected {totalFrameCount}.");
+                    $"Connected generation returned {aggregate.MotionData.FrameCount} frames; expected {runtimeFrameCount}.");
             }
 
             var baked = new List<KimodoEditorGenerationResult>(entries.Count);
@@ -444,7 +447,7 @@ namespace KimodoBridge.Editor
                     ConnectedClipEntry entry = entries[i];
                     if (!KimodoRawMotionUtility.TrySlice(
                             aggregate.MotionData,
-                            entry.StartFrame,
+                            entry.StartFrame + contextBefore,
                             entry.FrameCount,
                             out KimodoRawMotionData motion,
                             out string sliceError))
@@ -497,8 +500,12 @@ namespace KimodoBridge.Editor
             KimodoMotionModelProfile profile,
             int groupSeed,
             Action<KimodoBridgeCommandStage, string> progress,
-            CancellationToken token)
+            CancellationToken token,
+            out int contextBefore,
+            out int contextAfter)
         {
+            KimodoInOutConstraintTools.ResolveOutsideContextFrames(entries[0].TimelineClip, out contextBefore, out _);
+            KimodoInOutConstraintTools.ResolveOutsideContextFrames(entries[entries.Count - 1].TimelineClip, out _, out contextAfter);
             for (int i = 0; i < entries.Count; i++)
             {
                 ConnectedClipEntry entry = entries[i];
@@ -514,7 +521,7 @@ namespace KimodoBridge.Editor
                     deferConstraintNormalization: true,
                     enableAutoBeginAnchor: i == 0,
                     timelineClipOverride: entry.TimelineClip);
-                AppendConnectedBoundarySamples(entry, i, entries.Count);
+                AppendConnectedBoundarySamples(entry, i, entries.Count, contextBefore);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -525,7 +532,7 @@ namespace KimodoBridge.Editor
             var allClipConstraints = new List<KimodoClipConstraint>();
             for (int i = 0; i < entries.Count; i++)
             {
-                float timeOffset = entries[i].StartFrame / profile.SourceFps;
+                float timeOffset = (entries[i].StartFrame + contextBefore) / profile.SourceFps;
                 foreach (KimodoClipConstraint constraint in entries[i].Request.Constraints.clips)
                 {
                     if (constraint == null)
@@ -547,7 +554,7 @@ namespace KimodoBridge.Editor
             var sampleTimeOffsets = new List<double>();
             for (int i = 0; i < entries.Count; i++)
             {
-                double timeOffset = entries[i].StartFrame / (double)profile.SourceFps;
+                double timeOffset = (entries[i].StartFrame + contextBefore) / (double)profile.SourceFps;
                 List<KimodoMarkerSampleResult> samples = entries[i].Request.ConstraintSamples;
                 for (int sampleIndex = 0; sampleIndex < samples.Count; sampleIndex++)
                 {
@@ -584,7 +591,8 @@ namespace KimodoBridge.Editor
 
             try
             {
-                int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
+                int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount +
+                    contextBefore + contextAfter;
                 firstRequest.Constraints.json = KimodoConstraintJsonExporter.ToConstraintsJson(
                     allSamples,
                     ResolveExportContext(
@@ -628,7 +636,8 @@ namespace KimodoBridge.Editor
         private static void AppendConnectedBoundarySamples(
             ConnectedClipEntry entry,
             int index,
-            int count)
+            int count,
+            int groupContextBefore)
         {
             KimodoPlayableClip clip = entry.Clip;
             if (clip == null || clip.inOutConstraintMode == KimodoInOutConstraintMode.None)
@@ -662,6 +671,31 @@ namespace KimodoBridge.Editor
                 manualSamples: null);
             if (request == null)
             {
+                return;
+            }
+
+            if (!KimodoMotionModelProfiles.TryGetArdy(entry.Request.ModelName, out _))
+            {
+                // Each boundary is sampled in local generation time. Outside history belongs
+                // before this clip; only the outermost group windows extend the generated result.
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(entry.TimelineClip, out int before, out int after);
+                before = Math.Min(before, entry.StartFrame + groupContextBefore);
+                if (request.Mode == KimodoInOutConstraintMode.Outside)
+                {
+                    request.EnableBegin &= before > 0;
+                    request.BeginWindowFrames = before;
+                }
+                if (!enableOut) after = 0;
+                request.GenerationFrames += before + after;
+                if (!KimodoInOutConstraintTools.TrySampleBoundaries(request,
+                    out var begins, out var ends, out _, out error))
+                    throw new InvalidOperationException($"Build connected clip constraints failed: {error}");
+                begins.AddRange(ends);
+                foreach (var sample in begins)
+                {
+                    sample.sampleTime -= before / (double)entry.Request.TargetFrameRate;
+                    entry.Request.ConstraintSamples.Add(sample);
+                }
                 return;
             }
 

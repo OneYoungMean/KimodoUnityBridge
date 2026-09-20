@@ -9,6 +9,139 @@ namespace KimodoBridge.Editor.Tests
 {
     public sealed class KimodoConstraintPoseRigFactoryTests
     {
+        [TestCase("root2d", false)]
+        [TestCase("root2d", true)]
+        [TestCase("fullbody", false)]
+        [TestCase("fullbody", true)]
+        [TestCase("mix", true)]
+        public void PosePipeline_RootOverrideUsesWorldUnits(string mode, bool heading)
+        {
+            const string model = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(model, out var avatar, out var error), Is.True, error);
+            Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(avatar, "RootWorldUnits", out var skeleton, out error), Is.True, error);
+            try
+            {
+                Assert.That(KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    KimodoRetargetSamplingUtility.CaptureBoneSample(skeleton), skeleton, model, mode, 0,
+                    out var sample, out error), Is.True, error);
+                sample.constraintMode = mode;
+                sample.enableMask = KimodoConstraintMask.ForType(mode == "mix" ? "root2d" : mode);
+                sample.enableMask.rootHeading = heading;
+                sample.rootOverride.t = new Vector3(-3.011355f, 0.841578f, 12.355375f);
+                sample.rootOverride.q = Quaternion.Euler(12f, 65f, -8f);
+                Assert.That(KimodoConstraintPosePipeline.TryApply(sample, 30f, skeleton,
+                    out _, out _, out error), Is.True, error);
+                Assert.That(skeleton.GetBonePose(HumanBodyBones.Hips, out var position, out var rotation), Is.True);
+                Assert.That(Vector2.Distance(new Vector2(position.x, position.z),
+                    new Vector2(sample.rootOverride.t.x, sample.rootOverride.t.z)), Is.LessThan(0.001f));
+                if (mode == "fullbody")
+                {
+                    Assert.That(Vector3.Distance(position, sample.rootOverride.t), Is.LessThan(0.001f));
+                }
+                if (heading)
+                {
+                    Quaternion expected = mode == "fullbody" ? sample.rootOverride.q : KimodoMotionMath.ResolvePlanarHeading(sample.rootOverride.q);
+                    Quaternion actual = mode == "fullbody" ? rotation : KimodoMotionMath.ResolvePlanarHeading(rotation);
+                    Assert.That(Quaternion.Angle(actual, expected), Is.LessThan(0.1f));
+                }
+            }
+            finally { skeleton.Dispose(); }
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void PreviewModeSwitch_PreservesSampledPoseAndLegs(bool staleEffectorMasks)
+        {
+            const string model = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(model, out var avatar, out var error), Is.True, error);
+            Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(avatar, "PreviewModeSwitch", out var source, out error), Is.True, error);
+            KimodoConstraintPoseRigFactory.PoseRigInstance rig = null;
+            try
+            {
+                // An asymmetric bent-leg pose catches accidental fallback to the bind pose.
+                source.animator.GetBoneTransform(HumanBodyBones.LeftUpperLeg).localRotation *= Quaternion.Euler(35, 0, 0);
+                source.animator.GetBoneTransform(HumanBodyBones.LeftLowerLeg).localRotation *= Quaternion.Euler(-55, 0, 0);
+                source.animator.GetBoneTransform(HumanBodyBones.RightUpperLeg).localRotation *= Quaternion.Euler(-15, 0, 0);
+                Assert.That(KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    KimodoRetargetSamplingUtility.CaptureBoneSample(source), source, model, "fullbody", 0,
+                    out var sample, out error), Is.True, error);
+                sample.enableMask = KimodoConstraintMask.ForType("fullbody");
+                sample.rootOverride.t += new Vector3(2, 0.35f, -1);
+                sample.rootOverride.q = Quaternion.Euler(12, 65, -8) * sample.rootOverride.q;
+                Assert.That(KimodoConstraintPoseRigFactory.TryCreatePoseRig(model, source.animator, avatar, out rig, out error), Is.True, error);
+                Assert.That(KimodoConstraintPoseRigFactory.TryApplyPose(rig, sample, model, out error), Is.True, error);
+                var expected = KimodoRetargetSamplingUtility.CaptureBoneSample(rig.TargetCache);
+                var originalData = (float[])sample.sampleData.data.Clone();
+                if (staleEffectorMasks)
+                {
+                    sample.effectors.leftFoot.t += Vector3.up * 3;
+                    sample.effectors.rightFoot.t += Vector3.forward * 3;
+                }
+                for (int pass = 0; pass < 3; pass++)
+                {
+                    sample.constraintMode = pass == 1 ? "fullbody" : "root2d";
+                    sample.enableMask = KimodoConstraintMask.ForType(sample.constraintMode);
+                    if (staleEffectorMasks && sample.constraintMode == "root2d")
+                    {
+                        sample.enableMask.leftFoot = sample.enableMask.rightFoot = true;
+                    }
+                    var previewSample = KimodoConstraintSampleComposer.ResolveUnifiedSample(sample);
+                    Assert.That(KimodoConstraintPoseRigFactory.TryApplyPose(rig,
+                        previewSample, model, out error), Is.True, error);
+                    Assert.That(previewSample.constraintMode, Is.EqualTo(sample.constraintMode));
+                    Assert.That(previewSample.enableMask.muscle, Is.EqualTo(sample.enableMask.muscle));
+                    CollectionAssert.AreEqual(originalData, previewSample.sampleData.data);
+                    var actual = KimodoRetargetSamplingUtility.CaptureBoneSample(rig.TargetCache);
+                    for (int i = 0; i < expected.boneNames.Length; i++)
+                    {
+                        Assert.That(Vector3.Distance(actual.localPositions[i], expected.localPositions[i]), Is.LessThan(0.001f), expected.boneNames[i]);
+                        Assert.That(Quaternion.Angle(actual.localRotations[i], expected.localRotations[i]), Is.LessThan(0.1f), expected.boneNames[i]);
+                    }
+                }
+                Assert.That(sample.constraintMode, Is.EqualTo("root2d"));
+                Assert.That(sample.enableMask.muscle, Is.False);
+                CollectionAssert.AreEqual(originalData, sample.sampleData.data);
+                var export = KimodoConstraintJsonExporter.BuildConstraint(sample,
+                    new KimodoConstraintExportContext { projectedPoseProjector = KimodoConstraintExportProjector.CreateProfileNative(model) }, 0, 1, 30);
+                Assert.That(export.type, Is.EqualTo("root2d"));
+            }
+            finally
+            {
+                KimodoConstraintPoseRigFactory.DisposePoseRig(rig);
+                source.Dispose();
+            }
+        }
+
+        [TestCase("root2d")]
+        [TestCase("fullbody")]
+        public void TimelineProjection_RootPositionIsConvertedToTrackSpaceOnce(string mode)
+        {
+            const string model = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(model, out var avatar, out var error), Is.True, error);
+            Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(avatar, "TrackRootUnits", out var skeleton, out error), Is.True, error);
+            try
+            {
+                Assert.That(KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                    KimodoRetargetSamplingUtility.CaptureBoneSample(skeleton), skeleton, model, mode, 0,
+                    out var sample, out error), Is.True, error);
+                sample.enableMask = KimodoConstraintMask.ForType(mode);
+                sample.rootOverride.t = new Vector3(-3.011355f, 0.841578f, 12.355375f);
+                sample.rootOverride.q = Quaternion.Euler(0f, 65f, 0f);
+                var trackPosition = new Vector3(4f, 0.5f, -3f);
+                var trackRotation = Quaternion.Euler(0f, 35f, 0f);
+                var projected = KimodoConstraintExportProjector.ProjectTimelineSample(
+                    sample, model, avatar, trackPosition, trackRotation);
+                // Same avatar on both sides isolates the rigid track transform
+                // from the character/profile retarget scale conversion.
+                var restored = trackPosition + trackRotation * projected.profileRootPosition;
+                Assert.That(Vector2.Distance(new Vector2(restored.x, restored.z),
+                    new Vector2(sample.rootOverride.t.x, sample.rootOverride.t.z)), Is.LessThan(0.005f));
+                Assert.That(Quaternion.Angle(trackRotation * projected.jointRotations[0],
+                    sample.rootOverride.q), Is.LessThan(0.1f));
+            }
+            finally { skeleton.Dispose(); }
+        }
+
         [Test]
         public void CaptureWorldTargets_ReportsValidityWithoutEnablingChannels()
         {

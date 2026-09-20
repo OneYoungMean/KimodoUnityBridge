@@ -52,11 +52,17 @@ namespace KimodoBridge.Editor
                 clip,
                 externalConstraint,
                 disableTimelineInOut);
+            int contextBefore = useOutsideGuardFrame ? 1 : 0;
+            int contextAfter = 0;
+            if (!isArdy && !disableTimelineInOut &&
+                (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints))
+            {
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(timelineClip, out contextBefore, out contextAfter);
+            }
             int runtimeFrameCount = (isLoopGeneration ? targetFrameCount * 2 : targetFrameCount) +
-                (useOutsideGuardFrame ? 1 : 0);
-            int runtimeTrimStartFrame = loopPaddingFrames + (useOutsideGuardFrame ? 1 : 0);
-            double runtimeSampleOffsetSeconds = useOutsideGuardFrame ? 1.0 / targetFrameRate : 0.0;
-            runtimeSampleOffsetSeconds += loopPaddingFrames / (double)targetFrameRate;
+                contextBefore + contextAfter;
+            int runtimeTrimStartFrame = loopPaddingFrames + contextBefore;
+            double runtimeSampleOffsetSeconds = runtimeTrimStartFrame / (double)targetFrameRate;
             float runtimeLengthSeconds = runtimeFrameCount / targetFrameRate;
 
             KimodoInOutConstraintAdapter.TryResolveTimelineContext(

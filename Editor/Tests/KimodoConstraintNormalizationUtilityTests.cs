@@ -8,6 +8,71 @@ namespace KimodoBridge.Editor.Tests
 {
     public sealed class KimodoConstraintNormalizationUtilityTests
     {
+        [TestCase(KimodoInOutConstraintMode.Outside, true, 23, 0)]
+        [TestCase(KimodoInOutConstraintMode.Outside, false, 90, 67)]
+        [TestCase(KimodoInOutConstraintMode.Inside, true, 30, 0)]
+        [TestCase(KimodoInOutConstraintMode.Inside, false, 83, 67)]
+        public void BoundaryWindow_UsesModelFramesAndPreservesEndpoints(
+            KimodoInOutConstraintMode mode, bool begin, int sourceFirst, int exportedFirst)
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                timeline.editorSettings.frameRate = 60;
+                var track = timeline.CreateTrack<AnimationTrack>();
+                var previous = track.CreateDefaultClip(); previous.start = 0; previous.duration = 1;
+                var current = track.CreateClip<KimodoPlayableClip>(); current.start = 1; current.duration = 2;
+                var next = track.CreateDefaultClip(); next.start = 3; next.duration = 1;
+                var request = new KimodoInOutConstraintRequest
+                {
+                    Mode = mode, EnableBegin = true, EnableEnd = true, GenerationFrames = 74,
+                    BeginWindowFrames = 7, EndWindowFrames = 7, BeginSampleCount = 4, EndSampleCount = 4,
+                    TimelineContext = new KimodoTimelineInOutConstraintContext
+                    { SourceClip = current, PreviousTimelineClip = previous, NextTimelineClip = next, Track = track }
+                };
+                KimodoInOutConstraintTools.BuildBoundarySampleTimes(request, begin, out var times, out var exports);
+                Assert.That(times, Has.Length.EqualTo(4));
+                for (int i = 0; i < 4; i++)
+                {
+                    Assert.That(times[i], Is.EqualTo((sourceFirst + i * 2) / 30.0).Within(1e-6));
+                    Assert.That(exports[i], Is.EqualTo((exportedFirst + i * 2) / 30.0).Within(1e-6));
+                }
+                request.BeginSampleCount = request.EndSampleCount = 1;
+                KimodoInOutConstraintTools.BuildBoundarySampleTimes(request, begin, out times, out exports);
+                int seamOffset = (mode == KimodoInOutConstraintMode.Inside) == begin ? 0 : 6;
+                Assert.That(times[0], Is.EqualTo((sourceFirst + seamOffset) / 30.0).Within(1e-6));
+                Assert.That(exports[0], Is.EqualTo((exportedFirst + seamOffset) / 30.0).Within(1e-6));
+            }
+            finally { Object.DestroyImmediate(timeline); }
+        }
+
+        [Test]
+        public void OutsideWindow_ClampsShortNeighborsAndDoesNotPadMissingOrDisabledBoundaries()
+        {
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                var track = timeline.CreateTrack<AnimationTrack>();
+                var previous = track.CreateDefaultClip(); previous.start = 0; previous.duration = 0.1;
+                var current = track.CreateClip<KimodoPlayableClip>(); current.start = 0.1; current.duration = 1;
+                var playable = (KimodoPlayableClip)current.asset;
+                playable.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
+                playable.inConstraintWindowFrames = 100;
+                playable.inConstraintSampleCount = 100;
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(current, out int before, out int after);
+                Assert.That(before, Is.EqualTo(3));
+                Assert.That(after, Is.Zero);
+                playable.enableInConstraint = false;
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(current, out before, out after);
+                Assert.That(before, Is.Zero);
+                playable.enableInConstraint = true;
+                playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(current, out before, out after);
+                Assert.That(before, Is.Zero);
+            }
+            finally { Object.DestroyImmediate(timeline); }
+        }
+
         [Test]
         public void DeferredAutoBegin_RealConstraintBeatsSyntheticConstraint()
         {

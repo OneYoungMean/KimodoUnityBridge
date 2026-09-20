@@ -145,9 +145,10 @@ namespace KimodoBridge
                     result.rootHeading = true;
                     break;
                 case "root2d": result.rootPosition = true; result.rootHeading = true; break;
-                case "effector":
                 case "mix":
-                    result.muscle = normalized == "mix";
+                    // Mixed channels are explicitly authored, never enabled by mode alone.
+                    break;
+                case "effector":
                     result.rootTQ = true;
                     result.leftFootTQ = true;
                     result.rightFootTQ = true;

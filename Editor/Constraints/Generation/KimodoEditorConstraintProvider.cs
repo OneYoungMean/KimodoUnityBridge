@@ -44,7 +44,8 @@ namespace KimodoBridge.Editor
                     enableAutoBeginAnchor,
                     sampleTimeOffsetSeconds,
                     timelineClip);
-                if (result.BeginBoundarySample != null)
+                if (KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _) &&
+                    result.BeginBoundarySample != null)
                 {
                     result.CombinedSamples.Remove(result.BeginBoundarySample);
                 }

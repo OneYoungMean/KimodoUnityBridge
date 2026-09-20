@@ -128,6 +128,23 @@ namespace KimodoBridge.Editor
 
             try
             {
+                // Root2D keeps the full sampled pose for display, even though
+                // only its planar root is exported. Evaluate that support pose
+                // exactly like FullBody instead of replacing it with bind pose.
+                // Use a copy so preview cannot enable protocol channels.
+                if (KimodoConstraintInternal.NormalizeMode(sample.constraintMode) == "root2d" &&
+                    sample.validMask?.muscle == true &&
+                    KimodoSampleDataLayout.IsValid(sample.sampleData))
+                {
+                    sample = sample.Clone();
+                    sample.constraintMode = "fullbody";
+                    bool rootPosition = sample.enableMask.rootPosition;
+                    bool rootHeading = sample.enableMask.rootHeading;
+                    sample.enableMask = KimodoConstraintMask.ForType("fullbody");
+                    sample.enableMask.rootPosition = rootPosition;
+                    sample.enableMask.rootHeading = rootHeading;
+                }
+
                 return KimodoConstraintPosePipeline.TryApply(
                     sample,
                     KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName),

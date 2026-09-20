@@ -29,30 +29,30 @@ namespace KimodoBridge.Editor
 
             var built = new KimodoInOutConstraintResult();
 
-            if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
+            if (!KimodoInOutConstraintTools.TrySampleBoundaries(
                     request,
-                    out KimodoMarkerSampleResult beginSample,
-                    out KimodoMarkerSampleResult endSample,
+                    out List<KimodoMarkerSampleResult> beginSamples,
+                    out List<KimodoMarkerSampleResult> endSamples,
                     out warning,
                     out error))
             {
                 return false;
             }
 
-            if (beginSample != null)
+            if (beginSamples.Count > 0)
             {
                 // Keep the boundary first so the previous Timeline frame wins same-frame conflicts.
-                // Generation hosts may promote this sample to a one-frame ClipConstraint.
-                built.CombinedSamples.Add(beginSample);
-                built.BeginBoundarySample = beginSample;
+                // ARDY still promotes its single In sample to a ClipConstraint.
+                built.CombinedSamples.AddRange(beginSamples);
+                built.BeginBoundarySample = beginSamples[0];
             }
 
             AppendSamples(request.ManualSamples, built.CombinedSamples);
 
-            if (endSample != null &&
+            if (endSamples.Count > 0 &&
                 KimodoInOutConstraintTools.ClampFrameCount(request.GenerationFrames) > 1)
             {
-                built.CombinedSamples.Add(endSample);
+                built.CombinedSamples.AddRange(endSamples);
             }
 
             double normalizationAnchorWindowSeconds = request.AutoBeginAnchor

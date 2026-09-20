@@ -87,7 +87,9 @@ namespace KimodoUnityBridge.Command
                             Optional("character", "string", "Optional character name to disambiguate clips, tracks, or constraints."))),
                     CommandDefinition(SessionCloseCommand,
                         "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
-                        Properties(Optional("session_id", "string", "Session id; omitted uses the current Session."))),
+                        Properties(
+                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
+                            Optional("keepObject", "boolean", "Defaults to true. Keep the disabled Session GameObject and Director; false destroys the Session GameObject while preserving saved assets."))),
                     CommandDefinition(SessionAddCommand,
                         "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object (use character=@active_animator for the selected/open Animator); kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
                         Properties(

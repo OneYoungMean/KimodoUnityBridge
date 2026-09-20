@@ -34,41 +34,19 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            // Normalization preserves channel validity; a Scene drag is the
-            // explicit editor path that may promote newly changed channels.
-            if (sample.enableMask != null)
+            // AutoSample supplies values and validity, never channel intent.
+            // Scene drags disable AutoSample and carry the complete edited mask.
+            if (!marker.autoSample)
             {
-                normalized.enableMask ??= new KimodoConstraintMask();
-                normalized.validMask ??= new KimodoConstraintMask();
-                KimodoConstraintMask sourceValid = KimodoConstraintMask.FromSample(sample);
-                normalized.enableMask.muscle |= sample.enableMask.muscle;
-                normalized.validMask.muscle |= sourceValid.muscle;
-                normalized.enableMask.rootTQ |= sample.enableMask.rootTQ;
-                normalized.validMask.rootTQ |= sourceValid.rootTQ;
-                normalized.enableMask.leftFootTQ |= sample.enableMask.leftFootTQ;
-                normalized.validMask.leftFootTQ |= sourceValid.leftFootTQ;
-                normalized.enableMask.rightFootTQ |= sample.enableMask.rightFootTQ;
-                normalized.validMask.rightFootTQ |= sourceValid.rightFootTQ;
-                normalized.enableMask.rootPosition |= sample.enableMask.rootPosition;
-                normalized.validMask.rootPosition |= sourceValid.rootPosition;
-                normalized.enableMask.rootHeading |= sample.enableMask.rootHeading;
-                normalized.validMask.rootHeading |= sourceValid.rootHeading;
-                normalized.enableMask.leftHand |= sample.enableMask.leftHand;
-                normalized.validMask.leftHand |= sourceValid.leftHand;
-                normalized.enableMask.rightHand |= sample.enableMask.rightHand;
-                normalized.validMask.rightHand |= sourceValid.rightHand;
-                normalized.enableMask.leftFoot |= sample.enableMask.leftFoot;
-                normalized.validMask.leftFoot |= sourceValid.leftFoot;
-                normalized.enableMask.rightFoot |= sample.enableMask.rightFoot;
-                normalized.validMask.rightFoot |= sourceValid.rightFoot;
+                normalized.enableMask = sample.enableMask?.Clone() ?? new KimodoConstraintMask();
+                normalized.validMask = KimodoConstraintMask.FromSample(sample);
             }
 
             // Scene edits author effector targets separately from the canonical pose.
             // Normalization starts from the marker payload, so copy the edited
             // world-space targets explicitly or a drag is lost on the next
             // render.
-            if (sample.effectors != null &&
-                (!marker.autoSample || HasEffectors(sample.effectors)))
+            if (sample.effectors != null)
             {
                 normalized.effectors = sample.effectors.Clone();
             }
@@ -157,12 +135,6 @@ namespace KimodoBridge.Editor
             return sample?.effectors != null
                 ? JsonUtility.ToJson(sample.effectors)
                 : string.Empty;
-        }
-
-        private static bool HasEffectors(KimodoConstraintEffectors targets)
-        {
-            return targets?.leftHand != null || targets?.rightHand != null ||
-                targets?.leftFoot != null || targets?.rightFoot != null;
         }
 
         private static bool StringListsEqual(System.Collections.Generic.IReadOnlyList<string> left, System.Collections.Generic.IReadOnlyList<string> right)

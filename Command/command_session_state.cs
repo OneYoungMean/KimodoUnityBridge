@@ -35,9 +35,9 @@ namespace KimodoUnityBridge.Command
         {
             return Execute(argumentsJson, arguments =>
             {
-                EnsureTimelineSessionsRestored();
-                EnsureCanManageServer();
                 string sessionName = arguments.Value<string>("name")?.Trim();
+                EnsureTimelineSessionsRestored(sessionName);
+                EnsureCanManageServer();
                 if (string.IsNullOrWhiteSpace(sessionName) && currentTimelineSession != null)
                 {
                     return Ok(new JObject { ["created"] = false, ["session"] = DescribeSession(currentTimelineSession) });
@@ -94,11 +94,11 @@ namespace KimodoUnityBridge.Command
             return Execute(argumentsJson, arguments =>
             {
                 TimelineSessionRecord session = RequireTimelineSession(arguments);
-                return CloseTimelineSession(session);
+                return CloseTimelineSession(session, arguments.Value<bool?>("keepObject") ?? true);
             });
         }
 
-        private static string CloseTimelineSession(TimelineSessionRecord record)
+        private static string CloseTimelineSession(TimelineSessionRecord record, bool keepObject)
         {
             if (record == null)
             {
@@ -108,6 +108,7 @@ namespace KimodoUnityBridge.Command
 
             if (ReferenceEquals(currentTimelineSession, record)) currentTimelineSession = null;
             DeactivateTimelineSession(record);
+            if (record.Metadata != null) record.Metadata.sceneObjectsRemoved = !keepObject;
             PersistTimelineSessionMetadata(record);
             CloseTimelineWindow(record.TimelineAsset);
             SetSessionRootActive(record, false);
@@ -117,9 +118,16 @@ namespace KimodoUnityBridge.Command
                 EditorUtility.SetDirty(record.Director);
             }
             AssetDatabase.SaveAssets();
+            if (!keepObject)
+            {
+                if (record.SessionRoot != null) UnityEngine.Object.DestroyImmediate(record.SessionRoot);
+                if (record.Director != null) UnityEngine.Object.DestroyImmediate(record.Director.gameObject);
+                lock (TimelineSessionsLock) TimelineSessions.Remove(record.Name);
+            }
             return OkForSession(record, new JObject
             {
                 ["closed"] = true,
+                ["keepObject"] = keepObject,
                 ["session"] = DescribeSession(record)
             });
         }

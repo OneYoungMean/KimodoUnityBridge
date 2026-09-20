@@ -29,7 +29,8 @@ namespace KimodoBridge
             normalized.sampleTime = marker.time;
             normalized.constraintMode = marker.ConstraintMode == KimodoConstraintMode.Root2D
                 ? "root2d"
-                : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector" : "fullbody";
+                : marker.ConstraintMode == KimodoConstraintMode.Effector ? "effector"
+                : marker.ConstraintMode == KimodoConstraintMode.Mix ? "mix" : "fullbody";
             // constraintMode changes application behavior only. In particular,
             // Root2D keeps the complete sampled rootOverride payload.
             normalized.enabled = marker.constraintEnabled;

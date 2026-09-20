@@ -138,6 +138,20 @@ namespace KimodoUnityBridge.Generation.Tests
             Assert.That(trimmed.AnalysisJson, Does.Not.Contain("\"frame\":3"));
         }
 
+        [TestCase(0, 4)]
+        [TestCase(3, 9)]
+        public void TrimRuntimeResultForOutput_DiscardsContextAndKeepsExactOutputFrames(int prefix, int runtimeFrames)
+        {
+            var result = new KimodoBridgeCommandResult { MotionData = CreateMotion(runtimeFrames, 1, 30f) };
+            var request = new KimodoEditorGenerateRequest
+            { TargetFrameCount = 2, TargetFrameRate = 30, RuntimeFrameCount = runtimeFrames, RuntimeTrimStartFrame = prefix };
+            var output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(request, result,
+                KimodoMotionModelProfiles.DefaultModelName);
+            Assert.That(output.MotionData.FrameCount, Is.EqualTo(2));
+            Assert.That(output.MotionData.rootPositions[0].x, Is.EqualTo(prefix));
+            Assert.That(output.MotionData.rootPositions[1].x, Is.EqualTo(prefix + 1));
+        }
+
         [Test]
         public void TrimRuntimeResultForOutput_WithNoTrimReturnsTheOriginalResult()
         {

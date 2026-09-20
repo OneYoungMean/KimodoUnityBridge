@@ -9,7 +9,7 @@ description: Prepare, reuse, and close the current animation Session and load on
 
 `session_get_or_create` 会立即建立专用可见 Session GameObject（角色容器与 Timeline Director）。Session 不创建灯光；灯光仅可由分析截图流程临时创建，并在每次渲染完成后销毁。加入角色时复制源对象到该对象下，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`；源场景对象不会被用于后续评估或渲染。
 
-Session 不再创建或切换 Unity Preview Scene。每个 Session 使用一个不保存的根 GameObject；关闭或切换时仅禁用旧根对象，便于在编辑器中检查历史对象。
+Session 不再创建或切换 Unity Preview Scene。每个 Session 使用一个不保存的根 GameObject；切换时禁用旧根对象。`session_close` 的 `keepObject` 默认为 `true`，保留并禁用根对象及 Director；设为 `false` 时销毁整个 Session 根对象及其子对象。Timeline、资产和 Session JSON 保留，可用原名称重新打开 Session。
 
 - 新 Session 默认为空；只添加请求明确指定的角色、Clip 或 Animator。
 - `kind=character` 的角色必须从当前活动场景中用户打开/选中的 `Animator` 所属对象解析；调用 `session_get_or_create` 或 `session_add` 时使用 `character="@active_animator"`，不要根据默认 prefab、外部资产路径或磁盘中同名资产替代它。优先使用已有 prefab 实例；只有对象不是 prefab 时，才在请求的输出目录创建一个 prefab，不得创建已有 prefab 的持久化副本。

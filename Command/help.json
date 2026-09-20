@@ -93,6 +93,10 @@
           "session_id": {
             "type": "string",
             "description": "Session id; omitted uses the current Session."
+          },
+          "keepObject": {
+            "type": "boolean",
+            "description": "Defaults to true. Keep the disabled Session GameObject and Director; false destroys the Session GameObject while preserving saved assets."
           }
         },
         "required": [],

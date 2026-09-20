@@ -99,8 +99,8 @@ namespace KimodoBridge.Editor
             bool enableIn,
             bool enableOut,
             int generationFrames,
-            out KimodoMarkerSampleResult beginBoundaryPose,
-            out KimodoMarkerSampleResult endBoundaryPose,
+            out List<KimodoMarkerSampleResult> beginBoundaryPose,
+            out List<KimodoMarkerSampleResult> endBoundaryPose,
             out string warning)
         {
             beginBoundaryPose = null;
@@ -127,12 +127,17 @@ namespace KimodoBridge.Editor
                 enableOut,
                 generationFrames,
                 manualSamples: null);
+            if (request != null && mode == KimodoInOutConstraintMode.Outside)
+            {
+                KimodoInOutConstraintTools.ResolveOutsideContextFrames(sourceClip, out int before, out int after);
+                request.GenerationFrames += before + after;
+            }
             if (request == null)
             {
                 return true;
             }
 
-            if (!KimodoInOutConstraintTools.TrySampleBoundaryPair(
+            if (!KimodoInOutConstraintTools.TrySampleBoundaries(
                     request,
                     out beginBoundaryPose,
                     out endBoundaryPose,
@@ -407,6 +412,8 @@ namespace KimodoBridge.Editor
                 return null;
             }
 
+            var playable = context.SourceClip?.asset as KimodoPlayableClip;
+            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _);
             return new KimodoInOutConstraintRequest
             {
                 Mode = mode,
@@ -414,6 +421,10 @@ namespace KimodoBridge.Editor
                 EnableEnd = enableEnd,
                 ModelName = context.ModelName,
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
+                BeginWindowFrames = isArdy ? 1 : playable?.inConstraintWindowFrames ?? 1,
+                BeginSampleCount = isArdy ? 1 : playable?.inConstraintSampleCount ?? 1,
+                EndWindowFrames = isArdy ? 1 : playable?.outConstraintWindowFrames ?? 1,
+                EndSampleCount = isArdy ? 1 : playable?.outConstraintSampleCount ?? 1,
                 AutoBeginAnchor = autoBeginAnchor,
                 DeferNormalization = deferNormalization,
                 TimelineContext = context,

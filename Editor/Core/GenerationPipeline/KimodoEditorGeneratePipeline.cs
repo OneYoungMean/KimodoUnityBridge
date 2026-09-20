@@ -246,7 +246,8 @@ namespace KimodoBridge.Editor
             KimodoBridgeCommandResult result,
             string modelName)
         {
-            if (request == null || result == null || request.RuntimeTrimStartFrame <= 0)
+            if (request == null || result == null ||
+                (request.RuntimeTrimStartFrame <= 0 && request.EffectiveRuntimeFrameCount == request.TargetFrameCount))
             {
                 return result;
             }
