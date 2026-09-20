@@ -7,19 +7,19 @@ description: Generate, verify, and derive Unity animation Clips from explicit mo
 
 ## Timeline In/Out sampling / Timeline 衔接采样
 
-Kimodo Timeline clips expose `In Window Frames`, `In Sample Count`, `Out Window Frames`, and `Out Sample Count` when the corresponding In/Out toggle is enabled. These frame counts use the selected model's FPS (Kimodo: 30 FPS), not the Session command time base of 60 FPS. Existing clips default to one frame and one sample. C# samples the evaluated Timeline, including clip speed, blending and offsets, and exports the poses through the existing FullBody protocol. ARDY retains its existing single-frame boundary and history path; these new controls apply to Kimodo.
+Kimodo Timeline clips expose `In Window Frames`, `In Sample Count`, `Out Window Frames`, and `Out Sample Count` when the corresponding In/Out toggle is enabled. These frame counts use the selected model's FPS (Kimodo: 30 FPS), not the command time base of 60 FPS. Existing clips default to one frame and one sample. C# samples the evaluated Timeline, including clip speed, blending and offsets, and exports the poses through the existing FullBody protocol. ARDY retains its existing single-frame boundary and history path; these new controls apply to Kimodo.
 
 Inside samples the current clip's opening/closing windows. Outside samples the previous clip's tail and the next clip's beginning. Outside context extends the backend request and is trimmed from the result, keeping the requested output duration and avoiding replay of the previous tail. For example, a 60-frame output with a 7-frame In window and a 4-frame Out window requests 71 frames and keeps frames `[7, 67)`. With three samples per window, constraints land at `[0, 3, 6]` and `[67, 69, 70]`. In connected generation, internal In windows constrain the preceding portion of the aggregate; only the group's outer context extends its duration.
 
 Samples are evenly spaced on integer model frames; two or more samples include both endpoints, while one sample keeps the pose nearest the seam. Short source ranges limit the effective window and sample count. Overlapping Inside windows are rejected rather than silently overriding poses. `Show Constraint` displays the actual samples on a selected clip (In: blue; Out: orange); `Refresh` resamples them. Export applies one shared world-to-track transform to all samples, preserving relative motion.
 
-Session is a generation workspace, not the final playback Timeline. These controls belong to `KimodoPlayableClip` in the actual Timeline and do not require constructing a Session. Generation completion alone does not establish visual seam quality: verify consecutive playback of the resulting clips, including root motion and foot contacts.
+The hidden context is a generation workspace, not the final playback Timeline. These controls belong to `KimodoPlayableClip` in the actual Timeline and are created on demand. Generation completion alone does not establish visual seam quality: verify consecutive playback of the resulting clips, including root motion and foot contacts.
 
 ## Decision program / 决策程序
 
-Command generation also accepts one standalone `constraints[].inout` entry. Read `kimodo_help(command="kimodo_generate_animation")` for its closed schema and examples. Each enabled `in`/`out` explicitly names `source.clip`; `source.character` defaults to the generation character and must match it. Sources are completed Session Clips; never infer a neighbor from Session layout. `source.frame` is optional and relative to the Clip's played range, including its speed and trim.
+Command generation also accepts one standalone `constraints[].inout` entry. Read `kimodo_help(command="kimodo_generate_animation")` for its closed schema and examples. Each enabled `in`/`out` explicitly names `source.clip`; `source.character` defaults to the generation character and must match it. Sources are completed scene Clips; never infer a neighbor from scene layout. `source.frame` is optional and relative to the Clip's played range, including its speed and trim.
 
-Command `window_frames` and `source.frame` use **60 FPS**, unlike the Timeline UI controls above. C# converts a window with `ceil(window_frames * model_fps / 60)` (minimum one model frame), samples complete poses including Timeline transforms, then uses the shared Character → Track → Muscle → Kimodo export. `outside` (default) samples the In source tail and Out source head as extra context and crops it off; `inside` samples the source head/tail into the output's first/last windows. Sources may be explicitly chosen from any completed Clip on the same character; they do not need to neighbor the output in the Session.
+Command `window_frames` and `source.frame` use **60 FPS**, unlike the Timeline UI controls above. C# converts a window with `ceil(window_frames * model_fps / 60)` (minimum one model frame), samples complete poses including Timeline transforms, then uses the shared Character → Track → Muscle → Kimodo export. `outside` (default) samples the In source tail and Out source head as extra context and crops it off; `inside` samples the source head/tail into the output's first/last windows. Sources may be explicitly chosen from any completed Clip on the same character; they do not need to neighbor the output in the scene context.
 
 Command In/Out rejects insufficient source ranges, too many samples for distinct model frames, overlapping inside windows, same-frame explicit constraints, cross-character sources, loop generation, ARDY, and requests exceeding the model frame limit including context. These checks do not silently shorten or downgrade the request. Acceptance and `kimodo_get_generation` return `inout_sampling`: source-local and Timeline sample times, output/runtime model frames, padding counts, and the exclusive crop range. The output retains the requested duration. This metadata verifies sampling and transport, not visual seam quality.
 
@@ -137,7 +137,7 @@ if source_clip is empty:
     source_clip = first_semantic_match(clips_under = "Assets/KimodoGeneratedClips")
 ```
 
-`source: "added"` 只表示 Clip 被加入 Session，不能证明它是原始动画。
+`source: "added"` 只表示 Clip 被解析到场景上下文，不能证明它是原始动画。
 Controller 中的实际 AnimationClip 引用优先；生成目录中的 Clip 只能作为后备来源。
 
 ## Context-first generation / 上下文优先生成
@@ -150,7 +150,7 @@ if request_names_one_or_more_actions():
         prefer_assets_outside="Assets/KimodoGeneratedClips"
     )
     if related_clips is empty:
-        related_clips = find_semantically_matching_clips_in_current_session(
+        related_clips = find_semantically_matching_clips_in_scene_context(
             character=CHARACTER,
             actions=actions_named_by_request,
             prefer_assets_outside="Assets/KimodoGeneratedClips"
@@ -194,41 +194,16 @@ function execute_generate_skill(request):
         REQUEST_IS_RETARGET_ONLY == YES
     )
 
-    session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
-    character = ensure_character_with_session_add(session, CHARACTER)
+    context = resolve_scene_context()
+    character = resolve_scene_character(CHARACTER)
 
     if REQUEST_IS_RANGE_OPERATION == YES:
-        ASSERT request_explicitly_supplies_start_frame_end_frame_and_character()
-        final_output = kimodo_record_range({
-            start_frame: request.start_frame,
-            end_frame: request.end_frame,
-            character: character,
-            remove_root_motion: request.remove_root_motion if supplied,
-            speed: request.speed if supplied,
-            name: request.name if supplied,
-            output_folder: request.output.folder if supplied
-        })
-        final_ref = {
-            character: final_output.character,
-            clip: final_output.animation.name
-        }
-        GENERATION_COMPLETED = YES
-        return verify_final_output(
-            final_ref,
-            runtime_evidence = final_output
-        )
+        return unsupported("Range recording is no longer a public command; provide a source clip or generate a derived clip.")
 
     if REQUEST_IS_RETARGET_ONLY == YES:
         ASSERT request_explicitly_supplies_source_animation_and_target_character()
-        source_clip = ensure_clip_with_session_add(
-            session,
-            character,
-            SOURCE_CLIP
-        )
-        target_character = ensure_character_with_session_add(
-            session,
-            TARGET_CHARACTER
-        )
+        source_clip = resolve_scene_clip(character, SOURCE_CLIP)
+        target_character = resolve_scene_character(TARGET_CHARACTER)
         final_output = kimodo_retarget_animation({
             source_character: character,
             animation: source_clip,
@@ -248,7 +223,7 @@ function execute_generate_skill(request):
 
     source_analysis = NOT_APPLICABLE
     if HAS_SOURCE_ANIMATION == YES:
-        source_clip = ensure_clip_with_session_add(session, character, SOURCE_CLIP)
+        source_clip = resolve_scene_clip(character, SOURCE_CLIP)
         source_analysis = animation_analyze({
             clips: [{
                 role: "source",
@@ -387,10 +362,7 @@ function execute_generate_skill(request):
     }
 
     if SHOULD_RETARGET_AFTER_GENERATION == YES:
-        target_character = ensure_character_with_session_add(
-            session,
-            TARGET_CHARACTER
-        )
+        target_character = resolve_scene_character(TARGET_CHARACTER)
         retargeted_output = kimodo_retarget_animation({
             source_character: character,
             animation: generated_ref.clip,
@@ -518,26 +490,11 @@ function generation_report(result, final_ref, observations, runtime_evidence):
             copy_only_returned_warnings_and_fallbacks(runtime_evidence)
     }
 
-function ensure_character_with_session_add(session, character_ref):
-    if character_ref is already a safe character name in session.session.characters:
-        return character_ref
+function resolve_scene_character(character_ref):
+    return the unique matching character in the active scene context
 
-    added_character = session_add({
-        kind: "character",
-        character: character_ref
-    })
-    return added_character.character.name
-
-function ensure_clip_with_session_add(session, character_ref, clip_ref):
-    if clip_ref is already a safe animation name under character_ref:
-        return clip_ref
-
-    added_clip = session_add({
-        kind: "clip",
-        character: character_ref,
-        clip: clip_ref
-    })
-    return added_clip.animation.name
+function resolve_scene_clip(character_ref, clip_ref):
+    return the unique matching clip already available for that scene character
 
 function derive_supported_correction_from_failed_macros():
     if PATH_MATCH == NO and explicit_path_directions_exist():

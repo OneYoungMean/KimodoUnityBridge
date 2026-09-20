@@ -620,7 +620,7 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             character = session.Characters.FirstOrDefault(item => item.PoseCacheTrack != null &&
                 string.Equals(item.PoseCacheTrack.name, reference.Track, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException($"Pose track '{reference.Track}' was not found in the current Session.");
+                ?? throw new InvalidOperationException($"Pose track '{reference.Track}' was not found in the current scene context.");
             KimodoConstraintMarker marker = FindPoseMarker(character.PoseCacheTrack, reference.Index)
                 ?? throw new InvalidOperationException(
                     $"Pose track '{reference.Track}' does not contain index {reference.Index}.");
@@ -637,7 +637,7 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord session = RequireCurrentTimelineSession();
             TimelineCharacterRecord character = session.Characters.FirstOrDefault(item => item.PoseCacheTrack != null &&
                 string.Equals(item.PoseCacheTrack.name, reference.Track, StringComparison.OrdinalIgnoreCase))
-                ?? throw new InvalidOperationException($"Pose track '{reference.Track}' was not found in the current Session.");
+                ?? throw new InvalidOperationException($"Pose track '{reference.Track}' was not found in the current scene context.");
             KimodoConstraintMarker marker = FindPoseMarker(character.PoseCacheTrack, reference.Index)
                 ?? throw new InvalidOperationException(
                     $"Pose track '{reference.Track}' does not contain index {reference.Index}.");

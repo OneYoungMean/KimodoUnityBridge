@@ -22,8 +22,8 @@
 | `../README.zh-CN.md` | `README.md` 的简体中文版本 |
 | `../SKILL.md` | 安装门槛、任务入口、能力工具编排和公共执行规则 |
 | `../Command/help.json` | 维护命令、参数、必选关系和嵌套 schema |
-| `../tools/common.md` | Session、证据、状态和报告公共规则 |
-| `../tools/session.md` | Session 生命周期与内容加载 |
+| `../tools/common.md` | 场景上下文、证据、状态和报告公共规则 |
+| `../tools/session.md` | 隐藏场景上下文解析 |
 | `../tools/recognition.md` | 语义动作识别工作流和证据决策 |
 | `../tools/comparison.md` | 动画质量比较工作流和证据决策 |
 | `../tools/generation.md` | 动画生成、验证、约束和派生修正工作流 |
@@ -33,9 +33,9 @@
 
 ## 当前产品边界
 
-- `session_add(kind:"character")` 和 `animation_analyze` 支持可渲染 Mesh 的分析路径。
+- 自动场景上下文和 `animation_analyze` 支持可渲染 Mesh 的分析路径。
 - 生成和 Pose 采样仍要求有效 Humanoid Avatar。
-- 已完成 Session Clip 不可变；修正、Record、Retarget 和生成都会追加派生 Clip。
+- 已完成 Clip 不可变；修正、Retarget 和生成都会追加派生 Clip。
 - 静态图片不能单独证明播放连续性、滑步、跳变、加速度或速度连续性。
 - Foot IK、Raycast 或其他外部工作流只有在公开命令和项目资产实际支持时才能写成已实现能力。
 
@@ -50,7 +50,7 @@
 
 1. 静态检查文档中的命令名、路径和旧术语。
 2. 在维护的 Unity 项目中完成最小导入/编译检查。
-3. 按需验证 Session、分析图片、Pose/Path、生成终态和派生 Clip 不可变性。
+3. 按需验证场景上下文、分析图片、Pose/Path、生成终态和派生 Clip 不可变性。
 4. 分开报告静态、运行时、图像、场景和播放证据。
 5. 只有实际打开返回的视觉证据后，才能报告视觉通过；证据不足时使用 `not_verified`、`needs_revision` 或 `unsupported`。
 

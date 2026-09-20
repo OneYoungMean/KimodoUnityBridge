@@ -7,26 +7,22 @@ description: Shared execution contract for all Kimodo capability tools.
 
 所有工具都遵守同一套输入、证据、状态和报告规则。工具只实现自身能力，不重复定义安装流程。
 
-## Input and Session
+## Input and scene context
 
 ### Parameter tiers / 参数分层
 
 - **Core**：只传完成任务所需的明确对象、范围和动作语义。
 - **Advanced**：带有 `x-kimodo-advanced: true` 的参数只在需要覆盖默认值、选择模型/输出或施加路径与 Pose 约束时传入。
-- Session-scoped command 固定使用当前 Session；command 不再接受 `session_id`。
+- Commands resolve the active scene into one hidden automatic context; the public API does not expose context creation, switching, closing, or internal IDs.
 - `animation_analyze` 只接受一个 Clip，默认生成固定 16:9 的 20-tile composite（宽度由 resolution 决定）；比较多个候选时分别调用分析。
 - 需要单张图片时传 `picture: {output: "tile", tile_index: N}`；`tile_index` 从 1 开始，`resolution` 在该模式表示高度，默认 720px，宽度按 4:3 自适应。
 - `kimodo_generate_animation` 的普通调用只需要 `character` 与 `prompt`；模型、采样、命名、存储和分析覆盖项均可省略。
 
 - 只使用用户明确提供的 source、target、range、pose、path 和 constraint。
-- 只要生成请求指定了动作，先检查当前活动场景对应 Session 中的语义匹配动画；“修复/改进/替换/续作/变体 + 指定动作”绝不能跳过这一步。检查结果要记录为上下文证据，不能把发现的动画自动升级为生成约束。
-- `session_get_or_create` 立即创建并返回专用可见 Session GameObject；后续生成、采样、分析和渲染均在该对象下执行。对象仅包含基础地面、灯光、角色和 Timeline Director。
-- Session 切换时只激活当前 Session 根对象，旧 Session 根对象保持禁用但不销毁，便于调试。
-- `session_add(kind="character")` 将源角色复制到 Session 根对象，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`，保留 Humanoid Avatar。
-- `session_add` 只添加缺少且明确请求的角色、Clip 或 Animator。
-- 角色来源优先级固定为当前活动场景中用户打开/选中的 `Animator` 所属角色；不得用保存的 prefab 路径替代活动场景对象。已有 prefab 实例直接使用，不创建持久化 prefab 副本；非 prefab 场景对象仅在请求的输出目录创建一个 prefab 后使用。
+- 只要生成请求指定了动作，先检查当前活动场景中的语义匹配动画；“修复/改进/替换/续作/变体 + 指定动作”绝不能跳过这一步。检查结果要记录为上下文证据，不能把发现的动画自动升级为生成约束。
+- 自动上下文按需绑定当前活动场景中的 `Animator` 或可渲染 Mesh；角色来源不得从保存的 prefab 路径猜测替代。
 - 后续命令只使用运行时返回的安全名称和 `{track,index}` 引用。
-- 关闭或切换 Session 可能取消活动生成；报告中必须保留该副作用。
+- 场景切换、Editor reload 或进入 Play Mode 可能取消活动生成；报告中必须保留该副作用。
 
 ## Evidence
 
@@ -94,9 +90,9 @@ Mesh analysis 对该字段返回 `NOT_APPLICABLE`。
 
 ## Handles and paths
 
-- 安全角色名和动画名是 Session handle。
+- 安全角色名和动画名是当前场景上下文的引用。
 - `animation_analyze` 返回的 `{track,index}` 可作为 Root Path 或 Pose 引用。
-- 生成结果的 `path` 是 Unity 资产元数据，不是 Session Clip handle；若返回中没有派生资产路径，不自行推断。
+- 生成结果的 `path` 是 Unity 资产元数据，不是场景 Clip handle；若返回中没有派生资产路径，不自行推断。
 
 ## Report envelope
 

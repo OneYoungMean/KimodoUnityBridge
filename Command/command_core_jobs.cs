@@ -22,7 +22,22 @@ namespace KimodoUnityBridge.Command
     {
         private static ResolvedCharacter ResolveCharacter(TimelineSessionRecord session, string name)
         {
-            TimelineCharacterRecord sessionCharacter = ResolveSessionCharacterByReference(session, name, addIfMissing: false);
+            TimelineCharacterRecord sessionCharacter;
+            try
+            {
+                sessionCharacter = ResolveSessionCharacterByReference(session, name, addIfMissing: false);
+            }
+            catch (InvalidOperationException)
+            {
+                GameObject[] matches = ResolveRequestedSceneCharacters(name);
+                if (matches.Length != 1)
+                    throw;
+                GameObject source = matches[0];
+                Animator sourceAnimator = source.GetComponentInChildren<Animator>(true);
+                if (!AddCharacterTrack(session, source, sourceAnimator, true, out string error, requireAvatar: true))
+                    throw new InvalidOperationException(error);
+                sessionCharacter = ResolveSessionCharacterByReference(session, name, addIfMissing: false);
+            }
             GameObject root = sessionCharacter.Root;
             Animator animator = sessionCharacter.Animator;
             if (root == null || animator == null || EditorUtility.IsPersistent(root) || !root.scene.IsValid())
@@ -178,7 +193,6 @@ namespace KimodoUnityBridge.Command
             if (record.TimelineGenerationTrace != null)
             {
                 TimelineGenerationTrace reservation = record.TimelineGenerationTrace;
-                result["session_name"] = reservation.Session.Name;
                 result["start_frame"] = Mathf.RoundToInt((float)(reservation.StartSeconds * SessionFrameRate));
                 result["duration_frames"] = Mathf.RoundToInt((float)(reservation.DurationSeconds * SessionFrameRate));
                 if (reservation.InOutSampling != null) result["inout_sampling"] = reservation.InOutSampling.DeepClone();
@@ -223,12 +237,6 @@ namespace KimodoUnityBridge.Command
         private static string Ok(JObject result)
         {
             result ??= new JObject();
-            if (currentTimelineSession != null)
-            {
-                result["session_id"] = currentTimelineSession.Id.ToString("D");
-                result["session_json_path"] = currentTimelineSession.Metadata?.sessionJsonPath ?? string.Empty;
-                result["session_revision"] = currentTimelineSession.Metadata?.sessionRevision ?? 0;
-            }
             result["ok"] = true;
             return result.ToString(Formatting.None);
         }
@@ -358,14 +366,14 @@ namespace KimodoUnityBridge.Command
         {
             string path = GenerationJobPath(session, requestId);
             if (!System.IO.File.Exists(path))
-                throw new InvalidOperationException($"Unknown request_id '{requestId:D}' in the selected Session.");
+                throw new InvalidOperationException($"Unknown request_id '{requestId:D}' in the current scene context.");
             return JObject.Parse(System.IO.File.ReadAllText(path));
         }
 
         private static void EnsureGenerationBelongsToSession(JobRecord record, TimelineSessionRecord session)
         {
             if (record?.TimelineGenerationTrace == null || !ReferenceEquals(record.TimelineGenerationTrace.Session, session))
-                throw new InvalidOperationException("request_id belongs to a different Session.");
+                throw new InvalidOperationException("request_id belongs to a different scene context.");
         }
 
         private static void UpdateGenerationHistory(TimelineSessionRecord session, JObject status)

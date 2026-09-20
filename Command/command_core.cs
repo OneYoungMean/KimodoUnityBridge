@@ -22,12 +22,7 @@ namespace KimodoUnityBridge.Command
         public const string HelpCommand = "kimodo_help";
         public const string InstallServerCommand = "kimodo_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
-        public const string SessionGetOrCreateCommand = "session_get_or_create";
-        public const string SessionGetRawCommand = "session_get_raw";
-        public const string SessionCloseCommand = "session_close";
-        public const string SessionAddCommand = "session_add";
         public const string AnimationAnalyzeCommand = "animation_analyze";
-        public const string RecordRangeCommand = "kimodo_record_range";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
         public const string PoseSetCommand = "pose_set";
@@ -74,32 +69,8 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(InstallServerCommand,
                         "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
                         Properties()),
-                    CommandDefinition(SessionGetOrCreateCommand,
-                        "Create the current animation Session and its dedicated visible Session GameObject, or reopen an existing named Session. Optionally add the current active-scene Animator character at creation; use character=@active_animator to bind the selected/open Animator instead of a saved prefab path.",
-                        Properties(
-                            Optional("name", "string", "Stable Session name. An existing name selects that Session; omit it to return the current Session or create one when none exists."),
-                            Optional("character", "string", "Optional scene character name or hierarchy path; use @active_animator to use the currently selected/open Animator character."))),
-                    CommandDefinition(SessionGetRawCommand,
-                        "Resolve a named Session character, track, clip, or constraint to portable Unity object metadata for external API or tool interop; the result includes guid, asset_guid, path, object_type, and optional character.",
-                        Properties(
-                            RequiredEnum("kind", "character", "track", "clip", "constraint"),
-                            Required("name", "string", "Exact Session object name."),
-                            Optional("character", "string", "Optional character name to disambiguate clips, tracks, or constraints."))),
-                    CommandDefinition(SessionCloseCommand,
-                        "Close the selected animation editing Session while preserving its Timeline, assets, and AI-readable Session JSON.",
-                        Properties(
-                            Optional("session_id", "string", "Session id; omitted uses the current Session."),
-                            Optional("keepObject", "boolean", "Defaults to true. Keep the disabled Session GameObject and Director; false destroys the Session GameObject while preserving saved assets."))),
-                    CommandDefinition(SessionAddCommand,
-                        "Add scene or project content to the current Session. kind=character adds one scene Humanoid Animator or renderable Mesh object (use character=@active_animator for the selected/open Animator); kind=clip appends one project AnimationClip to a Session character; kind=animator imports same-Layer State-to-State transitions as Timeline-composed transition_clip records without baking transition assets. Returns safe names to reuse. Appended clips keep a fixed 4-frame safezone.",
-                        Properties(
-                            RequiredEnum("kind", "character", "clip", "animator"),
-                            Required("character", "string", "Scene character name/path for kind=character, or @active_animator for the currently selected/open Animator; target Session character name otherwise."),
-                            Optional("clip", "string", "Project AnimationClip name for kind=clip."),
-                             Optional("animator", "string", "Scene Animator name/path for kind=animator."),
-                             Optional("ignore_warning", "boolean", "Import all transition variants when the projected transition count exceeds 128; defaults to false."))),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, and evidence paths. Completed Clips are never modified.",
+                        "Analyze one immutable animation clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, and evidence paths. Completed Clips are never modified.",
                         Properties(
                             RequiredAnalysisClips(),
                             new PropertyDefinition("picture", new JObject
@@ -114,28 +85,19 @@ namespace KimodoUnityBridge.Command
                                 ["maximum"] = 4096,
                                 ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 1920."
                             }, false))),
-                    CommandDefinition(RecordRangeCommand,
-                        "Record a Session time range into an AnimationClip and append it to the source character.",
-                        Properties(
-                            Required("start_frame", "integer", "Inclusive Session frame at 60 FPS."),
-                            Required("end_frame", "integer", "Exclusive Session frame at 60 FPS."),
-                            Required("character", "string", "Safe source character name in the current Session."),
-                            Optional("remove_root_motion", "boolean", "Keep vertical motion but remove horizontal root translation and yaw; defaults to false."),
-                            Optional("speed", "number", "Playback speed multiplier; defaults to 1.0."),
-                            OptionalOutput())),
                     CommandDefinition(RetargetAnimationCommand,
-                        "Retarget one loaded animation to another current Session character and append the result.",
+                        "Retarget one loaded animation to another current scene context character and append the result.",
                         Properties(
-                            Required("source_character", "string", "Safe source character name in the selected Session."),
+                            Required("source_character", "string", "Safe source character name in the resolved scene context."),
                             Required("animation", "string", "Safe source animation name."),
-                            Required("target_character", "string", "Safe target character name in the selected Session."),
+                            Required("target_character", "string", "Safe target character name in the resolved scene context."),
                             OptionalOutput())),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Start asynchronous generation for a character in the current Session. The accepted request is recorded in session.json and must be polled by request_id.",
+                        "Start asynchronous generation for a character in the current scene context. The accepted request is recorded in the generation result and must be polled by request_id.",
                         Properties(
-                            Required("character", "string", "Safe character name in the current Session."),
+                            Required("character", "string", "Safe character name in the current scene context."),
                             Required("prompt", "string", "Motion prompt."),
-                            Optional("duration_frames", "integer", "Duration in 60 FPS Session frames; defaults to 300."),
+                            Optional("duration_frames", "integer", "Duration in 60 FPS frames; defaults to 300."),
                             OptionalLoop(),
                             OptionalPath(),
                             OptionalGeneration(),
@@ -143,7 +105,7 @@ namespace KimodoUnityBridge.Command
                             Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
                             OptionalConstraints("constraints", "Point, root_path, and inout boundary constraints. In/Out sources are explicit Clips sampled in C#; command frames use 60 FPS."))),
                     CommandDefinition(PoseGetCommand,
-                        "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
+                        "Sample one current-animation clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
@@ -240,43 +202,34 @@ namespace KimodoUnityBridge.Command
                     ["manual"] = "Kimodo command reference",
                     ["execution_model"] = new JArray
                     {
-                        "A command may omit session_id only when a current Session exists; otherwise it fails with session_required.",
-                        "session_get_or_create is the only command that creates Sessions and their dedicated visible Session GameObject. A scene character may be copied at creation or added explicitly with session_add.",
-                        "Pass returned identity fields only to commands whose schemas consume them: safe names identify Session content, request_id polls an installation or generation task, and {track,index} identifies a Pose or analyzed Root Path. Picture paths are output files to inspect, not reusable handles.",
+                        "Commands resolve scene and asset references directly; no public Session lifecycle call is required.",
+                        "Pass returned object references to later commands; request_id polls an installation or generation task.",
                         "Installation and generation are asynchronous: save request_id and poll kimodo_get_generation. Install terminal states are done or error; generation terminal states are completed, failed, or canceled.",
-                        "Read session_json_path after Session-changing commands for the complete AI-readable Session state."
+                        "Generation and analysis return independent asset and evidence references."
                     },
                     ["routing"] = new JArray
                     {
                         Route("discover schema or models", HelpCommand),
                         Route("install or refresh server", InstallServerCommand, "then " + GetGenerationCommand),
-                        Route("select or create a Session", SessionGetOrCreateCommand),
-                        Route("add a character, clip, or Animator", SessionAddCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalyzeCommand, "returns one composite picture and self-describing tiles"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose_set / pose_set_root_transform / pose_set_muscle"),
                         Route("obtain a reusable root trajectory", AnimationAnalyzeCommand, "then reference root_trajectory.path from a generation root_path constraint"),
-                        Route("record or retarget", RecordRangeCommand, "or " + RetargetAnimationCommand)
                     },
                     ["handles"] = new JObject
                     {
-                        ["session_id"] = "Pass to any Session-scoped command; omission selects the current Session.",
                         ["request_id"] = "Returned by kimodo_install_server or kimodo_generate_animation. Pass either to kimodo_get_generation; only generation request ids can be canceled.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation_analyze.",
                         ["pose"] = "A {track,index} reference returned by pose_get or a pose editing command.",
-                        ["path"] = "For animation_analyze, this is the {track,index} Root Path reference passed only as root_path.path; for kimodo_get_generation or session_get_raw, it is a project-relative Unity asset path.",
-                        ["raw_object"] = "The portable metadata returned by session_get_raw for Unity-external API or tool interop; it does not replace Session handles."
+                        ["path"] = "A project-relative asset or analysis path returned by a command."
                     },
                     ["workflow"] = new JArray
                     {
                         new JObject { ["command"] = InstallServerCommand, ["arguments"] = new JObject(), ["save"] = "request_id", ["before"] = "all other Commands" },
                         new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<install_request_id>" }, ["repeat_until"] = "status is done or error" },
-                        new JObject { ["command"] = SessionGetOrCreateCommand, ["arguments"] = new JObject { ["name"] = "Locomotion" } },
-                        new JObject { ["command"] = SessionAddCommand, ["arguments"] = new JObject { ["kind"] = "character", ["character"] = "<scene name or path>" } },
                         new JObject { ["command"] = GenerateAnimationCommand, ["arguments"] = new JObject { ["character"] = "<character>", ["prompt"] = "stand still and breathe naturally", ["duration_frames"] = 60 }, ["save"] = "request_id" },
                         new JObject { ["command"] = GetGenerationCommand, ["arguments"] = new JObject { ["request_id"] = "<request_id>" }, ["repeat_until"] = "status is completed, failed, or canceled" },
                         new JObject { ["command"] = AnimationAnalyzeCommand, ["arguments"] = new JObject { ["clips"] = new JArray(new JObject { ["character"] = "<character>", ["clip"] = "<completed animation>" }), ["picture"] = new JObject { ["output"] = "both" } }, ["save"] = "pictures.image_path" },
-                        new JObject { ["command"] = SessionCloseCommand, ["arguments"] = new JObject() }
                     },
                     ["commands"] = new JArray(all["tools"].Children<JObject>().Select(item => new JObject
                     {
@@ -689,7 +642,7 @@ namespace KimodoUnityBridge.Command
                         finally
                         {
                             KimodoBridgeService.GenerationTaskIdContext.Value = previousTaskId;
-                            // Session lifetime is owned exclusively by session_close.
+                            // Temporary sampling context is owned by the command runtime.
                         }
                     },
                     PersistGenerationJobStatus,
@@ -713,7 +666,6 @@ namespace KimodoUnityBridge.Command
                 };
                 if (trace != null)
                 {
-                    startedResponse["session_name"] = trace.Session.Name;
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
                     if (trace.InOutSampling != null) startedResponse["inout_sampling"] = trace.InOutSampling.DeepClone();
