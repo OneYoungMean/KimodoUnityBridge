@@ -147,7 +147,7 @@ namespace KimodoUnityBridge.Command.Tests
         public void AnalysisResolution_UsesDefaultAndRejectsOutsideInclusiveBounds()
         {
             MethodInfo method = PrivateMethod("ResolveAnalysisPictureResolution", typeof(JToken));
-            Assert.That(method.Invoke(null, new object[] { null }), Is.EqualTo(512));
+            Assert.That(method.Invoke(null, new object[] { null }), Is.EqualTo(1920));
             Assert.That(method.Invoke(null, new object[] { new JValue(64) }), Is.EqualTo(64));
             Assert.That(method.Invoke(null, new object[] { new JValue(4096) }), Is.EqualTo(4096));
             AssertPrivateFailure(method, new JValue(63), "between 64 and 4096");
