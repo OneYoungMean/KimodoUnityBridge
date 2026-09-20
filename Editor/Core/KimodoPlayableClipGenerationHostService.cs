@@ -59,6 +59,13 @@ namespace KimodoBridge.Editor
             {
                 KimodoInOutConstraintTools.ResolveOutsideContextFrames(timelineClip, out contextBefore, out contextAfter);
             }
+            if (externalConstraint?.Enabled == true)
+            {
+                if (externalConstraint.ContextBeforeFrames < 0 || externalConstraint.ContextAfterFrames < 0)
+                    throw new InvalidOperationException("External context frame counts must be non-negative.");
+                contextBefore = Math.Max(contextBefore, externalConstraint.ContextBeforeFrames);
+                contextAfter = Math.Max(contextAfter, externalConstraint.ContextAfterFrames);
+            }
             int runtimeFrameCount = (isLoopGeneration ? targetFrameCount * 2 : targetFrameCount) +
                 contextBefore + contextAfter;
             int runtimeTrimStartFrame = loopPaddingFrames + contextBefore;

@@ -22,7 +22,15 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Inspect generation parameters and examples.",
+          "arguments": {
+            "command": "kimodo_generate_animation"
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_install_server",
@@ -32,7 +40,13 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Install the local server, then poll the returned request_id.",
+          "arguments": {}
+        }
+      ]
     },
     {
       "name": "session_get_or_create",
@@ -51,7 +65,16 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Create a named Session from the selected scene Animator.",
+          "arguments": {
+            "name": "MotionAuthoring",
+            "character": "@active_animator"
+          }
+        }
+      ]
     },
     {
       "name": "session_get_raw",
@@ -82,7 +105,17 @@
           "name"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Resolve a returned Clip name to its Unity asset metadata.",
+          "arguments": {
+            "kind": "clip",
+            "name": "<clip>",
+            "character": "<character>"
+          }
+        }
+      ]
     },
     {
       "name": "session_close",
@@ -101,7 +134,15 @@
         },
         "required": [],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Close the current Session and keep its disabled scene object.",
+          "arguments": {
+            "keepObject": true
+          }
+        }
+      ]
     },
     {
       "name": "session_add",
@@ -109,10 +150,6 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Session id; omitted uses the current Session."
-          },
           "kind": {
             "type": "string",
             "enum": [
@@ -143,18 +180,39 @@
           "character"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Add the selected scene Animator and retain the returned character name.",
+          "arguments": {
+            "kind": "character",
+            "character": "@active_animator"
+          }
+        },
+        {
+          "description": "Append a project AnimationClip to the returned Session character.",
+          "arguments": {
+            "kind": "clip",
+            "character": "<character>",
+            "clip": "<project AnimationClip name>"
+          }
+        },
+        {
+          "description": "Import an Animator controller's transitions.",
+          "arguments": {
+            "kind": "animator",
+            "character": "<character>",
+            "animator": "<scene Animator path>"
+          }
+        }
+      ]
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one immutable Session clip and render unified picture evidence. Picture tiles are explicitly selected from the standard graph-space types and can be returned as a composite image, individual tile images, or both. Results include root_trajectory.path, endpoint_pose_comparison, motion_profile, foot contacts, and phase_track. Completed Clips are never modified.",
+      "description": "Analyze one immutable Session clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, and evidence paths. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Session id; omitted uses the current Session."
-          },
           "clips": {
             "type": "array",
             "description": "Exactly one immutable Session clip reference. Comparison callers analyze each candidate separately.",
@@ -186,35 +244,7 @@
           },
           "picture": {
             "type": "object",
-            "additionalProperties": false,
-            "description": "Unified graph-space picture request. Omit to render all standard tiles as one composite.",
-            "properties": {
-              "tiles": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "enum": [
-                    "3d_track",
-                    "height_time_track",
-                    "3d_ghost",
-                    "3d_ghost_track",
-                    "key_pose",
-                    "step_pose"
-                  ]
-                },
-                "minItems": 1,
-                "uniqueItems": true
-              },
-              "output": {
-                "type": "string",
-                "enum": [
-                  "composite",
-                  "tiles",
-                  "both"
-                ],
-                "default": "composite"
-              }
-            }
+            "description": "Unified graph-space picture request with tiles and output mode."
           },
           "resolution": {
             "type": "integer",
@@ -227,7 +257,24 @@
           "clips"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Analyze one returned Clip; open the returned image to inspect it.",
+          "arguments": {
+            "clips": [
+              {
+                "character": "<character>",
+                "clip": "<clip>"
+              }
+            ],
+            "picture": {
+              "output": "composite"
+            },
+            "resolution": 512
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_record_range",
@@ -235,10 +282,6 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Session id; omitted uses the current Session."
-          },
           "start_frame": {
             "type": "integer",
             "description": "Inclusive Session frame at 60 FPS."
@@ -259,13 +302,26 @@
             "type": "number",
             "description": "Playback speed multiplier; defaults to 1.0."
           },
-          "name": {
-            "type": "string",
-            "description": "Requested safe output animation name."
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
+          "output": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "humanoid_muscle",
+                  "character_bone",
+                  "model_bone"
+                ]
+              },
+              "folder": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "description": "Optional animation output settings."
           }
         },
         "required": [
@@ -274,7 +330,20 @@
           "character"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Record two seconds of the current Session at 60 FPS.",
+          "arguments": {
+            "character": "<character>",
+            "start_frame": 0,
+            "end_frame": 120,
+            "output": {
+              "name": "RecordedMotion"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_retarget_animation",
@@ -282,10 +351,6 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "session_id": {
-            "type": "string",
-            "description": "Session id; omitted uses the current Session."
-          },
           "source_character": {
             "type": "string",
             "description": "Safe source character name in the selected Session."
@@ -298,13 +363,26 @@
             "type": "string",
             "description": "Safe target character name in the selected Session."
           },
-          "name": {
-            "type": "string",
-            "description": "Requested safe output animation name."
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "Unity folder under Assets; defaults to Assets/KimodoGeneratedClips."
+          "output": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "humanoid_muscle",
+                  "character_bone",
+                  "model_bone"
+                ]
+              },
+              "folder": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "description": "Optional animation output settings."
           }
         },
         "required": [
@@ -313,7 +391,20 @@
           "target_character"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Retarget a loaded Clip to another Session character.",
+          "arguments": {
+            "source_character": "<source character>",
+            "animation": "<clip>",
+            "target_character": "<target character>",
+            "output": {
+              "name": "RetargetedMotion"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_generate_animation",
@@ -384,7 +475,6 @@
           "path": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Optional Root2D path override. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition.",
             "properties": {
               "start_angle": {
                 "type": "number"
@@ -399,12 +489,12 @@
               "heading": {
                 "type": "number"
               }
-            }
+            },
+            "description": "Optional Root2D path override. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition."
           },
           "generation": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Optional model and deterministic generation settings.",
             "properties": {
               "model": {
                 "type": "string"
@@ -422,12 +512,12 @@
               "diffusion_steps": {
                 "type": "integer"
               }
-            }
+            },
+            "description": "Optional model and deterministic generation settings."
           },
           "output": {
             "type": "object",
             "additionalProperties": false,
-            "description": "Optional animation output settings.",
             "properties": {
               "mode": {
                 "type": "string",
@@ -443,15 +533,16 @@
               "name": {
                 "type": "string"
               }
-            }
+            },
+            "description": "Optional animation output settings."
           },
           "analysis_option": {
             "type": "object",
-            "description": "Optional analysis object for phase-track analysis. Legacy uniform keyframe_count/max_count controls are removed; Humanoid phase_track intervals and anchors are produced by the analyzer."
+            "description": "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."
           },
           "constraints": {
             "type": "array",
-            "description": "Point constraints and reusable root_path constraints for the generated clip.",
+            "description": "Point, root_path, and inout boundary constraints. In/Out sources are explicit Clips sampled in C#; command frames use 60 FPS.",
             "items": {
               "oneOf": [
                 {
@@ -729,6 +820,129 @@
                   "required": [
                     "root_path"
                   ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "inout": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "outside",
+                            "inside"
+                          ],
+                          "default": "outside",
+                          "description": "Outside pads generation with source context then crops it off; inside constrains the returned clip's start/end windows. Output duration is preserved."
+                        },
+                        "in": {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "object",
+                              "properties": {
+                                "clip": {
+                                  "type": "string",
+                                  "description": "Safe completed source Clip name in the current Session."
+                                },
+                                "character": {
+                                  "type": "string",
+                                  "description": "Defaults to the generation character; cross-character sources are not supported."
+                                },
+                                "frame": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Defaults: outside In=last model frame / Out=first; inside In=first / Out=last."
+                                }
+                              },
+                              "required": [
+                                "clip"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "window_frames": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "default": 1,
+                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; never silently shortened."
+                            },
+                            "sample_count": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "default": 1,
+                              "description": "Distinct samples within the converted window. One preserves the seam; multiple samples include both endpoints."
+                            }
+                          },
+                          "required": [
+                            "source"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "out": {
+                          "type": "object",
+                          "properties": {
+                            "source": {
+                              "type": "object",
+                              "properties": {
+                                "clip": {
+                                  "type": "string",
+                                  "description": "Safe completed source Clip name in the current Session."
+                                },
+                                "character": {
+                                  "type": "string",
+                                  "description": "Defaults to the generation character; cross-character sources are not supported."
+                                },
+                                "frame": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "description": "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Defaults: outside In=last model frame / Out=first; inside In=first / Out=last."
+                                }
+                              },
+                              "required": [
+                                "clip"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "window_frames": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "default": 1,
+                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; never silently shortened."
+                            },
+                            "sample_count": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "default": 1,
+                              "description": "Distinct samples within the converted window. One preserves the seam; multiple samples include both endpoints."
+                            }
+                          },
+                          "required": [
+                            "source"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [],
+                      "additionalProperties": false,
+                      "anyOf": [
+                        {
+                          "required": [
+                            "in"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "out"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "inout"
+                  ],
+                  "additionalProperties": false
                 }
               ]
             }
@@ -739,7 +953,100 @@
           "prompt"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Generate two seconds and poll the returned request_id.",
+          "arguments": {
+            "character": "<character>",
+            "prompt": "Stand still and breathe naturally",
+            "duration_frames": 120
+          }
+        },
+        {
+          "description": "Continue a source Clip using its final half-second sampled five times. Names must come from the current Session; the result contains inout_sampling diagnostics.",
+          "arguments": {
+            "character": "<character>",
+            "prompt": "Stop walking and stand upright",
+            "duration_frames": 120,
+            "loop": false,
+            "constraints": [
+              {
+                "inout": {
+                  "mode": "outside",
+                  "in": {
+                    "source": {
+                      "clip": "<source clip>"
+                    },
+                    "window_frames": 30,
+                    "sample_count": 5
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "description": "Use explicit previous/next Clips as context on both sides; crop context from the returned two-second output.",
+          "arguments": {
+            "character": "<character>",
+            "prompt": "Reach for the apple and pick it up",
+            "duration_frames": 120,
+            "loop": false,
+            "constraints": [
+              {
+                "inout": {
+                  "in": {
+                    "source": {
+                      "clip": "<previous clip>"
+                    },
+                    "window_frames": 30,
+                    "sample_count": 5
+                  },
+                  "out": {
+                    "source": {
+                      "clip": "<next clip>"
+                    },
+                    "window_frames": 12,
+                    "sample_count": 3
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "description": "Keep sampled opening and closing windows inside the returned Clip.",
+          "arguments": {
+            "character": "<character>",
+            "prompt": "Bend down then stand up",
+            "duration_frames": 120,
+            "loop": false,
+            "constraints": [
+              {
+                "inout": {
+                  "mode": "inside",
+                  "in": {
+                    "source": {
+                      "clip": "<reference clip>",
+                      "frame": 0
+                    },
+                    "window_frames": 12,
+                    "sample_count": 3
+                  },
+                  "out": {
+                    "source": {
+                      "clip": "<reference clip>"
+                    },
+                    "window_frames": 12,
+                    "sample_count": 3
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "pose_get",
@@ -777,7 +1084,20 @@
           "source"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Capture a source Clip's local frame at 60 FPS; reuse the returned {track,index}.",
+          "arguments": {
+            "source": {
+              "character": "<character>",
+              "clip": "<clip>",
+              "frame": 30
+            },
+            "full_data": true
+          }
+        }
+      ]
     },
     {
       "name": "pose_set",
@@ -814,49 +1134,149 @@
           "effector": {
             "type": "object",
             "additionalProperties": false,
-            "minProperties": 1,
             "properties": {
               "left_hand": {
                 "type": "object",
-                "description": "Effector target position and/or rotation.",
+                "additionalProperties": false,
                 "properties": {
-                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                  "position": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "rotation": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
                 },
-                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
-                "additionalProperties": false
+                "anyOf": [
+                  {
+                    "required": [
+                      "position"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "rotation"
+                    ]
+                  }
+                ],
+                "description": "Effector target position and/or rotation."
               },
               "right_hand": {
                 "type": "object",
-                "description": "Effector target position and/or rotation.",
+                "additionalProperties": false,
                 "properties": {
-                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                  "position": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "rotation": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
                 },
-                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
-                "additionalProperties": false
+                "anyOf": [
+                  {
+                    "required": [
+                      "position"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "rotation"
+                    ]
+                  }
+                ],
+                "description": "Effector target position and/or rotation."
               },
               "left_foot": {
                 "type": "object",
-                "description": "Effector target position and/or rotation.",
+                "additionalProperties": false,
                 "properties": {
-                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                  "position": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "rotation": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
                 },
-                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
-                "additionalProperties": false
+                "anyOf": [
+                  {
+                    "required": [
+                      "position"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "rotation"
+                    ]
+                  }
+                ],
+                "description": "Effector target position and/or rotation."
               },
               "right_foot": {
                 "type": "object",
-                "description": "Effector target position and/or rotation.",
+                "additionalProperties": false,
                 "properties": {
-                  "position": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
-                  "rotation": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+                  "position": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "type": "number"
+                    }
+                  },
+                  "rotation": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "number"
+                    }
+                  }
                 },
-                "anyOf": [{ "required": ["position"] }, { "required": ["rotation"] }],
-                "additionalProperties": false
+                "anyOf": [
+                  {
+                    "required": [
+                      "position"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "rotation"
+                    ]
+                  }
+                ],
+                "description": "Effector target position and/or rotation."
               }
-            }
+            },
+            "minProperties": 1
           }
         },
         "required": [
@@ -880,7 +1300,31 @@
           }
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Edit the root of the Pose slot returned by pose_get; position is in Character world space.",
+          "arguments": {
+            "pose": {
+              "track": "<returned pose track>",
+              "index": 0
+            },
+            "root": {
+              "position": [
+                0,
+                1,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        }
+      ]
     },
     {
       "name": "pose_set_root_transform",
@@ -916,7 +1360,25 @@
           "root"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Set a returned Pose slot's root position.",
+          "arguments": {
+            "pose": {
+              "track": "<returned pose track>",
+              "index": 0
+            },
+            "root": {
+              "position": [
+                0,
+                1,
+                0
+              ]
+            }
+          }
+        }
+      ]
     },
     {
       "name": "pose_set_muscle",
@@ -952,7 +1414,21 @@
           "muscles"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Edit the Spine Front-Back muscle of a returned Pose slot.",
+          "arguments": {
+            "pose": {
+              "track": "<returned pose track>",
+              "index": 0
+            },
+            "muscles": {
+              "Spine Front-Back": 0.1
+            }
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_get_generation",
@@ -969,7 +1445,15 @@
           "request_id"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Poll using the exact request_id returned by generation or installation.",
+          "arguments": {
+            "request_id": "11111111-1111-1111-1111-111111111111"
+          }
+        }
+      ]
     },
     {
       "name": "kimodo_cancel_generation",
@@ -990,7 +1474,16 @@
           "request_id"
         ],
         "additionalProperties": false
-      }
+      },
+      "examples": [
+        {
+          "description": "Cancel using the exact active generation request_id.",
+          "arguments": {
+            "request_id": "11111111-1111-1111-1111-111111111111",
+            "reason": "User requested cancellation"
+          }
+        }
+      ]
     }
   ]
 }

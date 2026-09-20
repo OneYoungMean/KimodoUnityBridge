@@ -519,7 +519,8 @@ namespace KimodoUnityBridge.Command
 
         private static KimodoPlayableClip CreateGenerationPlayableClip(
             TimelineGenerationTrace trace,
-            string prompt)
+            string prompt,
+            bool useExplicitInOut)
         {
             if (trace?.Session == null || trace.Character == null || trace.Character.Track == null)
             {
@@ -550,6 +551,13 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException("Timeline could not create a KimodoPlayableClip.");
             }
             playableClip.name = timelineClip.displayName;
+            if (useExplicitInOut)
+            {
+                // Explicit sources own the boundaries; retain point markers
+                // without inferring extra neighbors from Session layout.
+                playableClip.enableInConstraint = playableClip.enableOutConstraint = false;
+                playableClip.autoBeginAnchor = false;
+            }
             trace.TimelineClip = timelineClip;
             trace.PlayableClip = playableClip;
             trace.Animation = new TimelineAnimationRecord(
@@ -2418,6 +2426,7 @@ namespace KimodoUnityBridge.Command
             public double DurationSeconds { get; }
             public TimelineClip TimelineClip { get; set; }
             public KimodoPlayableClip PlayableClip { get; set; }
+            public JObject InOutSampling { get; set; }
             public TimelineAnimationRecord Animation { get; set; }
         }
 

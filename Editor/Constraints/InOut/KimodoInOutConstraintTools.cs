@@ -55,14 +55,24 @@ namespace KimodoBridge.Editor
             bool forward = (request.Mode == KimodoInOutConstraintMode.Inside) == isBegin;
             double first = ResolveWindowBoundaryTime(request, isBegin) - (forward ? 0 : (frames - 1) / fps);
             int exportStart = isBegin ? 0 : Math.Max(0, request.GenerationFrames - frames);
+            int[] sampleFrames = BuildWindowSampleFrames(frames, count, forward);
             for (int i = 0; i < count; i++)
             {
-                // A single sample always keeps the seam pose; two or more include both endpoints.
-                int frame = count == 1 ? (forward ? 0 : frames - 1)
-                    : (int)Math.Round(i * (frames - 1.0) / (count - 1), MidpointRounding.AwayFromZero);
+                int frame = sampleFrames[i];
                 timelineTimes[i] = first + frame / fps;
                 exportTimes[i] = (exportStart + frame) / fps;
             }
+        }
+
+        internal static int[] BuildWindowSampleFrames(int frames, int count, bool forward)
+        {
+            if (frames < 1 || count < 1 || count > frames)
+                throw new ArgumentOutOfRangeException(nameof(count), "Sample count must fit distinct frames in the window.");
+            var result = new int[count];
+            for (int i = 0; i < count; i++)
+                result[i] = count == 1 ? (forward ? 0 : frames - 1)
+                    : (int)Math.Round(i * (frames - 1.0) / (count - 1), MidpointRounding.AwayFromZero);
+            return result;
         }
 
         internal static bool TrySampleBoundaries(KimodoInOutConstraintRequest request,

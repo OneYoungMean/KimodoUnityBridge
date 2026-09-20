@@ -83,7 +83,8 @@ namespace KimodoUnityBridge.Command
             {
                 ["name"] = name,
                 ["description"] = description,
-                ["inputSchema"] = inputSchema
+                ["inputSchema"] = inputSchema,
+                ["examples"] = BuildCommandExamples(name)
             };
         }
 
@@ -363,8 +364,30 @@ namespace KimodoUnityBridge.Command
             {
                 ["type"] = "array",
                 ["description"] = description,
-                ["items"] = new JObject { ["oneOf"] = new JArray(sparseItem, rootPathItem) }
+                ["items"] = new JObject { ["oneOf"] = new JArray(sparseItem, rootPathItem, InOutConstraintSchema()) }
             }, false);
+        }
+
+        private static JObject InOutConstraintSchema()
+        {
+            JObject source = Properties(
+                Required("clip", "string", "Safe completed source Clip name in the current Session."),
+                Optional("character", "string", "Defaults to the generation character; cross-character sources are not supported."),
+                new PropertyDefinition("frame", new JObject { ["type"] = "integer", ["minimum"] = 0,
+                    ["description"] = "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Defaults: outside In=last model frame / Out=first; inside In=first / Out=last." }, false));
+            JObject side = Properties(
+                new PropertyDefinition("source", source, true),
+                new PropertyDefinition("window_frames", new JObject { ["type"] = "integer", ["minimum"] = 1, ["default"] = 1,
+                    ["description"] = "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; never silently shortened." }, false),
+                new PropertyDefinition("sample_count", new JObject { ["type"] = "integer", ["minimum"] = 1, ["default"] = 1,
+                    ["description"] = "Distinct samples within the converted window. One preserves the seam; multiple samples include both endpoints." }, false));
+            JObject config = Properties(
+                new PropertyDefinition("mode", new JObject { ["type"] = "string", ["enum"] = new JArray("outside", "inside"), ["default"] = "outside",
+                    ["description"] = "Outside pads generation with source context then crops it off; inside constrains the returned clip's start/end windows. Output duration is preserved." }, false),
+                new PropertyDefinition("in", (JObject)side.DeepClone(), false),
+                new PropertyDefinition("out", (JObject)side.DeepClone(), false));
+            config["anyOf"] = new JArray(new JObject { ["required"] = new JArray("in") }, new JObject { ["required"] = new JArray("out") });
+            return Properties(new PropertyDefinition("inout", config, true));
         }
 
         private static PropertyDefinition RequiredPoseSource(string name)

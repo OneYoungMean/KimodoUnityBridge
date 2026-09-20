@@ -181,6 +181,7 @@ namespace KimodoUnityBridge.Command
                 result["session_name"] = reservation.Session.Name;
                 result["start_frame"] = Mathf.RoundToInt((float)(reservation.StartSeconds * SessionFrameRate));
                 result["duration_frames"] = Mathf.RoundToInt((float)(reservation.DurationSeconds * SessionFrameRate));
+                if (reservation.InOutSampling != null) result["inout_sampling"] = reservation.InOutSampling.DeepClone();
                 if (reservation.Animation != null)
                 {
                     result["animation"] = reservation.Animation.Name;

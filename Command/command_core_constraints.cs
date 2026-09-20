@@ -100,6 +100,7 @@ namespace KimodoUnityBridge.Command
                     {
                         throw new InvalidOperationException($"constraints[{i}] must be an object.");
                     }
+                    if (constraint.Property("inout") != null) continue;
                     if (constraint["root_path"] is JObject)
                     {
                         if (constraint.Properties().Any(property =>

@@ -141,7 +141,7 @@ namespace KimodoUnityBridge.Command
                             OptionalGeneration(),
                             OptionalOutput(),
                             Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
-                            OptionalConstraints("constraints", "Point constraints and reusable root_path constraints for the generated clip."))),
+                            OptionalConstraints("constraints", "Point, root_path, and inout boundary constraints. In/Out sources are explicit Clips sampled in C#; command frames use 60 FPS."))),
                     CommandDefinition(PoseGetCommand,
                         "Sample one current-Session clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
                         Properties(
@@ -282,7 +282,8 @@ namespace KimodoUnityBridge.Command
                     {
                         ["name"] = item.Value<string>("name"),
                         ["description"] = item.Value<string>("description"),
-                        ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray()
+                        ["required"] = item["inputSchema"]?["required"]?.DeepClone() ?? new JArray(),
+                        ["examples"] = item["examples"]?.DeepClone() ?? new JArray()
                     })),
                     ["constraints"] = constraintManual["constraints"].DeepClone(),
                     ["constraint_rules"] = constraintManual["rules"].DeepClone()
@@ -324,6 +325,13 @@ namespace KimodoUnityBridge.Command
                     },
                     new JObject
                     {
+                        ["type"] = "inout",
+                        ["description"] = "Explicit source Clip windows sampled in C# into FullBody constraints. Outside adds and crops context; inside retains constrained windows within the output. Source times include Timeline offsets, clipIn, speed and blends.",
+                        ["shape"] = InOutConstraintSchema(),
+                        ["examples"] = BuildCommandExamples(GenerateAnimationCommand)
+                    },
+                    new JObject
+                    {
                         ["type"] = "root_path",
                         ["description"] = "A reusable analyzed Root Path compiled to root2d constraints during generation.",
                         ["shape"] = new JObject
@@ -337,7 +345,11 @@ namespace KimodoUnityBridge.Command
                 {
                     "At the same frame, fullbody supplies the base pose, root2d overrides RootTQ, and hand/foot effector channels override their matching protocol fields.",
                     "Use animation_analyze, then reference clips[].root_trajectory.path from root_path.",
-                    "An explicit root2d at a frame overrides root_path at that frame."
+                    "An explicit root2d at a frame overrides root_path at that frame.",
+                    "At most one standalone inout entry; in/out each require an explicit completed source Clip. Source character defaults to the generation character and must be the same character.",
+                    "In/Out window_frames and source.frame use 60 FPS. Windows round up to model frames; sample_count must fit distinct model frames. One sample uses the seam; multiple samples include both endpoints.",
+                    "In/Out rejects short sources, overlapping inside windows, conflicting point samples, unsupported ARDY models, loop generation, and runtime duration above the model limit. It does not silently clamp or downgrade.",
+                    "inout_sampling is returned on acceptance and polling, with source times, output/runtime model frames, context counts and the exclusive crop range. Padding/cropping is automatic; the final requested duration is preserved."
                 }
             };
         }
@@ -623,7 +635,9 @@ namespace KimodoUnityBridge.Command
                 }
 
                 TimelineGenerationTrace trace = PrepareGenerationTrace(arguments, character, duration);
-                KimodoPlayableClip playableClip = CreateGenerationPlayableClip(trace, requestedAnimationName);
+                KimodoExternalConstraintRequest inOutConstraints = BuildCommandInOutConstraints(
+                    arguments, trace, modelName, frameCount, frameRate, loopRequested || loopFallback, poseConstraints);
+                KimodoPlayableClip playableClip = CreateGenerationPlayableClip(trace, requestedAnimationName, inOutConstraints != null);
                 playableClip.bridgeModelName = modelName;
                 playableClip.textEncoderMode = textEncoderMode;
                 playableClip.motionPrompt = prompt;
@@ -667,6 +681,7 @@ namespace KimodoUnityBridge.Command
                             return await ExecutePlayableClipGenerationAsync(
                                 playableClip,
                                 trace,
+                                inOutConstraints,
                                 character.Target,
                                 generationSession,
                                 token);
@@ -701,6 +716,7 @@ namespace KimodoUnityBridge.Command
                     startedResponse["session_name"] = trace.Session.Name;
                     startedResponse["start_frame"] = Mathf.RoundToInt((float)(trace.StartSeconds * SessionFrameRate));
                     startedResponse["duration_frames"] = Mathf.RoundToInt((float)(trace.DurationSeconds * SessionFrameRate));
+                    if (trace.InOutSampling != null) startedResponse["inout_sampling"] = trace.InOutSampling.DeepClone();
                 }
                 if (loopRequested)
                 {
@@ -775,13 +791,14 @@ namespace KimodoUnityBridge.Command
         private static async Task<KimodoEditorGenerationResult> ExecutePlayableClipGenerationAsync(
             KimodoPlayableClip playableClip,
             TimelineGenerationTrace trace,
+            KimodoExternalConstraintRequest inOutConstraints,
             UnityEngine.Object target,
             KimodoEditorGenerationJobSession session,
             CancellationToken token)
         {
             KimodoEditorGenerationResult result = await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
                 playableClip,
-                externalConstraint: null,
+                externalConstraint: inOutConstraints,
                 (stage, message) => KimodoEditorGenerationJobService.UpdateProgress(target, session.RequestId, stage, message),
                 token,
                 trace.TimelineClip);

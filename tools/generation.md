@@ -17,6 +17,14 @@ Session is a generation workspace, not the final playback Timeline. These contro
 
 ## Decision program / 决策程序
 
+Command generation also accepts one standalone `constraints[].inout` entry. Read `kimodo_help(command="kimodo_generate_animation")` for its closed schema and examples. Each enabled `in`/`out` explicitly names `source.clip`; `source.character` defaults to the generation character and must match it. Sources are completed Session Clips; never infer a neighbor from Session layout. `source.frame` is optional and relative to the Clip's played range, including its speed and trim.
+
+Command `window_frames` and `source.frame` use **60 FPS**, unlike the Timeline UI controls above. C# converts a window with `ceil(window_frames * model_fps / 60)` (minimum one model frame), samples complete poses including Timeline transforms, then uses the shared Character → Track → Muscle → Kimodo export. `outside` (default) samples the In source tail and Out source head as extra context and crops it off; `inside` samples the source head/tail into the output's first/last windows. Sources may be explicitly chosen from any completed Clip on the same character; they do not need to neighbor the output in the Session.
+
+Command In/Out rejects insufficient source ranges, too many samples for distinct model frames, overlapping inside windows, same-frame explicit constraints, cross-character sources, loop generation, ARDY, and requests exceeding the model frame limit including context. These checks do not silently shorten or downgrade the request. Acceptance and `kimodo_get_generation` return `inout_sampling`: source-local and Timeline sample times, output/runtime model frames, padding counts, and the exclusive crop range. The output retains the requested duration. This metadata verifies sampling and transport, not visual seam quality.
+
+Every command's help entry includes `examples`. Replace illustrative names and request IDs with actual returned handles before executing them.
+
 ```pseudo
 #define YES             1
 #define NO              0
