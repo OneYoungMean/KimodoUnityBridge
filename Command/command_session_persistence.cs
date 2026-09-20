@@ -31,7 +31,6 @@ namespace KimodoUnityBridge.Command
         public List<KimodoCommandCharacterMetadata> characters = new List<KimodoCommandCharacterMetadata>();
         public List<KimodoCommandAnimationMetadata> animations = new List<KimodoCommandAnimationMetadata>();
         public List<KimodoCommandGenerationMetadata> generations = new List<KimodoCommandGenerationMetadata>();
-        public List<KimodoCommandAnimatorImportMetadata> animatorImports = new List<KimodoCommandAnimatorImportMetadata>();
     }
 
     [Serializable]
@@ -59,8 +58,6 @@ namespace KimodoUnityBridge.Command
         public int logicalEndFrameExclusive;
         public int startFrame;
         public int endFrameExclusive;
-        public string animatorImportName;
-        public string importKey;
     }
 
     [Serializable]
@@ -82,14 +79,6 @@ namespace KimodoUnityBridge.Command
         public string error;
         public string startedAtUtc;
         public string updatedAtUtc;
-    }
-
-    [Serializable]
-    internal sealed class KimodoCommandAnimatorImportMetadata
-    {
-        public string characterRef;
-        public string sourceAnimatorRef;
-        public string name;
     }
 
     internal static partial class command_context
@@ -132,13 +121,6 @@ namespace KimodoUnityBridge.Command
                 poseCacheTrackName = character.PoseCacheTrack != null ? character.PoseCacheTrack.name : string.Empty
             }).ToList();
             metadata.animations = new List<KimodoCommandAnimationMetadata>();
-            metadata.animatorImports = session.Characters.SelectMany(character => character.AnimatorImports.Select(imported =>
-                new KimodoCommandAnimatorImportMetadata
-                {
-                    characterRef = character.CharacterRef,
-                    sourceAnimatorRef = imported.SourceAnimatorRef,
-                    name = imported.Name
-                })).ToList();
             foreach (TimelineCharacterRecord character in session.Characters)
             foreach (TimelineAnimationRecord animation in character.Animations)
             {
@@ -176,8 +158,6 @@ namespace KimodoUnityBridge.Command
                     logicalEndFrameExclusive = Mathf.RoundToInt((float)(animation.TimelineEndSeconds * SessionFrameRate)),
                     startFrame = animation.StartFrame,
                     endFrameExclusive = animation.EndFrameExclusive,
-                    animatorImportName = animation.AnimatorImportName,
-                    importKey = animation.ImportKey,
                 });
             }
             PersistSessionJson(session, metadata);
@@ -252,7 +232,6 @@ namespace KimodoUnityBridge.Command
                     animationJson["motion_path"] = persisted?.kmbPath ?? string.Empty;
                     animationJson["analysis_start_frame"] = animation.StartFrame;
                     animationJson["analysis_end_frame_exclusive"] = animation.EndFrameExclusive;
-                    animationJson["animator_import_name"] = animation.AnimatorImportName ?? string.Empty;
                     animationJson["kind"] = animation.Kind;
                     if (animation.Transition != null)
                     {
@@ -504,12 +483,6 @@ namespace KimodoUnityBridge.Command
                     if (animator != null) director.SetGenericBinding(track, animator);
                     session.Characters.Add(character);
                 }
-                foreach (KimodoCommandAnimatorImportMetadata imported in metadata.animatorImports ?? new List<KimodoCommandAnimatorImportMetadata>())
-                {
-                    TimelineCharacterRecord character = session.Characters.FirstOrDefault(item =>
-                        string.Equals(item.CharacterRef, imported.characterRef, StringComparison.Ordinal));
-                    if (character != null) character.AnimatorImports.Add(new AnimatorImportRecord(imported.sourceAnimatorRef, imported.name));
-                }
                 foreach (KimodoCommandAnimationMetadata saved in metadata.animations ?? new List<KimodoCommandAnimationMetadata>())
                 {
                     TimelineCharacterRecord character = session.Characters.FirstOrDefault(item => string.Equals(item.CharacterRef, saved.characterRef, StringComparison.Ordinal));
@@ -546,11 +519,7 @@ namespace KimodoUnityBridge.Command
                     JObject analysis = File.Exists(saved.analysisPath) ? JObject.Parse(File.ReadAllText(saved.analysisPath)) : null;
                     byte[] kmb = File.Exists(saved.kmbPath) ? File.ReadAllBytes(saved.kmbPath) : null;
                     JObject transition = string.IsNullOrWhiteSpace(saved.transitionJson) ? null : JObject.Parse(saved.transitionJson);
-                    var restoredAnimation = new TimelineAnimationRecord(animationId, string.IsNullOrWhiteSpace(saved.name) ? clip.displayName : saved.name, saved.source, animationClip, clip, analysis, kmb, saved.startFrame, saved.endFrameExclusive)
-                    {
-                        AnimatorImportName = saved.animatorImportName ?? string.Empty,
-                        ImportKey = saved.importKey ?? string.Empty
-                    };
+                    var restoredAnimation = new TimelineAnimationRecord(animationId, string.IsNullOrWhiteSpace(saved.name) ? clip.displayName : saved.name, saved.source, animationClip, clip, analysis, kmb, saved.startFrame, saved.endFrameExclusive);
                     restoredAnimation.ConfigureComposite(saved.kind, segments, transition);
                     character.Animations.Add(restoredAnimation);
                     character.NextStartSeconds = Math.Max(

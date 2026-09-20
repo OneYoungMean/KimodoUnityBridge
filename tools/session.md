@@ -1,20 +1,16 @@
 ---
-name: kimodo-session
-description: Prepare, reuse, and close the current animation Session and load only explicitly requested content.
+name: kimodo-scene-context
+description: Resolve and reuse the hidden automatic context shared by Kimodo commands.
 ---
 
-# Session tool / Session 工具
+# Scene context / 场景上下文
 
-负责 `session_get_or_create`、`session_add` 和 `session_close` 的生命周期编排。
+Kimodo commands no longer expose Session creation, switching, raw lookup, or closing. Each command resolves the active Unity scene and reuses one hidden automatic context for Timeline evaluation, generation, analysis, and pose sampling.
 
-`session_get_or_create` 会立即建立专用可见 Session GameObject（角色容器与 Timeline Director）。Session 不创建灯光；灯光仅可由分析截图流程临时创建，并在每次渲染完成后销毁。加入角色时复制源对象到该对象下，保留源角色组件（包括已有的 `CharacterController`），仅清空 Session 副本的 `Animator.runtimeAnimatorController`；源场景对象不会被用于后续评估或渲染。
+- Scene characters are resolved from the active scene and the selected/open `Animator` when available.
+- Existing clips remain immutable; generation, analysis, retargeting, and corrections append derived assets.
+- Returned character and animation names, `{track,index}` pose references, and project-relative paths are the only handles passed between commands.
+- Do not invoke removed lifecycle or raw lookup commands; the command surface resolves scene context automatically.
+- Scene changes, Editor reloads, and Play Mode transitions can cancel active generation requests and must be reported.
 
-Session 不再创建或切换 Unity Preview Scene。每个 Session 使用一个不保存的根 GameObject；切换时禁用旧根对象。`session_close` 的 `keepObject` 默认为 `true`，保留并禁用根对象及 Director；设为 `false` 时销毁整个 Session 根对象及其子对象。Timeline、资产和 Session JSON 保留，可用原名称重新打开 Session。
-
-- 新 Session 默认为空；只添加请求明确指定的角色、Clip 或 Animator。
-- `kind=character` 的角色必须从当前活动场景中用户打开/选中的 `Animator` 所属对象解析；调用 `session_get_or_create` 或 `session_add` 时使用 `character="@active_animator"`，不要根据默认 prefab、外部资产路径或磁盘中同名资产替代它。优先使用已有 prefab 实例；只有对象不是 prefab 时，才在请求的输出目录创建一个 prefab，不得创建已有 prefab 的持久化副本。
-- 始终复用运行时返回的安全名称，不用文件名、显示标签或猜测名称替代。
-- 切换或关闭 Session 可能取消活动生成；有活动任务时先读取其状态并在报告中说明影响。
-- `session_close` 只关闭编辑上下文，保留 Timeline、资产和 Session JSON。
-
-输出至少包含 `session_id`、已加载对象的安全名称和运行时警告。
+The hidden context may persist internal metadata for reliable polling and analysis caching. That metadata is an implementation detail and is not a public query API.

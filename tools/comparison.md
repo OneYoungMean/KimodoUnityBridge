@@ -1,6 +1,6 @@
 ---
 name: kimodo-animation-comparison
-description: Compare two Session animations under identical visual and structured evidence conditions.
+description: Compare two scene animations under identical visual and structured evidence conditions.
 ---
 
 # Comparison tool / Comparison 工具
@@ -49,10 +49,10 @@ TARGET_SEMANTICS = OPTIONAL("<requested action semantics / 指定动作语义>")
 #define OVERALL_WINNER           UNKNOWN
 
 function compare(candidate_1, candidate_2):
-    session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
+    context = resolve_scene_context()
 
-    candidate_1 = ensure_loaded_with_session_add(session, candidate_1)
-    candidate_2 = ensure_loaded_with_session_add(session, candidate_2)
+    candidate_1 = resolve_scene_candidate(candidate_1)
+    candidate_2 = resolve_scene_candidate(candidate_2)
 
     analysis = animation_analyze({
         clips: [
@@ -244,22 +244,9 @@ function compare_one_quality_criterion(CRITERION, candidate_1, candidate_2, targ
         "reason": "one concise fact"
     }
 
-function ensure_loaded_with_session_add(session, candidate):
-    if candidate.character is not in session.session.characters:
-        added_character = session_add({
-            kind: "character",
-            character: candidate.character
-        })
-        candidate.character = added_character.character.name
-
-    if candidate.clip is not under candidate.character:
-        added_clip = session_add({
-            kind: "clip",
-            character: candidate.character,
-            clip: candidate.clip
-        })
-        candidate.clip = added_clip.animation.name
-
+function resolve_scene_candidate(candidate):
+    candidate.character = resolve_scene_character(candidate.character)
+    candidate.clip = resolve_scene_clip(candidate.character, candidate.clip)
     return candidate
 
 function required_criterion_winners():

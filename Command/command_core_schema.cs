@@ -27,12 +27,7 @@ namespace KimodoUnityBridge.Command
             {
                 [HelpCommand] = GetCommandHelp,
                 [InstallServerCommand] = InstallServer,
-                [SessionGetOrCreateCommand] = SessionGetOrCreate,
-                [SessionGetRawCommand] = SessionGetRaw,
-                [SessionCloseCommand] = SessionClose,
-                [SessionAddCommand] = SessionAdd,
                 [AnimationAnalyzeCommand] = AnimationAnalyze,
-                [RecordRangeCommand] = RecordRange,
                 [RetargetAnimationCommand] = RetargetAnimation,
                 [GenerateAnimationCommand] = GenerateAnimationAsset,
                 [PoseGetCommand] = PoseGet,
@@ -225,7 +220,7 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition("clips", new JObject
             {
                 ["type"] = "array",
-                ["description"] = "Exactly one immutable Session clip reference. Comparison callers analyze each candidate separately.",
+                ["description"] = "Exactly one immutable animation clip reference. Comparison callers analyze each candidate separately.",
                 ["minItems"] = 1,
                 ["maxItems"] = 1,
                 ["items"] = new JObject
@@ -371,7 +366,7 @@ namespace KimodoUnityBridge.Command
         private static JObject InOutConstraintSchema()
         {
             JObject source = Properties(
-                Required("clip", "string", "Safe completed source Clip name in the current Session."),
+                Required("clip", "string", "Safe completed source Clip name in the current scene context."),
                 Optional("character", "string", "Defaults to the generation character; cross-character sources are not supported."),
                 new PropertyDefinition("frame", new JObject { ["type"] = "integer", ["minimum"] = 0,
                     ["description"] = "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Defaults: outside In=last model frame / Out=first; inside In=first / Out=last." }, false));
@@ -466,7 +461,7 @@ namespace KimodoUnityBridge.Command
             return new JObject
             {
                 ["type"] = "object",
-                ["description"] = "External Pose slot in the current Session.",
+                ["description"] = "External Pose slot in the current scene context.",
                 ["additionalProperties"] = false,
                 ["properties"] = new JObject
                 {

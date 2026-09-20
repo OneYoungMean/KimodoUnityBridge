@@ -1,6 +1,6 @@
 ---
 name: kimodo-animation-recognition
-description: Identify a Session animation's semantic action from visual evidence and expose the motion profile needed by generation.
+description: Identify a scene animation's semantic action from visual evidence and expose the motion profile needed by generation.
 ---
 
 # Recognition tool / Recognition 工具
@@ -202,9 +202,9 @@ owns any external answer-label or scoring format.
 
 ```pseudo
 function identify_semantics(alternatives, character_ref, clip_ref):
-    session = session_get_or_create({name: OPTIONAL_SESSION_NAME})
-    character = ensure_character_in_session(session, character_ref)
-    clip = ensure_clip_in_session(session, character, clip_ref)
+    context = resolve_scene_context()
+    character = resolve_scene_character(character_ref)
+    clip = resolve_scene_clip(character, clip_ref)
     analysis = animation_analyze({
         clips: [{role: "source", character: character, clip: clip}],
         picture: {"output": "composite"},

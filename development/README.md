@@ -9,7 +9,7 @@
 - [`plan.md`](plan.md)：文档与兼容性维护计划。
 - [`KIMODO_CPP_INTEGRATION_TODO.md`](KIMODO_CPP_INTEGRATION_TODO.md)：原生后端接入 TODO。
 - 根目录 [`SKILL.md`](../SKILL.md)：安装门槛、任务入口、能力工具编排和公共执行规则。
-- [`tools/*.md`](../tools/)：公共规则，以及 Session、generation、recognition、comparison、pose 和派生输出等能力工具。
+- [`tools/*.md`](../tools/)：公共规则，以及场景上下文、generation、recognition、comparison、pose 和派生输出等能力工具。
 - [`Command/help.json`](../Command/help.json)：实时命令与参数 schema。
 
 ## 交接说明

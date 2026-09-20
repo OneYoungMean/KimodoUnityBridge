@@ -914,7 +914,7 @@ namespace KimodoUnityBridge.Command
             string path = AnalysisCachePath(session, id);
             if (!File.Exists(path))
             {
-                throw new InvalidOperationException($"Unknown analysis_id '{id}' in the selected Session.");
+                throw new InvalidOperationException($"Unknown analysis_id '{id}' in the current scene context.");
             }
             cached = AnalysisCacheRecord.FromJson(JObject.Parse(File.ReadAllText(path)));
             if (!string.Equals(cached.SessionId, session.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))

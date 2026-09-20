@@ -4,23 +4,22 @@
 >
 > 当前文件只是临时开发快照。日常任务从 [SKILL.md](../SKILL.md) 路由，命令定义位于 [Command/help.json](../Command/help.json)。
 
-## Current command surface (主要命令面；不含 raw 互操作命令)
+## Current command surface (主要命令面)
 
 The maintained public commands are:
 
 - Startup and discovery: `kimodo_install_server`, `kimodo_help` (`kimodo_install_server` starts an asynchronous project-local installation task and returns `install:<guid>`; poll it with `kimodo_get_generation`)
-- Session/content: `session_get_or_create`, `session_add`, `session_close`
+- Scene context: commands resolve the active scene and reuse one hidden automatic context; there is no public context lifecycle command
 - Async tasks: `kimodo_generate_animation` returns a generation `request_id`; `kimodo_get_generation` polls either task type; `kimodo_cancel_generation` cancels generation only
 - Analysis/evidence: `animation_analyze`
 - Pose editing: `pose_get`, `pose_set` (or the focused root/muscle setters)
-- Asset output: `kimodo_record_range`, `kimodo_retarget_animation`
+- Asset output: `kimodo_retarget_animation`
 
 ## Current boundaries
 
-- A new Session is empty. Add a scene Humanoid Animator or renderable Mesh explicitly with `session_add(kind:"character")`; add clips or Animator content explicitly. A Mesh-only character rejects Humanoid clips, while a Humanoid target retargets a generic clip before appending it.
-- Completed Session Clips are immutable. Corrections, recordings, retargets, and generated variants append new Clips rather than replacing an existing Clip.
-- `animation_analyze` accepts one explicit Session clip and returns numeric analysis plus unified graph-space picture evidence. `picture.tiles` selects standard tile types and `picture.output` chooses a composite PNG, independent tile PNGs, or both. Mesh-only targets do not provide Humanoid contact semantics.
-- `session_add(kind:"animator")` imports supported state Clip candidates and materializes supported same-Layer State-to-State transitions as logical `transition_clip` records. It does not bake transition AnimationClip assets; unsupported Any State, Entry, Exit, StateMachine, and OverrideController transitions are reported as skipped.
+- Commands resolve a scene Humanoid Animator or renderable Mesh directly into the hidden automatic context. A Mesh-only character rejects Humanoid clips, while a Humanoid target retargets a generic clip before appending it.
+- Completed Clips are immutable. Corrections, retargets, and generated variants append new Clips rather than replacing an existing Clip.
+- `animation_analyze` accepts one explicit scene clip and returns numeric analysis plus unified graph-space picture evidence. `picture.tiles` selects standard tile types and `picture.output` chooses a composite PNG, independent tile PNGs, or both. Mesh-only targets do not provide Humanoid contact semantics.
 - Root2D, fullbody, and pose-based hand/foot constraints are supplied through `kimodo_generate_animation.constraints`. Humanoid analysis stores and returns a reusable Root Path consumed through `root_path`; Path Override can regenerate with the same seed from absolute Unity-yaw begin/end angles, preserve the baseline path length, and coexist with loop generation. An absolute heading override runs last at 30-frame intervals, replacing Root2D headings without changing the composed Root XZ positions; when Path Override is active, it rewrites that Root2D record instead of appending a duplicate. Generation and Pose sampling require a valid Humanoid Avatar; Mesh-only characters are analysis-only. There is no standalone root-transform application command.
 - `pose_get` creates a new External Pose marker for a Humanoid character. Edit it with `pose_set_root_transform` or `pose_set_muscle`.
 
@@ -32,4 +31,4 @@ The maintained public commands are:
 ## Verification items
 
 - Run a Unity Editor compile/import check after documentation and command-surface changes.
-- Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Closing or switching a Session cancels its active generations. Keep Foot IK/Raycast or other unexposed capabilities documented as boundaries unless a public command and project asset prove them.
+- Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Scene changes and Editor reloads may cancel active generations. Keep Foot IK/Raycast or other unexposed capabilities documented as boundaries unless a public command and project asset prove them.
