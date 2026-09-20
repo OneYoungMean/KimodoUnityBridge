@@ -225,7 +225,6 @@ namespace KimodoUnityBridge.Command
             director.playableAsset = timelineAsset;
             director.time = 0.0;
 
-            CreateSessionBasics(sessionRoot, safeName);
             var record = new TimelineSessionRecord(Guid.Parse(metadata.sessionId), name, director, timelineAsset, assetPath, isAutomatic, metadata, sessionRoot);
 
             PersistTimelineSessionMetadata(record);
@@ -250,18 +249,6 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException(error);
             }
-        }
-
-        internal static void CreateSessionBasics(GameObject sessionRoot, string safeName)
-        {
-            if (sessionRoot == null) return;
-            GameObject lightObject = new GameObject($"Kimodo_PreviewLight_{safeName}");
-            lightObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            lightObject.transform.SetParent(sessionRoot.transform, false);
-            Light light = lightObject.AddComponent<Light>();
-            light.type = LightType.Directional;
-            light.intensity = IsBuiltInCapturePipeline() ? .25f : 1f;
-            light.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
         }
 
         private static GameObject CloneCharacterToSession(TimelineSessionRecord session, GameObject source)

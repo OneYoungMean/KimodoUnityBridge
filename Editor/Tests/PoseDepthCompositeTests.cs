@@ -43,15 +43,19 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(first.g, Is.GreaterThan(.6f), "Transparent ghost tint must be alpha blended over the base layer.");
 
                 Texture2D path = MakeImage(new Color(0f, 0f, 1f, .75f), Color.clear);
+                Texture2D pathDepth = MakeImage(new Color(.5f, 0f, 0f, 1f), Color.clear);
                 try
                 {
                     int blend = shader.FindKernel("BlendLayer");
-                    shader.SetTexture(blend, "_LayerColor", path); shader.SetTexture(blend, "_AccumColor", accum);
+                    shader.SetTexture(blend, "_LayerColor", path);
+                    shader.SetTexture(blend, "_LayerDepth", pathDepth);
+                    shader.SetInt("_UseLayerDepth", 1);
+                    shader.SetTexture(blend, "_AccumColor", accum);
                     shader.Dispatch(blend, 1, 1, 1);
                     Color withPath = ReadPixel(accum);
                     Assert.That(withPath.b, Is.GreaterThan(0f), "Trajectory/path layer must remain visible.");
                 }
-                finally { Object.DestroyImmediate(path); }
+                finally { Object.DestroyImmediate(path); Object.DestroyImmediate(pathDepth); }
             }
             finally
             {

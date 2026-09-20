@@ -436,120 +436,91 @@ namespace KimodoUnityBridge.Command
 
         }
 
-        private static void TintPreview(GameObject preview, Color tint, List<Material> transientMaterials)
+        private const string AnalysisColorShaderName = "Kimodo/AnalysisUnlit";
+
+        private static Material CreateAnalysisColorMaterial(Material source, Color tint, float alpha)
         {
-            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
+            Shader shader = Shader.Find(AnalysisColorShaderName);
+            if (shader == null)
             {
-                Material[] sourceMaterials = renderer.sharedMaterials;
-                if (sourceMaterials == null)
-                {
-                    continue;
-                }
-
-                Material[] replacements = null;
-                for (int index = 0; index < sourceMaterials.Length; index++)
-                {
-                    Material material = sourceMaterials[index];
-                    if (material == null) continue;
-
-                    Shader fallbackShader = ResolvePoseFallbackShader(material.shader);
-                    if (fallbackShader != null)
-                    {
-                        replacements ??= (Material[])sourceMaterials.Clone();
-                        Material replacement = new Material(fallbackShader)
-                        {
-                            hideFlags = HideFlags.HideAndDontSave
-                        };
-                        CopyPoseMaterialProperties(material, replacement);
-                        replacements[index] = replacement;
-                        transientMaterials?.Add(replacement);
-                    }
-                }
-                if (replacements != null)
-                {
-                    renderer.sharedMaterials = replacements;
-                }
-
-                Material[] materials = renderer.sharedMaterials;
-                for (int index = 0; index < materials.Length; index++)
-                {
-                    Material material = materials[index];
-                    if (material == null) continue;
-                    MaterialPropertyBlock block = new MaterialPropertyBlock();
-                    renderer.GetPropertyBlock(block, index);
-                    Color source = material.HasProperty("_BaseColor")
-                        ? material.GetColor("_BaseColor")
-                        : material.HasProperty("_Color")
-                            ? material.GetColor("_Color")
-                            : material.HasProperty("_TintColor")
-                                ? material.GetColor("_TintColor")
-                                : Color.white;
-                    // Apply tint as a colour multiplier so a white tint keeps
-                    // the source palette intact. The previous near-total lerp
-                    // washed every source material to white, especially when a
-                    // fallback shader exposed a default white _Color.
-                    Color blended = new Color(
-                        source.r * tint.r,
-                        source.g * tint.g,
-                        source.b * tint.b,
-                        source.a);
-                    if (material.HasProperty("_BaseColor")) block.SetColor("_BaseColor", blended);
-                    else if (material.HasProperty("_Color")) block.SetColor("_Color", blended);
-                    else if (material.HasProperty("_TintColor")) block.SetColor("_TintColor", blended);
-                    else continue;
-                    renderer.SetPropertyBlock(block, index);
-                }
+                throw new InvalidOperationException(
+                    "Kimodo analysis shader is missing: Kimodo/AnalysisUnlit");
             }
-        }
 
-        private static Shader ResolvePoseFallbackShader(Shader sourceShader)
-        {
-            if (sourceShader == null) return null;
-            string sourceName = sourceShader.name ?? string.Empty;
-            bool isStandard = string.Equals(sourceName, "Standard", StringComparison.Ordinal) ||
-                string.Equals(sourceName, "Standard (Specular setup)", StringComparison.Ordinal);
-            bool isUrpLit = string.Equals(sourceName, "Universal Render Pipeline/Lit", StringComparison.Ordinal);
-            bool isHdrpLit = string.Equals(sourceName, "HDRP/Lit", StringComparison.Ordinal);
-
-            RenderPipelineAsset pipeline = GraphicsSettings.currentRenderPipeline;
-            string pipelineName = pipeline?.GetType().FullName ?? string.Empty;
-            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRenderPipeline", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            string targetName = null;
-            if (isHdrp && (isStandard || isUrpLit)) targetName = "HDRP/Lit";
-            else if (isUrp && isStandard) targetName = "Universal Render Pipeline/Lit";
-            else if (!isHdrp && !isUrp && (isHdrpLit || isUrpLit)) targetName = "Standard";
-            if (targetName == null) return null;
-
-            Shader target = Shader.Find(targetName);
-            return target != null && target.isSupported ? target : null;
-        }
-
-        private static void CopyPoseMaterialProperties(Material source, Material target)
-        {
-            if (source == null || target == null) return;
+            var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             Texture texture = null;
-            if (source.HasProperty("_BaseColorMap")) texture = source.GetTexture("_BaseColorMap");
-            if (texture == null && source.HasProperty("_BaseMap")) texture = source.GetTexture("_BaseMap");
-            if (texture == null && source.HasProperty("_MainTex")) texture = source.GetTexture("_MainTex");
+            if (source != null && source.HasProperty("_BaseColorMap")) texture = source.GetTexture("_BaseColorMap");
+            if (texture == null && source != null && source.HasProperty("_BaseMap")) texture = source.GetTexture("_BaseMap");
+            if (texture == null && source != null && source.HasProperty("_MainTex")) texture = source.GetTexture("_MainTex");
             if (texture != null)
             {
-                if (target.HasProperty("_BaseColorMap")) target.SetTexture("_BaseColorMap", texture);
-                if (target.HasProperty("_BaseMap")) target.SetTexture("_BaseMap", texture);
-                if (target.HasProperty("_MainTex")) target.SetTexture("_MainTex", texture);
+                material.SetTexture("_BaseColorMap", texture);
+                material.SetTexture("_BaseMap", texture);
+                material.SetTexture("_MainTex", texture);
             }
+            Texture normal = null;
+            if (source != null && source.HasProperty("_NormalMap")) normal = source.GetTexture("_NormalMap");
+            if (normal == null && source != null && source.HasProperty("_BumpMap")) normal = source.GetTexture("_BumpMap");
+            if (normal != null) material.SetTexture("_NormalMap", normal);
+            Texture mask = source != null && source.HasProperty("_MaskMap") ? source.GetTexture("_MaskMap") : null;
+            if (mask != null) material.SetTexture("_MaskMap", mask);
 
-            Color color = source.HasProperty("_BaseColor")
-                ? source.GetColor("_BaseColor")
-                : source.HasProperty("_Color") ? source.GetColor("_Color") : Color.white;
-            if (target.HasProperty("_BaseColor")) target.SetColor("_BaseColor", color);
-            if (target.HasProperty("_Color")) target.SetColor("_Color", color);
-            if (source.HasProperty("_Cutoff") && target.HasProperty("_Cutoff"))
+            Color sourceColor = Color.white;
+            if (source != null)
             {
-                target.SetFloat("_Cutoff", source.GetFloat("_Cutoff"));
+                if (source.HasProperty("_BaseColor")) sourceColor = source.GetColor("_BaseColor");
+                else if (source.HasProperty("_Color")) sourceColor = source.GetColor("_Color");
+                else if (source.HasProperty("_TintColor")) sourceColor = source.GetColor("_TintColor");
             }
+            // Keep the source palette in the base colour and apply the ghost
+            // tint once in the analysis shader.
+            material.SetColor("_BaseColor", sourceColor);
+            material.SetColor("_Color", sourceColor);
+            material.SetColor("_TintColor", sourceColor);
+            material.SetColor("_GhostTint", tint);
+            material.SetFloat("_GhostAlpha", Mathf.Clamp01(alpha));
+            if (source != null && source.HasProperty("_Cutoff")) material.SetFloat("_Cutoff", source.GetFloat("_Cutoff"));
+            // Analysis captures use a matte, non-metallic surface so source
+            // material highlights do not overpower the pose evidence.
+            material.SetFloat("_Metallic", 0f);
+            material.SetFloat("_Smoothness", 0f);
+            material.SetFloat("_Roughness", 1f);
+            return material;
+        }
+
+        private static void ApplyAnalysisMaterials(
+            GameObject preview,
+            Color tint,
+            float alpha,
+            List<Material> transientMaterials,
+            List<Tuple<Renderer, Material[]>> originalMaterials = null)
+        {
+            if (preview == null) return;
+            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer == null) continue;
+                Material[] sourceMaterials = renderer.sharedMaterials;
+                if (sourceMaterials == null || sourceMaterials.Length == 0) sourceMaterials = new[] { (Material)null };
+                originalMaterials?.Add(Tuple.Create(renderer, sourceMaterials));
+                var replacements = new Material[sourceMaterials.Length];
+                for (int index = 0; index < sourceMaterials.Length; index++)
+                {
+                    Material replacement = CreateAnalysisColorMaterial(sourceMaterials[index], tint, alpha);
+                    replacements[index] = replacement;
+                    transientMaterials?.Add(replacement);
+                }
+                renderer.sharedMaterials = replacements;
+            }
+        }
+
+        private static void RestoreAnalysisMaterials(List<Tuple<Renderer, Material[]>> originalMaterials)
+        {
+            if (originalMaterials == null) return;
+            foreach (Tuple<Renderer, Material[]> item in originalMaterials)
+            {
+                if (item.Item1 != null) item.Item1.sharedMaterials = item.Item2;
+            }
+            originalMaterials.Clear();
         }
 
         private sealed class TestVirtualPose
@@ -633,8 +604,18 @@ namespace KimodoUnityBridge.Command
             public Vector3 TargetPosition { get; }
             public bool HasTargetPosition { get; }
 
+            private readonly List<Tuple<Renderer, Material[]>> originalMaterials =
+                new List<Tuple<Renderer, Material[]>>();
+
+            public void SetOriginalMaterials(List<Tuple<Renderer, Material[]>> originals)
+            {
+                if (originals == null) return;
+                originalMaterials.AddRange(originals);
+            }
+
             public void Dispose()
             {
+                RestoreAnalysisMaterials(originalMaterials);
                 if (TransientMaterials != null)
                 {
                     foreach (Material material in TransientMaterials)

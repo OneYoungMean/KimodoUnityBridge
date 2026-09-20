@@ -143,6 +143,7 @@ namespace KimodoUnityBridge.Command
         private static Camera CreateAnalysisPictureCamera(Bounds bounds, Vector3 direction, bool orthographic)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Analysis Picture Camera");
+            ConfigureAnalysisCameraExposure(camera);
             camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = orthographic;
             camera.nearClipPlane = .01f;
@@ -247,6 +248,7 @@ namespace KimodoUnityBridge.Command
         private static Camera CreateTestAnalysisPictureCameraBase(string name, float aspect)
         {
             Camera camera = CreateAnalysisPictureCamera(name);
+            ConfigureAnalysisCameraExposure(camera);
             camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.0001f, aspect);
@@ -254,6 +256,21 @@ namespace KimodoUnityBridge.Command
             camera.farClipPlane = 1000f;
             camera.clearFlags = CameraClearFlags.SolidColor;
             return camera;
+        }
+
+        private static void ConfigureAnalysisCameraExposure(Camera camera)
+        {
+            // The camera is intentionally assigned to a layer with no Volume
+            // components. HDRP resolves volume overrides using this mask, so
+            // scene exposure/tonemapping cannot wash the analysis pose white.
+            if (camera == null) return;
+            Type type = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData");
+            if (type == null) return;
+            Component data = camera.GetComponent(type);
+            if (data == null) return;
+            FieldInfo mask = type.GetField("volumeLayerMask", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (mask != null) mask.SetValue(data, (LayerMask)0);
+            else type.GetProperty("volumeLayerMask", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.SetValue(data, (LayerMask)0);
         }
 
         private static Camera CreateAnalysisPictureCamera(string name)
@@ -684,28 +701,35 @@ namespace KimodoUnityBridge.Command
             return animator != null ? animator.transform.position : preview.transform.position;
         }
 
-        // Evidence lights are capture-only fixtures. The owning render path adds
-        // them to its temporary object list and destroys that list in finally;
-        // Session creation and character cloning must never create lights.
         private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
         {
             bool isBuiltIn = IsBuiltInCapturePipeline();
-            foreach (var setup in new[]
+            var setups = new[]
             {
-                (position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? 1.125f : 3.3f),
-                (position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .525f : 1.65f),
-                (position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .30f : 1.05f)
-            })
+                (name: "Key", position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? 1.125f : 3.3f),
+                (name: "Fill", position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .525f : 1.65f),
+                (name: "Rim", position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .30f : 1.05f)
+            };
+            var directions = new Vector4[setups.Length];
+            for (int index = 0; index < setups.Length; index++)
             {
+                var setup = setups[index];
                 GameObject lightObject = MoveToAnalysisSessionRoot(
-                    new GameObject("Kimodo Evidence Light") { hideFlags = HideFlags.HideAndDontSave });
+                    new GameObject("Kimodo Evidence Light " + setup.name) { hideFlags = HideFlags.HideAndDontSave });
                 Light light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
                 light.intensity = setup.intensity;
+                light.color = Color.white;
+                light.cullingMask = 1 << SessionCaptureLayer;
                 lightObject.transform.position = center + setup.position;
                 lightObject.transform.LookAt(center);
+                Vector3 direction = -lightObject.transform.forward;
+                directions[index] = new Vector4(direction.x, direction.y, direction.z, setup.intensity);
                 objects.Add(lightObject);
             }
+            Shader.SetGlobalVector("_KimodoEvidenceKey", directions[0]);
+            Shader.SetGlobalVector("_KimodoEvidenceFill", directions[1]);
+            Shader.SetGlobalVector("_KimodoEvidenceRim", directions[2]);
         }
 
         private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color, bool unlit = false)

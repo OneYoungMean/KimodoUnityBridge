@@ -23,6 +23,38 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
+        private sealed class AnalysisCaptureLightScope : IDisposable
+        {
+            private readonly List<Tuple<Light, bool>> restoredLights = new List<Tuple<Light, bool>>();
+
+            public AnalysisCaptureLightScope()
+            {
+                foreach (Light light in Resources.FindObjectsOfTypeAll<Light>())
+                {
+                    if (light == null || light.gameObject == null || !light.gameObject.scene.IsValid() ||
+                        EditorUtility.IsPersistent(light))
+                    {
+                        continue;
+                    }
+
+                    restoredLights.Add(Tuple.Create(light, light.enabled));
+                    light.enabled = false;
+                }
+            }
+
+            public void Dispose()
+            {
+                foreach (Tuple<Light, bool> item in restoredLights)
+                {
+                    if (item.Item1 != null) item.Item1.enabled = item.Item2;
+                }
+                Shader.SetGlobalVector("_KimodoEvidenceKey", Vector4.zero);
+                Shader.SetGlobalVector("_KimodoEvidenceFill", Vector4.zero);
+                Shader.SetGlobalVector("_KimodoEvidenceRim", Vector4.zero);
+                restoredLights.Clear();
+            }
+        }
+
         private static Texture2D RenderPictureCanvas(
             IReadOnlyList<SubjectPictureData> subjects,
             IReadOnlyList<PictureTile> tiles,
@@ -35,61 +67,64 @@ namespace KimodoUnityBridge.Command
         {
             int panelHeight = layout.TileRows * tileHeight;
             var images = new Texture2D[tiles.Count];
-            try
+            using (var captureLights = new AnalysisCaptureLightScope())
             {
-                for (int index = 0; index < tiles.Count; index++)
+                try
                 {
-                    images[index] = RenderPictureTileSupersampled(
-                        tiles[index], tileWidth, tileHeight, trajectoryScale, supersample);
-                    int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
-                    int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tiles[index].Subject));
-                    DrawTileNumber(
-                        images[index],
-                        (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
-                        (localIndex + 1).ToString(CultureInfo.InvariantCulture));
-                    if (tiles[index].Presentation == "test_pose")
+                    for (int index = 0; index < tiles.Count; index++)
                     {
-                        DrawFrameNumber(images[index], tiles[index].Frame);
+                        images[index] = RenderPictureTileSupersampled(
+                            tiles[index], tileWidth, tileHeight, trajectoryScale, supersample);
+                        int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
+                        int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tiles[index].Subject));
+                        DrawTileNumber(
+                            images[index],
+                            (panel + 1).ToString(CultureInfo.InvariantCulture) + "." +
+                            (localIndex + 1).ToString(CultureInfo.InvariantCulture));
+                        if (tiles[index].Presentation == "test_pose")
+                        {
+                            DrawFrameNumber(images[index], tiles[index].Frame);
+                        }
                     }
-                }
 
-                imageRects = new List<RectInt>(tiles.Count);
-                var rowWidths = new int[subjects.Count * layout.TileRows];
-                for (int index = 0; index < tiles.Count; index++)
-                {
-                    int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
-                    int row = layout.TileRows == 2 && IsHighFootPose(tiles[index]) ? 0 : layout.TileRows - 1;
-                    int rowIndex = panel * layout.TileRows + row;
-                    int x = rowWidths[rowIndex];
-                    rowWidths[rowIndex] += images[index].width;
-                    imageRects.Add(new RectInt(
-                        x,
-                        (subjects.Count - panel - 1) * panelHeight + row * tileHeight,
-                        images[index].width,
-                        images[index].height));
-                }
-                int canvasWidth = Math.Max(1, rowWidths.DefaultIfEmpty(1).Max());
-                if (canvasWidth > SystemInfo.maxTextureSize)
-                {
-                    throw new InvalidOperationException($"Analysis picture width {canvasWidth} exceeds Unity's maximum texture width {SystemInfo.maxTextureSize}.");
-                }
+                    imageRects = new List<RectInt>(tiles.Count);
+                    var rowWidths = new int[subjects.Count * layout.TileRows];
+                    for (int index = 0; index < tiles.Count; index++)
+                    {
+                        int panel = subjects.ToList().FindIndex(item => ReferenceEquals(item, tiles[index].Subject));
+                        int row = layout.TileRows == 2 && IsHighFootPose(tiles[index]) ? 0 : layout.TileRows - 1;
+                        int rowIndex = panel * layout.TileRows + row;
+                        int x = rowWidths[rowIndex];
+                        rowWidths[rowIndex] += images[index].width;
+                        imageRects.Add(new RectInt(
+                            x,
+                            (subjects.Count - panel - 1) * panelHeight + row * tileHeight,
+                            images[index].width,
+                            images[index].height));
+                    }
+                    int canvasWidth = Math.Max(1, rowWidths.DefaultIfEmpty(1).Max());
+                    if (canvasWidth > SystemInfo.maxTextureSize)
+                    {
+                        throw new InvalidOperationException($"Analysis picture width {canvasWidth} exceeds Unity's maximum texture width {SystemInfo.maxTextureSize}.");
+                    }
 
-                var canvas = new Texture2D(canvasWidth, panelHeight * subjects.Count, TextureFormat.RGBA32, false);
-                Fill(canvas, new Color(.12f, .12f, .12f, 1f));
-                for (int index = 0; index < tiles.Count; index++)
-                {
-                    RectInt rect = imageRects[index];
-                    canvas.SetPixels(rect.x, rect.y, rect.width, rect.height, images[index].GetPixels());
+                    var canvas = new Texture2D(canvasWidth, panelHeight * subjects.Count, TextureFormat.RGBA32, false);
+                    Fill(canvas, new Color(.12f, .12f, .12f, 1f));
+                    for (int index = 0; index < tiles.Count; index++)
+                    {
+                        RectInt rect = imageRects[index];
+                        canvas.SetPixels(rect.x, rect.y, rect.width, rect.height, images[index].GetPixels());
+                    }
+                    DrawPictureGrid(canvas, imageRects, subjects.Count, panelHeight, layout.TileRows);
+                    canvas.Apply(false, false);
+                    return canvas;
                 }
-                DrawPictureGrid(canvas, imageRects, subjects.Count, panelHeight, layout.TileRows);
-                canvas.Apply(false, false);
-                return canvas;
-            }
-            finally
-            {
-                foreach (Texture2D image in images)
+                finally
                 {
-                    if (image != null) UnityEngine.Object.DestroyImmediate(image);
+                    foreach (Texture2D image in images)
+                    {
+                        if (image != null) UnityEngine.Object.DestroyImmediate(image);
+                    }
                 }
             }
         }
@@ -425,15 +460,16 @@ namespace KimodoUnityBridge.Command
         {
             EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, localFrame);
             var transientMaterials = new List<Material>();
+            var originalMaterials = new List<Tuple<Renderer, Material[]>>();
             try
             {
                 if (useTestGhostMaterial)
                 {
-                    ConfigureTestGhostMaterial(preview.Root, tint, alpha, transientMaterials);
+                    ApplyAnalysisMaterials(preview.Root, tint, alpha, transientMaterials, originalMaterials);
                 }
                 else
                 {
-                    TintPreview(preview.Root, tint, transientMaterials);
+                    ApplyAnalysisMaterials(preview.Root, tint, 1f, transientMaterials, originalMaterials);
                 }
                 SetEvidenceVisualsEnabled(environment, false);
                 Texture2D layer = RenderCamera(camera, destination.width, new Color(0f, 0f, 0f, 0f));
@@ -451,51 +487,13 @@ namespace KimodoUnityBridge.Command
             }
             finally
             {
+                RestoreAnalysisMaterials(originalMaterials);
                 foreach (Material material in transientMaterials)
                 {
                     if (material != null) UnityEngine.Object.DestroyImmediate(material);
                 }
                 preview.Dispose();
             }
-        }
-
-        private static bool ConfigureTestGhostMaterial(
-            GameObject preview,
-            Color tint,
-            float alpha,
-            List<Material> transientMaterials)
-        {
-            Shader shader = Shader.Find("Kimodo/GhostFront");
-            if (shader == null)
-            {
-                return false;
-            }
-
-            foreach (Renderer renderer in preview.GetComponentsInChildren<Renderer>(true))
-            {
-                Material[] sourceMaterials = renderer.sharedMaterials;
-                if (sourceMaterials == null || sourceMaterials.Length == 0)
-                {
-                    sourceMaterials = new[] { (Material)null };
-                }
-                var replacements = new Material[sourceMaterials.Length];
-                for (int index = 0; index < sourceMaterials.Length; index++)
-                {
-                    Material source = sourceMaterials[index];
-                    Material replacement = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-                    if (source != null)
-                    {
-                        if (source.HasProperty("_MainTex")) replacement.mainTexture = source.mainTexture;
-                        if (source.HasProperty("_Color")) replacement.SetColor("_Color", source.color);
-                    }
-                    replacement.SetColor("_GhostTint", tint);
-                    replacement.SetFloat("_GhostAlpha", alpha);
-                    replacements[index] = replacement;
-                    transientMaterials.Add(replacement);
-                }
-                renderer.sharedMaterials = replacements;
-            }
-            return true;
         }
 
         private static Texture2D RenderTestPictureTile(PictureTile tile, int width, int height, TrajectoryScale trajectoryScale)
@@ -742,13 +740,19 @@ namespace KimodoUnityBridge.Command
             int initKernel = composite.FindKernel("InitDepth");
             int poseKernel = composite.FindKernel("CompositePose");
             int blendKernel = composite.FindKernel("BlendLayer");
+            int seedKernel = composite.FindKernel("SeedBase");
             try
             {
                 SetEvidenceVisualsEnabled(environment, true);
                 baseLayer = RenderCameraToTexture(camera, width, height, background, RenderTextureFormat.ARGB32, false);
-                Graphics.CopyTexture(baseLayer, accumulationColor);
                 composite.SetInt("_Width", width); composite.SetInt("_Height", height);
                 composite.SetInt("_ReversedZ", SystemInfo.usesReversedZBuffer ? 1 : 0);
+                // Seed the accumulation from the base layer through the UAV instead
+                // of Graphics.CopyTexture, which left the texture in a state where
+                // every later UAV write was ignored.
+                composite.SetTexture(seedKernel, "_BaseColor", baseLayer);
+                composite.SetTexture(seedKernel, "_AccumColor", accumulationColor);
+                composite.Dispatch(seedKernel, groupsX, groupsY, 1);
                 composite.SetTexture(initKernel, "_AccumDepth", accumulationDepth);
                 composite.Dispatch(initKernel, groupsX, groupsY, 1);
 
@@ -762,7 +766,8 @@ namespace KimodoUnityBridge.Command
                     try
                     {
                         layer = RenderCameraToTexture(camera, width, height, Color.clear, RenderTextureFormat.ARGB32, false);
-                        depth = RenderCameraDepthToTexture(camera, depthShader, width, height);
+                        depth = RenderCameraDepthToTexture(
+                            camera, depthShader, width, height, new[] { pose.Preview });
                         composite.SetFloat("_PoseAlpha", pose.UsesGhostMaterial ? 1f : pose.Alpha);
                         composite.SetTexture(poseKernel, "_PoseColor", layer);
                         composite.SetTexture(poseKernel, "_PoseDepth", depth);
@@ -770,8 +775,8 @@ namespace KimodoUnityBridge.Command
                         composite.SetTexture(poseKernel, "_AccumColor", accumulationColor);
                         composite.SetTexture(poseKernel, "_AccumDepth", accumulationDepth);
                         composite.Dispatch(poseKernel, groupsX, groupsY, 1);
-                        RenderTexture.ReleaseTemporary(layer); layer = null;
-                        RenderTexture.ReleaseTemporary(depth); depth = null;
+                        DestroyAnalysisRenderTexture(layer); layer = null;
+                        DestroyAnalysisRenderTexture(depth); depth = null;
                     }
                     finally
                     {
@@ -789,33 +794,55 @@ namespace KimodoUnityBridge.Command
                         foreach (LineRenderer line in item.GetComponentsInChildren<LineRenderer>(true)) line.enabled = true;
                     }
                     layer = RenderCameraToTexture(camera, width, height, Color.clear, RenderTextureFormat.ARGB32, false);
+                    // The trajectory layer needs its own depth buffer: the colour
+                    // layer's alpha carries no silhouette on pipelines that clear
+                    // to an opaque background.
+                    depth = RenderCameraDepthToTexture(camera, depthShader, width, height, environment);
                     composite.SetTexture(blendKernel, "_LayerColor", layer);
+                    composite.SetTexture(blendKernel, "_LayerDepth", depth);
                     composite.SetTexture(blendKernel, "_AccumColor", accumulationColor);
+                    composite.SetInt("_UseLayerDepth", 1);
                     composite.Dispatch(blendKernel, groupsX, groupsY, 1);
-                    RenderTexture.ReleaseTemporary(layer); layer = null;
+                    DestroyAnalysisRenderTexture(layer); layer = null;
+                    DestroyAnalysisRenderTexture(depth); depth = null;
                 }
                 return ReadRenderTexture(accumulationColor, width, height);
             }
             finally
             {
-                if (layer != null) RenderTexture.ReleaseTemporary(layer);
-                if (depth != null) RenderTexture.ReleaseTemporary(depth);
-                if (baseLayer != null) RenderTexture.ReleaseTemporary(baseLayer);
-                RenderTexture.ReleaseTemporary(accumulationColor);
-                RenderTexture.ReleaseTemporary(accumulationDepth);
+                DestroyAnalysisRenderTexture(layer);
+                DestroyAnalysisRenderTexture(depth);
+                DestroyAnalysisRenderTexture(baseLayer);
+                DestroyAnalysisRenderTexture(accumulationColor);
+                DestroyAnalysisRenderTexture(accumulationDepth);
                 camera.targetTexture = null;
                 SetEvidenceVisualsEnabled(environment, true);
             }
         }
 
+        private static void DestroyAnalysisRenderTexture(RenderTexture texture)
+        {
+            if (texture == null) return;
+            texture.Release();
+            UnityEngine.Object.DestroyImmediate(texture);
+        }
+
         private static RenderTexture NewAnalysisRenderTexture(int width, int height, RenderTextureFormat format, bool randomWrite, int depthBitsOverride = -1)
         {
             int depthBits = depthBitsOverride >= 0 ? depthBitsOverride : (format == RenderTextureFormat.ARGB32 ? 24 : 0);
-            var texture = RenderTexture.GetTemporary(width, height, depthBits, format);
-            texture.Release();
-            texture.enableRandomWrite = randomWrite;
-            texture.filterMode = FilterMode.Point;
-            texture.wrapMode = TextureWrapMode.Clamp;
+            // These textures stay alive side by side for the whole composite (base
+            // layer, pose layer, depth, accumulation colour/depth), so they must not
+            // come from Unity's temporary pool: RenderTexture.GetTemporary followed by
+            // Release() returns the texture to the pool, and the next GetTemporary can
+            // hand the very same instance back while it is still in use. That aliasing
+            // made the pose layer overwrite the base layer and the compositor read and
+            // write the same resource. Allocate a dedicated texture instead.
+            var texture = new RenderTexture(width, height, depthBits, format)
+            {
+                enableRandomWrite = randomWrite,
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
             texture.Create();
             return texture;
         }
@@ -950,14 +977,14 @@ namespace KimodoUnityBridge.Command
                 Graphics.CopyTexture(target, result);
                 additionalCameraDataType.GetMethod("SetAOVRequests", BindingFlags.Public | BindingFlags.Instance)
                     .Invoke(additionalCameraData, new object[] { null });
-                RenderTexture.ReleaseTemporary(target);
+                DestroyAnalysisRenderTexture(target);
                 target = null;
                 return result;
             }
             catch
             {
-                if (target != null) RenderTexture.ReleaseTemporary(target);
-                if (result != null) RenderTexture.ReleaseTemporary(result);
+                DestroyAnalysisRenderTexture(target);
+                DestroyAnalysisRenderTexture(result);
                 throw;
             }
             finally
@@ -974,30 +1001,98 @@ namespace KimodoUnityBridge.Command
             // CompositePose/BlendLayer composited nothing and every character tile
             // rendered black.
             RenderTexture target = NewAnalysisRenderTexture(width, height, format, randomWrite);
-            camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = background;
-            camera.targetTexture = target;
-            camera.Render();
-            camera.targetTexture = null;
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                // HDRP may leave transient target contents intact when rendering
+                // an isolated camera. Clear explicitly, then preserve that clear
+                // while the camera draws its geometry.
+                RenderTexture.active = target;
+                GL.Clear(true, true, background, 1f);
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                SetHdrpBackgroundColor(camera, background);
+                camera.targetTexture = target;
+                camera.Render();
+                camera.targetTexture = null;
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+            }
             return target;
         }
 
-        private static RenderTexture RenderCameraDepthToTexture(Camera camera, Shader depthShader, int width, int height)
+        private static RenderTexture RenderCameraDepthToTexture(
+            Camera camera,
+            Shader depthShader,
+            int width,
+            int height,
+            IReadOnlyList<GameObject> renderObjects)
         {
             // Keep the hardware-depth encoding in step with the compositor's
             // _ReversedZ convention; the HDRP DepthStencil AOV is not the same
             // quantity.
             RenderTexture target = NewAnalysisRenderTexture(width, height, RenderTextureFormat.ARGBFloat, false, 24);
-            camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.backgroundColor = Color.clear;
-            camera.targetTexture = target;
-            // Replace every pose renderer, including transparent ghost materials.
-            // Matching on RenderType would skip Kimodo/GhostFront (Transparent),
-            // leaving its depth at the clear value and making submission order
-            // determine which ghost survives the GPU composite.
-            camera.RenderWithShader(depthShader, null);
-            camera.targetTexture = null;
-            return target;
+            var replaced = new List<Tuple<Renderer, Material[]>>();
+            var replacements = new List<Material>();
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                RenderTexture.active = target;
+                GL.Clear(true, true, Color.clear, 1f);
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                SetHdrpBackgroundColor(camera, Color.clear);
+                // SRP cameras do not reliably honour Camera.RenderWithShader. Replace
+                // the actual materials instead, then use the normal camera.Render()
+                // path so HDRP draws the pose into this auxiliary depth texture.
+                if (renderObjects != null)
+                {
+                    foreach (GameObject root in renderObjects)
+                    {
+                        if (root == null) continue;
+                        foreach (Renderer renderer in root.GetComponentsInChildren<Renderer>(true))
+                        {
+                            if (renderer == null || !renderer.enabled) continue;
+                            Material[] original = renderer.sharedMaterials;
+                            Material[] replacement = new Material[Mathf.Max(1, original.Length)];
+                            for (int index = 0; index < replacement.Length; index++)
+                            {
+                                Material material = new Material(depthShader) { hideFlags = HideFlags.HideAndDontSave };
+                                replacement[index] = material;
+                                replacements.Add(material);
+                            }
+                            replaced.Add(Tuple.Create(renderer, original));
+                            renderer.sharedMaterials = replacement;
+                        }
+                    }
+                }
+                camera.targetTexture = target;
+                camera.Render();
+                camera.targetTexture = null;
+                return target;
+            }
+            finally
+            {
+                foreach (Tuple<Renderer, Material[]> item in replaced)
+                {
+                    if (item.Item1 != null) item.Item1.sharedMaterials = item.Item2;
+                }
+                foreach (Material material in replacements) UnityEngine.Object.DestroyImmediate(material);
+                camera.targetTexture = null;
+                RenderTexture.active = previous;
+            }
+        }
+
+        private static void SetHdrpBackgroundColor(Camera camera, Color color)
+        {
+            if (camera == null) return;
+            Type type = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData");
+            if (type == null) return;
+            Component data = camera.GetComponent(type);
+            if (data == null) return;
+            type.GetField("backgroundColorHDR")?.SetValue(data, color);
+            type.GetProperty("backgroundColorHDR")?.SetValue(data, color);
         }
 
         private static Texture2D RenderRoot2DPictureTile(PictureTile tile, int width, int height)

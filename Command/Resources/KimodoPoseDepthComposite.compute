@@ -1,3 +1,4 @@
+#pragma kernel SeedBase
 #pragma kernel CompositePose
 #pragma kernel BlendLayer
 #pragma kernel InitDepth
@@ -5,6 +6,7 @@
 Texture2D<float4> _PoseColor;
 Texture2D<float4> _PoseDepth;
 Texture2D<float4> _LayerColor;
+Texture2D<float4> _LayerDepth;
 Texture2D<float4> _BaseColor;
 RWTexture2D<float4> _AccumColor;
 RWTexture2D<float> _AccumDepth;
@@ -12,6 +14,32 @@ int _Width;
 int _Height;
 float _PoseAlpha;
 int _ReversedZ;
+int _UseLayerDepth;
+
+// The analysis layers are captured on render pipelines that do not honour a
+// transparent clear (HDRP renders an opaque background whatever the camera's
+// background colour is), so the colour alpha cannot be used as a silhouette
+// mask. Mask on the depth buffer instead: it keeps the pipeline's clear value
+// everywhere except where geometry was actually drawn.
+bool HasGeometry(float depth)
+{
+    // _PoseDepth/_LayerDepth are colour textures rendered by the replacement
+    // shader, not the hardware depth attachment. Their explicit clear value is
+    // always zero on both reversed-Z and regular-Z pipelines.
+    return abs(depth) > 0.0005;
+}
+
+[numthreads(8, 8, 1)]
+void SeedBase(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
+    int2 p = int2(id.xy);
+    // Initialise the accumulation from the base layer through the UAV. A
+    // Graphics.CopyTexture into the accumulation texture left it in a state
+    // where every later UAV write was ignored, which silently dropped the
+    // whole composite.
+    _AccumColor[p] = _BaseColor.Load(int3(p, 0));
+}
 
 [numthreads(8, 8, 1)]
 void InitDepth(uint3 id : SV_DispatchThreadID)
@@ -25,13 +53,13 @@ void CompositePose(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
     int2 p = int2(id.xy);
-    float4 source = _PoseColor.Load(int3(p, 0));
-    if (source.a <= 0.001) return;
     float depth = _PoseDepth.Load(int3(p, 0)).r;
+    if (!HasGeometry(depth)) return;
     float nearest = _AccumDepth[p];
     bool nearer = (_ReversedZ != 0) ? depth > nearest : depth < nearest;
     if (!nearer) return;
-    float alpha = saturate(_PoseAlpha * source.a);
+    float4 source = _PoseColor.Load(int3(p, 0));
+    float alpha = saturate(_PoseAlpha);
     float4 destination = _BaseColor.Load(int3(p, 0));
     destination.rgb = lerp(destination.rgb, source.rgb, alpha);
     destination.a = alpha + destination.a * (1.0 - alpha);
@@ -44,8 +72,12 @@ void BlendLayer(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
     int2 p = int2(id.xy);
+    if (_UseLayerDepth != 0)
+    {
+        float depth = _LayerDepth.Load(int3(p, 0)).r;
+        if (!HasGeometry(depth)) return;
+    }
     float4 source = _LayerColor.Load(int3(p, 0));
-    if (source.a <= 0.001) return;
     float alpha = saturate(source.a);
     float4 destination = _AccumColor[p];
     destination.rgb = lerp(destination.rgb, source.rgb, alpha);

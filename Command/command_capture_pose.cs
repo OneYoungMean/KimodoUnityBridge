@@ -152,12 +152,15 @@ namespace KimodoUnityBridge.Command
             }
             snapshot.Apply(preview);
             var transientMaterials = new List<Material>();
-            bool usesGhostMaterial = useGhostMaterial && ConfigureTestGhostMaterial(preview, tint, alpha, transientMaterials);
-            if (!usesGhostMaterial) TintPreview(preview, tint, transientMaterials);
+            var originalMaterials = new List<Tuple<Renderer, Material[]>>();
+            bool usesGhostMaterial = useGhostMaterial;
+            ApplyAnalysisMaterials(preview, tint, useGhostMaterial ? alpha : 1f, transientMaterials, originalMaterials);
             SetPreviewRenderersEnabled(preview, false);
-            return targetPosition.HasValue
+            TestVirtualPose result = targetPosition.HasValue
                 ? new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition.Value)
                 : new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
+            result.SetOriginalMaterials(originalMaterials);
+            return result;
         }
 
         private static TestVirtualPose CreateGhostVirtualPose(
@@ -168,10 +171,13 @@ namespace KimodoUnityBridge.Command
         {
             EvaluatedPosePreview preview = CreateAnalysisPosePreview(subject, frame);
             var transientMaterials = new List<Material>();
-            bool usesGhostMaterial = ConfigureTestGhostMaterial(preview.Root, tint, alpha, transientMaterials);
-            if (!usesGhostMaterial) TintPreview(preview.Root, tint, transientMaterials);
+            var originalMaterials = new List<Tuple<Renderer, Material[]>>();
+            bool usesGhostMaterial = true;
+            ApplyAnalysisMaterials(preview.Root, tint, alpha, transientMaterials, originalMaterials);
             SetPreviewRenderersEnabled(preview.Root, false);
-            return new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
+            TestVirtualPose result = new TestVirtualPose(preview, transientMaterials, alpha, usesGhostMaterial);
+            result.SetOriginalMaterials(originalMaterials);
+            return result;
         }
 
         private static void SetPreviewRenderersEnabled(GameObject preview, bool enabled)
@@ -289,11 +295,6 @@ namespace KimodoUnityBridge.Command
             }
 
             return new EvaluatedPosePreview(preview, poseRig, ResolveModelName(null));
-        }
-
-        private static void TintPreview(GameObject preview, Color tint)
-        {
-            TintPreview(preview, tint, null);
         }
 
         private static List<int> BuildGhostFrames(SubjectPictureData subject, out HashSet<int> promotedFrames)

@@ -17,6 +17,7 @@ namespace KimodoUnityBridge.Command.Tests
         private const string PackageRoot = "Packages/com.unity.kimodo_unity_motion_tools";
         private const string ModelPath = PackageRoot + "/Editor/Model/Armature.fbx";
         private const string ArcWalkPath = PackageRoot + "/Editor/Tests/Fixtures/arc_walk_left_loop.anim";
+        private const int TestAnalysisResolution = 1920;
 
         [UnityTest]
         public IEnumerator AnimationAnalyze_ArcWalkFixture_WritesCompositePng()
@@ -60,7 +61,7 @@ namespace KimodoUnityBridge.Command.Tests
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = addedClip.Value<string>("name")
                     }),
-                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = 512
+                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = TestAnalysisResolution
                 });
                 Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("2-phase-track-v1"));
                 Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("52-test-analysis-picture"));
@@ -199,7 +200,7 @@ namespace KimodoUnityBridge.Command.Tests
                     {
                         ["character"] = addedCharacter.Value<string>("name"), ["clip"] = animationName
                     }),
-                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = 512
+                    ["picture"] = new JObject { ["output"] = "composite" }, ["resolution"] = TestAnalysisResolution
                 });
                 string relativePng = analysis["pictures"]?.Value<string>("image_path");
                 string absolutePng = string.IsNullOrWhiteSpace(relativePng)
