@@ -12,19 +12,61 @@ namespace KimodoUnityBridge.Command
     {
         public static string TransformCapture(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
-            string characterPath = RequiredStringValue(arguments, "character_path");
-            GameObject character = FindSceneObjectByPath(characterPath);
-            if (character == null) throw new InvalidOperationException($"Scene character path '{characterPath}' was not found.");
+            if (arguments["frames"] != null)
+                throw new InvalidOperationException("frames is not a sampling input. Use pose_get for the desired clip frame, then pass its pose reference.");
+            EvaluatedPosePreview preview = null;
+            var visibility = new Dictionary<Renderer, bool>();
+            try
+            {
+                JObject source;
+                GameObject character;
+                if (arguments["pose"] is JObject pose)
+                {
+                    PoseReference reference = RequirePoseReference(pose);
+                    KimodoConstraintMarker marker = RequirePoseMarker(reference, out TimelineCharacterRecord owner);
+                    preview = CreatePipelinePosePreview(owner, marker.SampleData.Clone());
+                    character = preview.Root;
+                    source = new JObject
+                    {
+                        ["type"] = "external_pose", ["character"] = owner.Name,
+                        ["pose"] = PoseReferenceJson(reference.Track, reference.Index),
+                        ["clip"] = marker.sourceRole == "pose_get" ? (JToken)marker.sourceClipKey : JValue.CreateNull(),
+                        ["frame"] = marker.sourceRole == "pose_get" ? (JToken)marker.frame : JValue.CreateNull()
+                    };
+                }
+                else
+                {
+                    string characterPath = RequiredStringValue(arguments, "character_path");
+                    character = FindSceneObjectByPath(characterPath);
+                    if (character == null) throw new InvalidOperationException($"Scene character path '{characterPath}' was not found.");
+                    source = new JObject { ["type"] = "scene", ["character_path"] = characterPath };
+                }
+                return RenderTransformCapture(arguments, character, source, preview?.Animator, visibility);
+            }
+            finally
+            {
+                foreach (var entry in visibility)
+                    if (entry.Key != null) entry.Key.forceRenderingOff = entry.Value;
+                preview?.Dispose();
+            }
+        });
+
+        private static string RenderTransformCapture(JObject arguments, GameObject character, JObject source,
+            Animator poseAnimator, Dictionary<Renderer, bool> visibility)
+        {
             JArray transformValues = arguments["transforms"] as JArray
                 ?? throw new InvalidOperationException("transforms must be an array.");
             if (transformValues.Count < 1)
                 throw new InvalidOperationException("transforms must contain at least one path.");
             int size = Mathf.Clamp(arguments.Value<int?>("resolution") ?? 1024, 64, 4096);
-            int[] frames = (arguments["frames"] as JArray)?.Values<int>().ToArray() ?? Array.Empty<int>();
             var targets = transformValues.Values<string>().Select(path =>
             {
-                Transform transform = FindRelativeTransform(character.transform, path) ?? FindSceneTransform(path);
-                if (transform == null) throw new InvalidOperationException($"Transform path '{path}' was not found below '{characterPath}' or in the active scene.");
+                bool isPose = path == "@pose" || (path?.StartsWith("@pose/", StringComparison.Ordinal) ?? false);
+                if (isPose && poseAnimator == null) throw new InvalidOperationException("@pose requires a pose reference returned by pose_get.");
+                Transform transform = isPose
+                    ? (path == "@pose" ? character.transform : character.transform.Find(path.Substring(6)))
+                    : FindRelativeTransform(character.transform, path) ?? FindSceneTransform(path);
+                if (transform == null) throw new InvalidOperationException($"Transform path '{path}' was not found in the requested character or active scene.");
                 return new CaptureTarget(path, transform);
             }).ToList();
             var renderers = character.GetComponentsInChildren<Renderer>(true);
@@ -38,6 +80,15 @@ namespace KimodoUnityBridge.Command
                 Bounds targetBounds = CalculateTransformBounds(target.Transform, targetRenderers);
                 if (index == 0) bounds = targetBounds;
                 else bounds.Encapsulate(targetBounds);
+            }
+
+            // Render only requested subjects, so the live character and session
+            // duplicates cannot overlap the pose being inspected. Restore on failure too.
+            foreach (Renderer renderer in Resources.FindObjectsOfTypeAll<Renderer>())
+            {
+                if (renderer == null || !renderer.gameObject.scene.IsValid()) continue;
+                visibility[renderer] = renderer.forceRenderingOff;
+                renderer.forceRenderingOff = !targets.Any(target => IsRelevantRenderer(renderer, target.Transform));
             }
 
             string folder = Path.Combine(Application.dataPath, "KimodoGeneratedClips", "TransformCaptures");
@@ -75,8 +126,7 @@ namespace KimodoUnityBridge.Command
                         {
                             ["min"] = new JArray(bounds.min.x, bounds.min.y, bounds.min.z),
                             ["max"] = new JArray(bounds.max.x, bounds.max.y, bounds.max.z)
-                        },
-                        ["frames"] = new JArray(frames)
+                        }
                     });
                 }
                 sheet.Apply(false, false);
@@ -91,11 +141,30 @@ namespace KimodoUnityBridge.Command
                 ["height"] = size * 2,
                 ["tile_size"] = size,
                 ["tiles"] = descriptions,
+                ["source"] = source,
+                ["targets"] = new JArray(targets.Select(target => new JObject
+                {
+                    ["key"] = target.Path,
+                    ["world_position"] = CapturePositionJson(target.Transform.position)
+                })),
                 ["ok"] = true
             };
+            if (poseAnimator != null && poseAnimator.isHuman)
+            {
+                var joints = new JObject();
+                foreach (HumanBodyBones bone in new[] { HumanBodyBones.Hips, HumanBodyBones.RightHand,
+                    HumanBodyBones.LeftHand, HumanBodyBones.RightFoot, HumanBodyBones.LeftFoot, HumanBodyBones.RightUpperArm })
+                {
+                    Transform joint = poseAnimator.GetBoneTransform(bone);
+                    if (joint != null) joints[bone.ToString()] = CapturePositionJson(joint.position);
+                }
+                response["evaluated_joints_world"] = joints;
+            }
             File.WriteAllText(Path.Combine(folder, fileName + ".json"), response.ToString(Newtonsoft.Json.Formatting.Indented));
             return response.ToString(Newtonsoft.Json.Formatting.None);
-        });
+        }
+
+        private static JArray CapturePositionJson(Vector3 position) => new JArray(position.x, position.y, position.z);
 
         private static Camera CreateTransformCaptureCamera(Bounds bounds, Vector3 direction, bool orthographic)
         {
@@ -105,11 +174,11 @@ namespace KimodoUnityBridge.Command
             camera.nearClipPlane = .01f;
             camera.farClipPlane = 100f;
             camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.orthographicSize = Mathf.Max(2.5f, bounds.extents.magnitude * 1.05f);
+            camera.orthographicSize = Mathf.Max(.05f, bounds.extents.magnitude * 1.1f);
             camera.fieldOfView = 35f;
             camera.transform.position = bounds.center + direction.normalized * Mathf.Max(7f, bounds.extents.magnitude * 3.2f);
             Vector3 up = Mathf.Abs(Vector3.Dot(direction.normalized, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
-            camera.transform.LookAt(bounds.center + Vector3.up, up);
+            camera.transform.LookAt(bounds.center, up);
             return camera;
         }
 
@@ -164,12 +233,12 @@ namespace KimodoUnityBridge.Command
         private static Transform FindSceneTransform(string path)
         {
             string normalized = (path ?? string.Empty).Trim('/');
-            return Resources.FindObjectsOfTypeAll<Transform>().FirstOrDefault(item => item.gameObject.scene.IsValid() &&
+            return Resources.FindObjectsOfTypeAll<Transform>().FirstOrDefault(item => item.gameObject.scene == UnityEngine.SceneManagement.SceneManager.GetActiveScene() &&
                 string.Equals(GetSceneHierarchyPath(item), normalized, StringComparison.Ordinal));
         }
 
         private static GameObject FindSceneObjectByPath(string path) =>
-            Resources.FindObjectsOfTypeAll<GameObject>().FirstOrDefault(item => item.scene.IsValid() &&
+            Resources.FindObjectsOfTypeAll<GameObject>().FirstOrDefault(item => item.scene == UnityEngine.SceneManagement.SceneManager.GetActiveScene() &&
                 string.Equals(GetSceneHierarchyPath(item.transform), path.Trim('/'), StringComparison.Ordinal));
 
         private static string GetSceneHierarchyPath(Transform transform) =>

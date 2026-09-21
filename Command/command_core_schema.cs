@@ -28,6 +28,7 @@ namespace KimodoUnityBridge.Command
                 [HelpCommand] = GetCommandHelp,
                 [InstallServerCommand] = InstallServer,
                 [AnimationAnalyzeCommand] = AnimationAnalyze,
+                [TransformCaptureCommand] = TransformCapture,
                 [RetargetAnimationCommand] = RetargetAnimation,
                 [GenerateAnimationCommand] = GenerateAnimationAsset,
                 [PoseGetCommand] = PoseGet,

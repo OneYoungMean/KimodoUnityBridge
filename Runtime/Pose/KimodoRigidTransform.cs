@@ -9,6 +9,7 @@ namespace KimodoUnityBridge
     {
         public Vector3 position;
         public Quaternion rotation;
+        public bool enableRotation;
 
         public Vector3 t
         {
@@ -25,13 +26,15 @@ namespace KimodoUnityBridge
         public static KimodoRigidTransform Identity => new KimodoRigidTransform
         {
             position = Vector3.zero,
-            rotation = Quaternion.identity
+            rotation = Quaternion.identity,
+            enableRotation = false
         };
 
         public KimodoRigidTransform Clone() => new KimodoRigidTransform
         {
             position = position,
-            rotation = rotation
+            rotation = rotation,
+            enableRotation = enableRotation
         };
     }
 }

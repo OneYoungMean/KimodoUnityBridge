@@ -107,6 +107,8 @@ namespace KimodoUnityBridge.Command
             {
                 return source;
             }
+            Vector3 sourceWorldPosition = source.transform.position;
+            Quaternion sourceWorldRotation = source.transform.rotation;
             GameObject clone = UnityEngine.Object.Instantiate(source);
             clone.name = source.name;
             clone.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
@@ -122,6 +124,8 @@ namespace KimodoUnityBridge.Command
                 candidate.Rebind();
                 candidate.Update(0f);
             }
+            // Rebinding must not move the duplicate away from the source's scene pose.
+            clone.transform.SetPositionAndRotation(sourceWorldPosition, sourceWorldRotation);
             return clone;
         }
 
@@ -228,12 +232,15 @@ namespace KimodoUnityBridge.Command
 
             string characterName = MakeUniqueCharacterName(session, root.name);
             AnimationTrack track = session.TimelineAsset.CreateTrack<AnimationTrack>(null, characterName);
+            // Match Timeline's "Apply Scene Offsets" using the clone's scene pose.
+            track.trackOffset = TrackOffset.ApplySceneOffsets;
             AnimationTrack poseCacheTrack = session.TimelineAsset.CreateTrack<AnimationTrack>(
                 track,
                 MakeUniqueSessionObjectName(session, $"{characterName}.Poses"));
             if (animator != null)
             {
                 session.Director.SetGenericBinding(track, animator);
+                KimodoTimelinePreviewRefreshUtility.InitializeSceneOffset(track, animator);
             }
             var character = new TimelineCharacterRecord(
                 characterRef, root, animator, avatar, track, poseCacheTrack, avatarError);

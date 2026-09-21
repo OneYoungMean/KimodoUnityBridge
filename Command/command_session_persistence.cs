@@ -480,7 +480,11 @@ namespace KimodoUnityBridge.Command
                     }
                     KimodoLocalAvatarUtility.AvatarResolveResult avatarResult = KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(root);
                     var character = new TimelineCharacterRecord(savedCharacter.characterRef, root, animator, avatarResult.Avatar, track, poseTrack, avatarResult.Error);
-                    if (animator != null) director.SetGenericBinding(track, animator);
+                    if (animator != null)
+                    {
+                        director.SetGenericBinding(track, animator);
+                        KimodoTimelinePreviewRefreshUtility.InitializeSceneOffset(track, animator);
+                    }
                     session.Characters.Add(character);
                 }
                 foreach (KimodoCommandAnimationMetadata saved in metadata.animations ?? new List<KimodoCommandAnimationMetadata>())

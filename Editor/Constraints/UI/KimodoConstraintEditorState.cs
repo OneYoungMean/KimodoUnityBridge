@@ -211,7 +211,19 @@ namespace KimodoBridge.Editor
             }
             if (rotation != null)
             {
-                EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+                SerializedProperty enableRotation = transform.FindPropertyRelative("enableRotation");
+                if (enableRotation != null)
+                {
+                    EditorGUILayout.PropertyField(enableRotation, new GUIContent("Enable Rotation"));
+                    using (new EditorGUI.DisabledScope(!enableRotation.boolValue))
+                    {
+                        EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+                    }
+                }
+                else
+                {
+                    EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation"));
+                }
             }
             bool changed = EditorGUI.EndChangeCheck();
             return changed;

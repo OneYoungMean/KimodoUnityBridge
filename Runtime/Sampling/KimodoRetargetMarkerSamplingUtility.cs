@@ -131,6 +131,7 @@ namespace KimodoBridge
             if (valid)
             {
                 target.t = position;
+                target.enableRotation = false;
                 // Hand goals use Unity's axis-corrected goal frame. Feet keep
                 // the legacy bind-relative transport below.
                 target.q = ResolveEffectorTransportRotation(cache, bone, rotation);
@@ -139,6 +140,7 @@ namespace KimodoBridge
             {
                 target.t = Vector3.zero;
                 target.q = Quaternion.identity;
+                target.enableRotation = false;
             }
             switch (index)
             {

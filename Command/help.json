@@ -118,6 +118,70 @@
       ]
     },
     {
+      "name": "transform_capture",
+      "description": "Capture the current scene or an External Pose returned by pose_get together with scene objects, in world space. Returns a four-view image and evaluated joint positions; does not change scene poses.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "character_path": {
+            "type": "string",
+            "description": "Active-scene character hierarchy path; required unless pose is supplied."
+          },
+          "pose": {
+            "type": "object",
+            "description": "External Pose slot in the current scene context.",
+            "additionalProperties": false,
+            "properties": {
+              "track": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "track",
+              "index"
+            ]
+          },
+          "transforms": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Scene hierarchy paths or character-relative paths. With pose, use @pose for the evaluated character or @pose/<relative bone path>. Include environment paths to frame them together."
+          },
+          "resolution": {
+            "type": "integer",
+            "description": "Per-view pixel size, 64 through 4096; defaults to 1024. To capture an animation frame, first call pose_get and pass its pose reference."
+          }
+        },
+        "required": [
+          "transforms"
+        ],
+        "additionalProperties": false
+      },
+      "examples": [
+        {
+          "description": "Capture the External Pose returned by pose_get together with scene objects, without moving the scene character.",
+          "arguments": {
+            "pose": {
+              "track": "<returned pose track>",
+              "index": 0
+            },
+            "transforms": [
+              "@pose",
+              "<table hierarchy path>",
+              "<apple hierarchy path>"
+            ],
+            "resolution": 768
+          }
+        }
+      ]
+    },
+    {
       "name": "kimodo_retarget_animation",
       "description": "Retarget one loaded animation to another current scene context character and append the result.",
       "inputSchema": {
@@ -180,7 +244,7 @@
     },
     {
       "name": "kimodo_generate_animation",
-      "description": "Start asynchronous generation for a character in the current scene context. The accepted request is recorded in generation metadata and must be polled by request_id.",
+      "description": "Start asynchronous generation for a character in the current scene context. The accepted request is recorded in the generation result and must be polled by request_id.",
       "inputSchema": {
         "type": "object",
         "properties": {

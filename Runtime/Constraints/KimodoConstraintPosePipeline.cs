@@ -182,6 +182,7 @@ namespace KimodoBridge
             public bool solveRightHand;
             public bool solveLeftFoot;
             public bool solveRightFoot;
+            public bool rotateLeftHand, rotateRightHand, rotateLeftFoot, rotateRightFoot;
             public Vector3 leftHandPosition;
             public Quaternion leftHandRotation;
             public Vector3 rightHandPosition;
@@ -221,13 +222,13 @@ namespace KimodoBridge
                 }
 
                 ApplyGoal(human, AvatarIKGoal.LeftHand, solveLeftHand,
-                    leftHandPosition, leftHandRotation);
+                    leftHandPosition, leftHandRotation, rotateLeftHand);
                 ApplyGoal(human, AvatarIKGoal.RightHand, solveRightHand,
-                    rightHandPosition, rightHandRotation);
+                    rightHandPosition, rightHandRotation, rotateRightHand);
                 ApplyGoal(human, AvatarIKGoal.LeftFoot, solveLeftFoot,
-                    leftFootPosition, leftFootRotation);
+                    leftFootPosition, leftFootRotation, rotateLeftFoot);
                 ApplyGoal(human, AvatarIKGoal.RightFoot, solveRightFoot,
-                    rightFootPosition, rightFootRotation);
+                    rightFootPosition, rightFootRotation, rotateRightFoot);
 
                 if (solveLeftHand || solveRightHand || solveLeftFoot || solveRightFoot)
                 {
@@ -273,17 +274,18 @@ namespace KimodoBridge
                 AvatarIKGoal goal,
                 bool enabled,
                 Vector3 position,
-                Quaternion rotation)
+                Quaternion rotation,
+                bool enableRotation)
             {
                 human.SetGoalWeightPosition(goal, enabled ? 1f : 0f);
-                human.SetGoalWeightRotation(goal, enabled ? 1f : 0f);
+                human.SetGoalWeightRotation(goal, enabled && enableRotation ? 1f : 0f);
                 if (!enabled)
                 {
                     return;
                 }
 
                 human.SetGoalPosition(goal, position);
-                human.SetGoalRotation(goal, rotation);
+                if (enableRotation) human.SetGoalRotation(goal, rotation);
             }
         }
         internal static bool TryApply(
@@ -403,6 +405,10 @@ namespace KimodoBridge
             // channel semantics.
             bool calculateEffectors =
                 KimodoConstraintInternal.NormalizeMode(sample.constraintMode) != "root2d";
+            job.rotateLeftHand = sample.effectors?.leftHand?.enableRotation == true;
+            job.rotateRightHand = sample.effectors?.rightHand?.enableRotation == true;
+            job.rotateLeftFoot = sample.effectors?.leftFoot?.enableRotation == true;
+            job.rotateRightFoot = sample.effectors?.rightFoot?.enableRotation == true;
             if (calculateEffectors)
             {
                 any |= job.solveLeftHand = KimodoConstraintMask.IsActive(sample, "lefthand");
@@ -472,12 +478,12 @@ namespace KimodoBridge
             {
                 // Hand q is the Unity public IK-goal rotation produced by
                 // boneWorld * Avatar.GetPostRotation * handGoalOffset.
-                rotation = value.q.normalized;
+                rotation = value.enableRotation ? value.q.normalized : Quaternion.identity;
             }
             else
             {
                 // Foot effectors retain their existing transport protocol.
-                rotation = value.q;
+                rotation = value.enableRotation ? value.q : Quaternion.identity;
             }
             return true;
         }

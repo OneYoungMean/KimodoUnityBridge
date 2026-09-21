@@ -7,6 +7,15 @@ namespace TimelineInject
 {
     public static class KimodoTimelinePreviewRefreshUtility
     {
+        public static void InitializeSceneOffset(AnimationTrack track, Animator animator)
+        {
+            if (track == null || animator == null || track.trackOffset != TrackOffset.ApplySceneOffsets) return;
+            // Match AnimationTrack.GatherProperties when no Timeline window has
+            // initialized the editor preview cache yet. Runtime reads the binding.
+            track.sceneOffsetPosition = animator.transform.localPosition;
+            track.sceneOffsetRotation = animator.transform.localEulerAngles;
+        }
+
         private static readonly GUIContent TransformOffsetTitle = EditorGUIUtility.TrTextContent(
             "Clip Transform Offsets",
             "Use this to offset the root transform position and rotation relative to the track when playing this clip");

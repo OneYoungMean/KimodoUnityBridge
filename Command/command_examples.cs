@@ -18,6 +18,8 @@ namespace KimodoUnityBridge.Command
                     @"{'clips':[{'character':'<character>','clip':'<clip>'}],'picture':{'output':'composite'},'resolution':512}");
                 case RetargetAnimationCommand: return Examples("Retarget a loaded Clip to another scene character.",
                     @"{'source_character':'<source character>','animation':'<clip>','target_character':'<target character>','output':{'name':'RetargetedMotion'}}");
+                case TransformCaptureCommand: return Examples("Capture the External Pose returned by pose_get together with scene objects, without moving the scene character.",
+                    @"{'pose':{'track':'<returned pose track>','index':0},'transforms':['@pose','<table hierarchy path>','<apple hierarchy path>'],'resolution':768}");
                 case GenerateAnimationCommand: return new JArray(
                     Example("Generate two seconds and poll the returned request_id.",
                         @"{'character':'<character>','prompt':'Stand still and breathe naturally','duration_frames':120}"),

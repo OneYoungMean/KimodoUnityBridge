@@ -128,7 +128,15 @@ namespace KimodoUnityBridge.Command
                     JObject value = property.Value as JObject ?? throw new InvalidOperationException($"effector.{property.Name} must be an object.");
                     KimodoRigidTransform target = GetEndEffector(sample, property.Name);
                     if (value["position"] is JArray position) target.t = ReadVector3(position, $"effector.{property.Name}.position");
-                    if (value["rotation"] is JArray rotation) target.q = ReadQuaternion(rotation, $"effector.{property.Name}.rotation");
+                    if (value["rotation"] is JArray rotation)
+                    {
+                        target.q = ReadQuaternion(rotation, $"effector.{property.Name}.rotation");
+                        target.enableRotation = true;
+                    }
+                    else if (value["position"] != null)
+                    {
+                        target.enableRotation = false;
+                    }
                     if (value["position"] == null && value["rotation"] == null)
                         throw new InvalidOperationException($"effector.{property.Name} must contain position or rotation.");
                     switch (property.Name)
@@ -702,17 +710,28 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static JObject FullTransformJson(KimodoRigidTransform transform) => new JObject
+        private static JObject FullTransformJson(KimodoRigidTransform transform)
         {
-            ["t"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
-            ["q"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
-        };
+            var result = new JObject
+            {
+                ["t"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
+                ["q"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w),
+                ["enable_rotation"] = transform.enableRotation
+            };
+            return result;
+        }
 
-        private static JObject CompactTransformJson(KimodoRigidTransform transform) => new JObject
+        private static JObject CompactTransformJson(KimodoRigidTransform transform)
         {
-            ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
-            ["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w)
-        };
+            var result = new JObject
+            {
+                ["position"] = new JArray(transform.t.x, transform.t.y, transform.t.z),
+                ["enable_rotation"] = transform.enableRotation
+            };
+            if (transform.enableRotation)
+                result["rotation"] = new JArray(transform.q.x, transform.q.y, transform.q.z, transform.q.w);
+            return result;
+        }
 
         private static readonly int[] CanonicalMuscleIndices = Enumerable.Range(0, 15)
             .Concat(Enumerable.Range(21, 34)).ToArray();

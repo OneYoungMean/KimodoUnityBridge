@@ -7,6 +7,20 @@ description: Create and edit External Pose slots for explicit Humanoid pose cons
 
 负责 `pose_get`、`pose_set` 以及按需拆分使用的 `pose_set_root_transform` 和 `pose_set_muscle`。
 
+`transform_capture` 接受 `pose_get` 返回的 `pose: {track,index}`。在 `transforms`
+中使用特殊 key `@pose` 表示该 Pose 的角色，`@pose/<相对骨骼路径>` 表示该角色局部；
+同一数组中加入桌子、苹果等场景层级路径即可在真实世界坐标下合拍。返回四视图
+`image_path`、Pose 来源和 `evaluated_joints_world`，截图不会移动原角色，渲染可见性会恢复。
+该命令不接受 `frames`；要检查动画指定帧，先 `pose_get`，再用返回的 Pose 引用截图。
+
+```json
+{
+  "pose": { "track": "<pose_get 返回的 track>", "index": 0 },
+  "transforms": ["@pose", "Desk", "Desk/Apple"],
+  "resolution": 768
+}
+```
+
 - 仅对当前场景上下文中明确指定的 Humanoid Clip 采样。
 - 只复用运行时返回的 `{track,index}` Pose 引用。
 - 编辑命令都创建派生 Pose，不覆盖已存在的 Pose。

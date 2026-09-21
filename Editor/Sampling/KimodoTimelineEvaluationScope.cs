@@ -12,6 +12,8 @@ namespace KimodoBridge.Editor
         private readonly bool originalGraphValid;
         private readonly double originalTime;
         private readonly List<AnimatorEventState> animatorStates;
+        private readonly Dictionary<Transform, (Vector3 position, Quaternion rotation, Vector3 scale)> transforms =
+            new Dictionary<Transform, (Vector3, Quaternion, Vector3)>();
         private bool disposed;
 
         private KimodoTimelineEvaluationScope(PlayableDirector director)
@@ -23,12 +25,17 @@ namespace KimodoBridge.Editor
             originalGraphValid = director.playableGraph.IsValid();
             originalTime = director.time;
             animatorStates = DisableBoundAnimatorEvents(director);
+            foreach (var state in animatorStates)
+                foreach (Transform transform in state.Animator.GetComponentsInChildren<Transform>(true))
+                    transforms[transform] = (transform.localPosition, transform.localRotation, transform.localScale);
             try
             {
                 if (originalState == PlayState.Playing)
                 {
                     director.Pause();
                 }
+                // Newly generated/replaced clips may not be present in the old graph.
+                director.RebuildGraph();
             }
             catch
             {
@@ -86,6 +93,13 @@ namespace KimodoBridge.Editor
             }
             finally
             {
+                foreach (var entry in transforms)
+                {
+                    if (entry.Key == null) continue;
+                    entry.Key.localPosition = entry.Value.position;
+                    entry.Key.localRotation = entry.Value.rotation;
+                    entry.Key.localScale = entry.Value.scale;
+                }
                 RestoreAnimatorEvents(animatorStates);
             }
         }

@@ -23,6 +23,7 @@ namespace KimodoUnityBridge.Command
         public const string InstallServerCommand = "kimodo_install_server";
         public const string GenerateAnimationCommand = "kimodo_generate_animation";
         public const string AnimationAnalyzeCommand = "animation_analyze";
+        public const string TransformCaptureCommand = "transform_capture";
         public const string RetargetAnimationCommand = "kimodo_retarget_animation";
         public const string PoseGetCommand = "pose_get";
         public const string PoseSetCommand = "pose_set";
@@ -85,6 +86,18 @@ namespace KimodoUnityBridge.Command
                                 ["maximum"] = 4096,
                                 ["description"] = "Final picture tile resolution in pixels; accepts 64 through 4096. Rendering uses a 2x supersample and downsamples to this size. Defaults to 1920."
                             }, false))),
+                    CommandDefinition(TransformCaptureCommand,
+                        "Capture the current scene or an External Pose returned by pose_get together with scene objects, in world space. Returns a four-view image and evaluated joint positions; does not change scene poses.",
+                        Properties(
+                            Optional("character_path", "string", "Active-scene character hierarchy path; required unless pose is supplied."),
+                            new PropertyDefinition("pose", PoseReferenceSchema(), false),
+                            new PropertyDefinition("transforms", new JObject
+                            {
+                                ["type"] = "array", ["minItems"] = 1,
+                                ["items"] = new JObject { ["type"] = "string" },
+                                ["description"] = "Scene hierarchy paths or character-relative paths. With pose, use @pose for the evaluated character or @pose/<relative bone path>. Include environment paths to frame them together."
+                            }, true),
+                            Optional("resolution", "integer", "Per-view pixel size, 64 through 4096; defaults to 1024. To capture an animation frame, first call pose_get and pass its pose reference."))),
                     CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current scene context character and append the result.",
                         Properties(
