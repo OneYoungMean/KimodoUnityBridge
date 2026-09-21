@@ -57,7 +57,7 @@ ASSERT WORKFLOW_READY == YES before animation work
 | Tool | 责任 | 入口文档 |
 |---|---|---|
 | common | 场景上下文、证据、状态和报告公共规则 | `tools/common.md` |
-| session | 解析和复用隐藏场景上下文 | `tools/session.md` |
+| scene-context | 记录场景解析与证据边界 | `tools/scene-context.md` |
 | generation | 生成、轮询、取消，以及 Retarget 派生结果 | `tools/generation.md` |
 | recognition | 根据明确语义识别动作 | `tools/recognition.md` |
 | comparison | 在相同证据条件下比较两个候选 | `tools/comparison.md` |
@@ -73,8 +73,7 @@ function run_kimodo_task(request):
     tool = route_to_capability_tool(intent)
 
     ensure_installation_gate()
-    context = tool.resolve_scene_context(request)
-    inputs = tool.resolve_safe_scene_names(context, request)
+    inputs = tool.resolve_scene_inputs(request)
     inputs = tool.validate_command_arguments(inputs)
 
     result = tool.execute(inputs)
@@ -93,7 +92,7 @@ function run_kimodo_task(request):
 ## Shared execution rules / 公共执行规则
 
 - 只使用运行时返回的安全角色名、动画名和 `{track,index}` 引用；生成结果的 `path` 是资产元数据，不是场景 Clip handle。
-- 所有命令都以当前活动场景中用户打开/选中的 `Animator` 所属角色为权威来源，并按需复用一个隐藏的自动上下文；不要从保存的 prefab 路径猜测替代场景对象。
+- 所有命令都以当前活动场景中用户打开/选中的 `Animator` 所属角色为权威来源；不要从保存的 prefab 路径猜测替代场景对象。
 - 只要生成请求点名动作（例如 walk/run），生成前必须检查当前场景中是否已有语义匹配的角色/动画；修复、改进、替换、续作或变体请求绝不能跳过这一步。找到的动画先作为上下文证据分析，只有请求明确要求参考、复用或约束时才传入生成约束。
 - 视觉结论必须建立在实际打开的返回图像上；静态证据不足时不得报告视觉通过。
 - 已完成 Clip 不覆盖；修正、Retarget 和生成变体均追加派生 Clip。

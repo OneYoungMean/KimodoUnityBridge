@@ -23,7 +23,7 @@
 | `../SKILL.md` | 安装门槛、任务入口、能力工具编排和公共执行规则 |
 | `../Command/help.json` | 维护命令、参数、必选关系和嵌套 schema |
 | `../tools/common.md` | 场景上下文、证据、状态和报告公共规则 |
-| `../tools/session.md` | 隐藏场景上下文解析 |
+| `../tools/scene-context.md` | 场景输入与证据边界 |
 | `../tools/recognition.md` | 语义动作识别工作流和证据决策 |
 | `../tools/comparison.md` | 动画质量比较工作流和证据决策 |
 | `../tools/generation.md` | 动画生成、验证、约束和派生修正工作流 |

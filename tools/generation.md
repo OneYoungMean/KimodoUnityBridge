@@ -13,7 +13,7 @@ Inside samples the current clip's opening/closing windows. Outside samples the p
 
 Samples are evenly spaced on integer model frames; two or more samples include both endpoints, while one sample keeps the pose nearest the seam. Short source ranges limit the effective window and sample count. Overlapping Inside windows are rejected rather than silently overriding poses. `Show Constraint` displays the actual samples on a selected clip (In: blue; Out: orange); `Refresh` resamples them. Export applies one shared world-to-track transform to all samples, preserving relative motion.
 
-The hidden context is a generation workspace, not the final playback Timeline. These controls belong to `KimodoPlayableClip` in the actual Timeline and are created on demand. Generation completion alone does not establish visual seam quality: verify consecutive playback of the resulting clips, including root motion and foot contacts.
+Generation uses the actual `KimodoPlayableClip` Timeline; it is not the final playback result. Generation completion alone does not establish visual seam quality: verify consecutive playback of the resulting clips, including root motion and foot contacts.
 
 ## Decision program / 决策程序
 

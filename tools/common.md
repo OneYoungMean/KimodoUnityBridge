@@ -13,14 +13,14 @@ description: Shared execution contract for all Kimodo capability tools.
 
 - **Core**：只传完成任务所需的明确对象、范围和动作语义。
 - **Advanced**：带有 `x-kimodo-advanced: true` 的参数只在需要覆盖默认值、选择模型/输出或施加路径与 Pose 约束时传入。
-- Commands resolve the active scene into one hidden automatic context; the public API does not expose context creation, switching, closing, or internal IDs.
+- Commands resolve inputs from the active scene; returned names, paths, and pose references are the public handles.
 - `animation_analyze` 只接受一个 Clip，默认生成固定 16:9 的 20-tile composite（宽度由 resolution 决定）；比较多个候选时分别调用分析。
 - 需要单张图片时传 `picture: {output: "tile", tile_index: N}`；`tile_index` 从 1 开始，`resolution` 在该模式表示高度，默认 720px，宽度按 4:3 自适应。
 - `kimodo_generate_animation` 的普通调用只需要 `character` 与 `prompt`；模型、采样、命名、存储和分析覆盖项均可省略。
 
 - 只使用用户明确提供的 source、target、range、pose、path 和 constraint。
 - 只要生成请求指定了动作，先检查当前活动场景中的语义匹配动画；“修复/改进/替换/续作/变体 + 指定动作”绝不能跳过这一步。检查结果要记录为上下文证据，不能把发现的动画自动升级为生成约束。
-- 自动上下文按需绑定当前活动场景中的 `Animator` 或可渲染 Mesh；角色来源不得从保存的 prefab 路径猜测替代。
+- 输入按需绑定当前活动场景中的 `Animator` 或可渲染 Mesh；角色来源不得从保存的 prefab 路径猜测替代。
 - 后续命令只使用运行时返回的安全名称和 `{track,index}` 引用。
 - 场景切换、Editor reload 或进入 Play Mode 可能取消活动生成；报告中必须保留该副作用。
 
