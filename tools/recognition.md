@@ -51,7 +51,7 @@ ALLOWED_LOOP_ENDPOINT    = ["candidate", "not_candidate", "unknown"]
 ALLOWED_KEYFRAME_HEADING = ["consistent", "inconsistent", "unknown"]
 
 function recognize_clip(analysis, semantic_alternatives, clip_index = 0):
-    if analysis.analysis_schema_version != "2-phase-track-v1":
+    if analysis.analysis_schema_version != "3-command-60-phase-track-v2":
         return not_verified_all_tasks("analysis_schema_version_mismatch")
     image = analysis.pictures.image_path
     if analysis.pictures.render_version != "51-unified-picture-space":
@@ -96,8 +96,9 @@ function run_structured_task(TASK, clip_analysis):
         return structured_array(
             clip_analysis.phase_track,
             required_fields = [
-                "start_frame", "end_frame", "duration_frames",
-                "duration_seconds", "anchor_frame", "kind", "confidence"
+                "start_frame", "end_frame", "start_frame_60", "end_frame_60",
+                "duration_frames", "duration_seconds", "anchor_frame", "anchor_frame_60",
+                "anchor_time_seconds", "kind", "confidence"
             ]
         )
 

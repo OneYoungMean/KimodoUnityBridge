@@ -49,13 +49,15 @@ description: Shared execution contract for all Kimodo capability tools.
 
 ### Phase track / 连续阶段轨道
 
-Humanoid analysis 使用破坏性的新契约 `analysis_schema_version=2-phase-track-v1`
-与 `phase_track_version=1-temporal-cluster-v1`。图片同时返回
+Humanoid analysis 使用破坏性的新契约 `analysis_schema_version=3-command-60-phase-track-v2`
+与 `phase_track_version=1-temporal-cluster-v2-command-60`。图片同时返回
 `pictures.render_version=51-unified-picture-space`；识别/比较必须记录并校验这些版本，版本不匹配时返回
 `UNKNOWN` 并要求更新提示词。旧的均分关键帧
 列表不再是阶段证据；`phase_track` 是唯一阶段来源。每项必须覆盖连续帧区间，
-区间首尾相接、无重叠、无空洞，并包含：`start_frame`、`end_frame`、
-`duration_frames`、`duration_seconds`、`anchor_frame`、`kind` 和 `confidence`。
+区间首尾相接、无重叠、无空洞，并包含局部数组索引与全局命令帧：
+`start_frame`、`end_frame`、`start_frame_60`、`end_frame_60`、
+`duration_frames`、`duration_seconds`、`anchor_frame`、`anchor_frame_60`、
+`anchor_time_seconds`、`kind` 和 `confidence`。
 `kind` 只能是 `phase` 或 `transition`；聚类器不得直接命名 `walk`、`wave` 等语义。
 Mesh analysis 对该字段返回 `NOT_APPLICABLE`。
 

@@ -50,7 +50,7 @@
     },
     {
       "name": "animation_analyze",
-      "description": "Analyze one immutable animation clip and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, and evidence paths. Completed Clips are never modified.",
+      "description": "Analyze one immutable animation clip at the fixed command time base of 60 FPS and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, keyframes with timeline_frame_60, and evidence paths. Completed Clips are never modified.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -900,15 +900,16 @@
               "clip": {
                 "type": "string"
               },
-              "frame": {
+              "timeline_frame_60": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Absolute Timeline-global command frame at 60 FPS. Use animation_analyze keyframes.timeline_frame_60."
               }
             },
             "required": [
               "character",
               "clip",
-              "frame"
+              "timeline_frame_60"
             ]
           },
           "full_data": {
@@ -923,12 +924,12 @@
       },
       "examples": [
         {
-          "description": "Capture a source Clip's local frame at 60 FPS; reuse the returned {track,index}.",
+          "description": "Capture an animation_analyze keyframe at the absolute Timeline-global 60 FPS frame; reuse the returned {track,index}.",
           "arguments": {
             "source": {
               "character": "<character>",
               "clip": "<clip>",
-              "frame": 30
+              "timeline_frame_60": 90
             },
             "full_data": true
           }

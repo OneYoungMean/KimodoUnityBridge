@@ -135,9 +135,9 @@ namespace KimodoBridge.Editor
             try
             {
                 TrackAsset parentTrack = timelineClip.GetParentTrack();
-                float frameRate = parentTrack?.timelineAsset?.editorSettings.frameRate > 0f
-                    ? (float)parentTrack.timelineAsset.editorSettings.frameRate
-                    : KimodoMotionModelProfiles.DefaultFrameRate;
+                // Inspector analysis follows the same fixed command time base
+                // as animation_analyze; native clip FPS is handled by sampling.
+                float frameRate = (float)KimodoFrameTimeUtility.CommandFrameRate;
                 int frameCount = Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * frameRate)));
                 string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
                 byte[] kmb = KimodoClipConstraintEncoder.EncodeTimeline(
@@ -158,11 +158,24 @@ namespace KimodoBridge.Editor
                     return false;
                 }
                 if (!KimodoRawMotionUtility.TryParseFlatBuffer(denseKmb, out KimodoRawMotionData motion, out error)) return false;
+                if (motion.FrameCount != frameCount || !Mathf.Approximately(motion.FrameRate, frameRate))
+                {
+                    if (!KimodoRawMotionUtility.TryResample(
+                            motion,
+                            frameRate,
+                            frameCount,
+                            out KimodoRawMotionData aligned,
+                            out error))
+                    {
+                        return false;
+                    }
+                    motion = aligned;
+                }
                 var samples = new List<KimodoMarkerSampleResult>(motion.FrameCount);
                 for (int frame = 0; frame < motion.FrameCount; frame++)
                 {
                     if (!KimodoRawMotionUtility.TryExtractMarkerSample(motion, modelName, frame, out KimodoMarkerSampleResult sample, out error,
-                            constraintType: "fullbody", sampleTime: frame / (double)motion.FrameRate)) return false;
+                            constraintType: "fullbody", sampleTime: frame / KimodoFrameTimeUtility.CommandFrameRate)) return false;
                     samples.Add(sample);
                 }
                 JObject analysis = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);

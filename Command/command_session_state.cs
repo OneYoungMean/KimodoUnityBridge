@@ -19,7 +19,7 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        private const string AnalysisContractVersion = "2-phase-track-v1";
+        private const string AnalysisContractVersion = "3-command-60-phase-track-v2";
         private const string TimelineDirectorNamePrefix = "Kimodo_CommandSession_";
         internal const int SessionCaptureLayer = 17;
         internal const int ClipSafeZoneFrames = 4;
@@ -581,7 +581,9 @@ namespace KimodoUnityBridge.Command
             }
             foreach (JToken keyframe in keyframes)
             {
-                double localTime = keyframe.Value<double?>("time") ?? 0.0;
+                double localTime = keyframe.Value<double?>("local_time_seconds")
+                    ?? keyframe.Value<double?>("time")
+                    ?? (keyframe.Value<int?>("local_frame_60") ?? keyframe.Value<int?>("frame") ?? 0) / SessionFrameRate;
                 localTime = Math.Max(0.0, Math.Min(trace.DurationSeconds, localTime));
                 KimodoAnalysisKeyframeMarker marker = track.CreateMarker<KimodoAnalysisKeyframeMarker>(trace.StartSeconds + localTime);
                 marker.frame = keyframe.Value<int?>("frame") ?? 0;
@@ -837,6 +839,7 @@ namespace KimodoUnityBridge.Command
                 ["phase_track"] = humanoid
                     ? subject.Record.Analysis?["phase_track"]?.DeepClone() ?? new JArray()
                     : "NOT_APPLICABLE",
+                ["keyframes"] = subject.Record.Analysis?["keyframes"]?.DeepClone() ?? new JArray(),
                 ["foot_contacts"] = subject.Record.Analysis?["foot_contacts"]?.DeepClone() ?? new JArray()
             };
             if (humanoid)
@@ -1130,6 +1133,10 @@ namespace KimodoUnityBridge.Command
                 annotation.Remove("time");
                 annotation.Remove("session_time");
                 annotation["frame"] = frame - startFrame;
+                annotation["local_frame_60"] = frame - startFrame;
+                annotation["timeline_frame_60"] = frame;
+                annotation["local_time_seconds"] = (frame - startFrame) / SessionFrameRate;
+                annotation["time_seconds"] = frame / SessionFrameRate;
                 keyframes.Add(annotation);
             }
             JArray contacts = analysis["foot_contacts"] as JArray
@@ -1154,6 +1161,7 @@ namespace KimodoUnityBridge.Command
             analysis["keyframes"] = keyframes;
             analysis["foot_contacts"] = normalizedContacts;
             analysis["source"] = "quickserver_analysis_only";
+            analysis["command_fps"] = SessionFrameRate;
         }
 
         private static JObject BuildEffectiveAnalysisOptions(JObject requested)
@@ -1213,9 +1221,9 @@ namespace KimodoUnityBridge.Command
             out byte[] analysisMotionBytes)
         {
             analysisMotionBytes = null;
-            float frameRate = session.TimelineAsset.editorSettings.frameRate > 0.0
-                ? (float)session.TimelineAsset.editorSettings.frameRate
-                : KimodoMotionModelProfiles.DefaultFrameRate;
+            // Analysis is a command-level contract. Timeline editor FPS and
+            // native KMB FPS are sampling details, never protocol frame rates.
+            float frameRate = (float)KimodoFrameTimeUtility.CommandFrameRate;
             byte[] motionBytes = animation.KmbBytes;
             int startFrame = Math.Max(0, animation.StartFrame);
             int frameCount = animation.EndFrameExclusive > animation.StartFrame
@@ -1288,6 +1296,7 @@ namespace KimodoUnityBridge.Command
             }
             JObject analysis = ParseAnalysisObject(analysisJson);
             analysis["source"] = "quickserver_analysis_only";
+            analysis["command_fps"] = KimodoFrameTimeUtility.CommandFrameRate;
             return analysis;
         }
 

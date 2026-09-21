@@ -15,7 +15,7 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        private const double SessionFrameRate = 60.0;
+        private const double SessionFrameRate = KimodoFrameTimeUtility.CommandFrameRate;
 
         public static string PoseGet(string argumentsJson) => Execute(argumentsJson, arguments =>
         {
@@ -29,17 +29,18 @@ namespace KimodoUnityBridge.Command
             TimelineAnimationRecord animation = ResolveAnimation(
                 new JObject { ["animation"] = RequiredStringValue(source, "clip") },
                 character);
-            int sourceFrame = RequiredNonNegativeFrame(source, "frame");
-            int animationFrames = Math.Max(
-                1,
-                Mathf.RoundToInt((float)(animation.TimelineDurationSeconds * SessionFrameRate)));
-            if (sourceFrame >= animationFrames)
+            int timelineFrame = RequiredNonNegativeFrame(source, "timeline_frame_60");
+            double timelineTime = timelineFrame / SessionFrameRate;
+            double timelineStart = animation.TimelineStartSeconds;
+            double timelineEnd = animation.TimelineEndSeconds;
+            if (timelineTime < timelineStart - KimodoFrameTimeUtility.FrameTolerance ||
+                timelineTime >= timelineEnd - KimodoFrameTimeUtility.FrameTolerance)
             {
                 throw new InvalidOperationException(
-                    $"source.frame must be within clip '{animation.Name}' local range [0,{animationFrames}).");
+                    $"source.timeline_frame_60 must resolve to Timeline time inside clip '{animation.Name}' " +
+                    $"range [{timelineStart:F6},{timelineEnd:F6}).");
             }
-            int absoluteFrame = Mathf.RoundToInt(
-                (float)(animation.TimelineStartSeconds * SessionFrameRate)) + sourceFrame;
+            int absoluteFrame = timelineFrame;
             ThrowIfGenerationRangeLocked(
                 session,
                 character,
@@ -47,7 +48,7 @@ namespace KimodoUnityBridge.Command
                 absoluteFrame + 1,
                 PoseGetCommand);
             bool fullData = arguments.Value<bool?>("full_data") ?? false;
-            KimodoMarkerSampleResult sourceSample = CaptureSampleResult(character, absoluteFrame);
+            KimodoMarkerSampleResult sourceSample = CaptureSampleResult(character, timelineTime);
             int index = AllocatePoseIndex(character.PoseCacheTrack);
             KimodoConstraintMarker marker = StoreExternalPose(character, index, sourceSample);
             SaveTimelineSession(session);
@@ -58,7 +59,8 @@ namespace KimodoUnityBridge.Command
                 {
                     ["character"] = character.Name,
                     ["clip"] = animation.Name,
-                    ["frame"] = sourceFrame
+                    ["timeline_frame_60"] = timelineFrame,
+                    ["time_seconds"] = timelineTime
                 }
             };
             result["data"] = fullData
@@ -233,14 +235,13 @@ namespace KimodoUnityBridge.Command
 
         private static KimodoMarkerSampleResult CaptureSampleResult(
             TimelineCharacterRecord character,
-            int frame)
+            double sampleTime)
         {
             if (!KimodoRetargetCoreUtility.IsValidHumanoid(character.Avatar))
             {
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar for pose sampling.");
             }
 
-            double sampleTime = frame / SessionFrameRate;
             TimelineClip sourceClip = character.Track.GetClips()
                 .FirstOrDefault(item =>
                     (sampleTime >= item.start ||

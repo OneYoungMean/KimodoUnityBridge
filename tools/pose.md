@@ -26,7 +26,9 @@ description: Create and edit External Pose slots for explicit Humanoid pose cons
 - 编辑命令都创建派生 Pose，不覆盖已存在的 Pose。
 - Pose 引用只有在用户明确要求约束时才传入 generation；不能把分析选帧自动当作约束。
 
-`pose_set` 可在一次调用中同时更新 root 和 muscles，至少提供其中一项。输出至少包含新的 `{track,index}`、来源角色/Clip/帧，以及未验证项目。
+`pose_get` 的 `source.timeline_frame_60` 是 Timeline 全局坐标下的命令帧，不是 Clip 局部帧；应直接复制 `animation_analyze` 返回的 `keyframes[*].timeline_frame_60`。底层会先换算为 Timeline 秒值，再按源动画自身帧率采样。
+
+`pose_set` 可在一次调用中同时更新 root 和 muscles，至少提供其中一项。输出至少包含新的 `{track,index}`、来源角色/Clip/全局帧，以及未验证项目。
 
 `pose_set` 也支持 `effector` 对象，用于更新末端执行器目标。键名为 `left_hand`、`right_hand`、`left_foot`、`right_foot`，每个值至少包含一个 `position: [x,y,z]` 或 `rotation: [x,y,z,w]`；只提交的通道会覆盖原值，并标记对应的有效性。例如：
 

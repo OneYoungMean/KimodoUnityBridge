@@ -396,9 +396,14 @@ namespace KimodoUnityBridge.Command
                 {
                     ["character"] = new JObject { ["type"] = "string" },
                     ["clip"] = new JObject { ["type"] = "string" },
-                    ["frame"] = new JObject { ["type"] = "integer", ["minimum"] = 0 }
+                    ["timeline_frame_60"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["minimum"] = 0,
+                        ["description"] = "Absolute Timeline-global command frame at 60 FPS. Use animation_analyze keyframes.timeline_frame_60."
+                    }
                 },
-                ["required"] = new JArray("character", "clip", "frame")
+                ["required"] = new JArray("character", "clip", "timeline_frame_60")
             }, true);
         }
 

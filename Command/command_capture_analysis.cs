@@ -19,7 +19,7 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        private const string PhaseTrackVersion = "1-temporal-cluster-v1";
+        private const string PhaseTrackVersion = "1-temporal-cluster-v2-command-60";
 
         private static KimodoMarkerSampleResult[] CaptureCachedSampleResults(
             AnalysisCacheRecord record,
@@ -972,6 +972,10 @@ namespace KimodoUnityBridge.Command
             analysis["keyframes"] = new JArray(phases.OfType<JObject>().Select(item => new JObject
             {
                 ["frame"] = item.Value<int>("anchor_frame"),
+                ["local_frame_60"] = item.Value<int>("anchor_frame"),
+                ["timeline_frame_60"] = subject.Subject.StartFrame + item.Value<int>("anchor_frame"),
+                ["local_time_seconds"] = item.Value<int>("anchor_frame") / SessionFrameRate,
+                ["time_seconds"] = (subject.Subject.StartFrame + item.Value<int>("anchor_frame")) / SessionFrameRate,
                 ["phase_index"] = item.Value<int>("phase_index"),
                 ["kind"] = item.Value<string>("kind")
             }));
@@ -1028,9 +1032,13 @@ namespace KimodoUnityBridge.Command
                     ["phase_index"] = index,
                     ["start_frame"] = segment.StartFrame,
                     ["end_frame"] = segment.EndFrame,
+                    ["start_frame_60"] = subject.Subject.StartFrame + segment.StartFrame,
+                    ["end_frame_60"] = subject.Subject.StartFrame + segment.EndFrame,
                     ["duration_frames"] = duration,
                     ["duration_seconds"] = duration / SessionFrameRate,
                     ["anchor_frame"] = segment.AnchorFrame,
+                    ["anchor_frame_60"] = subject.Subject.StartFrame + segment.AnchorFrame,
+                    ["anchor_time_seconds"] = (subject.Subject.StartFrame + segment.AnchorFrame) / SessionFrameRate,
                     ["kind"] = segment.Transition ? "transition" : "phase",
                     ["confidence"] = segment.MeanChange <= threshold ? "high" : "medium",
                     ["mean_feature_change"] = segment.MeanChange,

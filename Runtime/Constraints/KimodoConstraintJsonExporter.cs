@@ -8,6 +8,9 @@ namespace KimodoBridge
 {
     public static class KimodoFrameTimeUtility
     {
+        // Command protocol time is deliberately independent from a Timeline
+        // asset's editor frame rate and from a model's native KMB frame rate.
+        public const double CommandFrameRate = 60.0;
         public const double FrameTolerance = 1e-4;
 
         public static int SecondsToFrameCount(double seconds, double frameRate)

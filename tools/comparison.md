@@ -70,7 +70,7 @@ function compare(candidate_1, candidate_2):
        picture: {"output": "composite"},
         resolution: 512
     })
-    ASSERT analysis.analysis_schema_version == "2-phase-track-v1"
+    ASSERT analysis.analysis_schema_version == "3-command-60-phase-track-v2"
     ASSERT analysis.pictures.render_version == "51-unified-picture-space"
 
     image_path = analysis.pictures.image_path
