@@ -388,7 +388,7 @@ namespace KimodoUnityBridge.Command
 
         private static PropertyDefinition RequiredPoseSource(string name)
         {
-            return new PropertyDefinition(name, new JObject
+            JObject schema = new JObject
             {
                 ["type"] = "object",
                 ["additionalProperties"] = false,
@@ -396,15 +396,34 @@ namespace KimodoUnityBridge.Command
                 {
                     ["character"] = new JObject { ["type"] = "string" },
                     ["clip"] = new JObject { ["type"] = "string" },
-                    ["timeline_frame_60"] = new JObject
+                    ["timeline_time_seconds"] = new JObject
                     {
-                        ["type"] = "integer",
+                        ["type"] = "number",
+                        ["description"] = "Absolute Timeline-global time in seconds."
+                    },
+                    ["clip_time_seconds"] = new JObject
+                    {
+                        ["type"] = "number",
                         ["minimum"] = 0,
-                        ["description"] = "Absolute Timeline-global command frame at 60 FPS. Use animation_analyze keyframes.timeline_frame_60."
+                        ["description"] = "Time in seconds relative to the selected Clip's Timeline range."
                     }
                 },
-                ["required"] = new JArray("character", "clip", "timeline_frame_60")
-            }, true);
+                ["required"] = new JArray("character"),
+                ["oneOf"] = new JArray(
+                    new JObject
+                    {
+                        ["required"] = new JArray("character", "timeline_time_seconds"),
+                        ["not"] = new JObject { ["anyOf"] = new JArray(
+                            new JObject { ["required"] = new JArray("clip") },
+                            new JObject { ["required"] = new JArray("clip_time_seconds") }) }
+                    },
+                    new JObject
+                    {
+                        ["required"] = new JArray("character", "clip", "clip_time_seconds"),
+                        ["not"] = new JObject { ["required"] = new JArray("timeline_time_seconds") }
+                    })
+            };
+            return new PropertyDefinition(name, schema, true);
         }
 
         private static PropertyDefinition RequiredPoseReference(string name)

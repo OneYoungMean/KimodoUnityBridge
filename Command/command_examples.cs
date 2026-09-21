@@ -29,8 +29,11 @@ namespace KimodoUnityBridge.Command
                         @"{'character':'<character>','prompt':'Reach for the apple and pick it up','duration_frames':120,'loop':false,'constraints':[{'inout':{'in':{'source':{'clip':'<previous clip>'},'window_frames':30,'sample_count':5},'out':{'source':{'clip':'<next clip>'},'window_frames':12,'sample_count':3}}}]}"),
                     Example("Keep sampled opening and closing windows inside the returned Clip.",
                         @"{'character':'<character>','prompt':'Bend down then stand up','duration_frames':120,'loop':false,'constraints':[{'inout':{'mode':'inside','in':{'source':{'clip':'<reference clip>','frame':0},'window_frames':12,'sample_count':3},'out':{'source':{'clip':'<reference clip>'},'window_frames':12,'sample_count':3}}}]}"));
-                case PoseGetCommand: return Examples("Capture an animation_analyze keyframe at the absolute Timeline-global 60 FPS frame; reuse the returned {track,index}.",
-                    @"{'source':{'character':'<character>','clip':'<clip>','timeline_frame_60':90},'full_data':true}");
+                case PoseGetCommand: return new JArray(
+                    Example("Capture a pose at an absolute Timeline-global time in seconds.",
+                        @"{'source':{'character':'<character>','timeline_time_seconds':1.5},'full_data':true}"),
+                    Example("Capture a pose at a time relative to a target Clip's Timeline range.",
+                        @"{'source':{'character':'<character>','clip':'<clip>','clip_time_seconds':0.5},'full_data':true}"));
                 case PoseSetCommand: return Examples("Edit the root of the Pose slot returned by pose_get; position is in Character world space.",
                     @"{'pose':{'track':'<returned pose track>','index':0},'root':{'position':[0,1,0],'rotation':[0,0,0,1]}}");
                 case PoseSetRootTransformCommand: return Examples("Set a returned Pose slot's root position.",

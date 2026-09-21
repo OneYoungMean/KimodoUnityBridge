@@ -26,20 +26,38 @@ namespace KimodoUnityBridge.Command
                 session,
                 RequiredStringValue(source, "character"),
                 addIfMissing: false);
-            TimelineAnimationRecord animation = ResolveAnimation(
-                new JObject { ["animation"] = RequiredStringValue(source, "clip") },
-                character);
-            int timelineFrame = RequiredNonNegativeFrame(source, "timeline_frame_60");
-            double timelineTime = timelineFrame / SessionFrameRate;
-            double timelineStart = animation.TimelineStartSeconds;
-            double timelineEnd = animation.TimelineEndSeconds;
-            if (timelineTime < timelineStart - KimodoFrameTimeUtility.FrameTolerance ||
-                timelineTime >= timelineEnd - KimodoFrameTimeUtility.FrameTolerance)
+            bool hasTimelineTime = source["timeline_time_seconds"] != null;
+            bool hasClipTime = source["clip"] != null || source["clip_time_seconds"] != null;
+            if (hasTimelineTime == hasClipTime)
             {
                 throw new InvalidOperationException(
-                    $"source.timeline_frame_60 must resolve to Timeline time inside clip '{animation.Name}' " +
-                    $"range [{timelineStart:F6},{timelineEnd:F6}).");
+                    "source must use exactly one mode: timeline_time_seconds, or clip with clip_time_seconds.");
             }
+
+            TimelineAnimationRecord animation = null;
+            double timelineTime;
+            double clipTime = double.NaN;
+            if (hasTimelineTime)
+            {
+                timelineTime = ReadFiniteDouble(source["timeline_time_seconds"], "source.timeline_time_seconds");
+                ValidateTimelineTime(character, timelineTime, "source.timeline_time_seconds");
+            }
+            else
+            {
+                animation = ResolveAnimation(
+                    new JObject { ["animation"] = RequiredStringValue(source, "clip") },
+                    character);
+                clipTime = ReadFiniteDouble(source["clip_time_seconds"], "source.clip_time_seconds");
+                double clipDuration = animation.TimelineDurationSeconds;
+                if (clipTime < 0.0 || clipTime >= clipDuration - KimodoFrameTimeUtility.FrameTolerance)
+                {
+                    throw new InvalidOperationException(
+                        $"source.clip_time_seconds must be inside clip '{animation.Name}' range [0,{clipDuration:F6}).");
+                }
+                timelineTime = animation.TimelineStartSeconds + clipTime;
+            }
+
+            int timelineFrame = (int)Math.Round(timelineTime * SessionFrameRate, MidpointRounding.AwayFromZero);
             int absoluteFrame = timelineFrame;
             ThrowIfGenerationRangeLocked(
                 session,
@@ -58,11 +76,16 @@ namespace KimodoUnityBridge.Command
                 ["source"] = new JObject
                 {
                     ["character"] = character.Name,
-                    ["clip"] = animation.Name,
-                    ["timeline_frame_60"] = timelineFrame,
-                    ["time_seconds"] = timelineTime
+                    ["timeline_time_seconds"] = timelineTime,
+                    ["timeline_frame_60"] = timelineFrame
                 }
             };
+            JObject resultSource = (JObject)result["source"];
+            if (animation != null)
+            {
+                resultSource["clip"] = animation.Name;
+                resultSource["clip_time_seconds"] = clipTime;
+            }
             result["data"] = fullData
                 ? BuildPoseJson(marker.SampleData)
                 : BuildCompactPose(marker.SampleData);
@@ -818,6 +841,44 @@ namespace KimodoUnityBridge.Command
             float result = value.Value<float>();
             if (float.IsNaN(result) || float.IsInfinity(result)) throw new InvalidOperationException($"{name} must be finite.");
             return result;
+        }
+
+        private static double ReadFiniteDouble(JToken value, string name)
+        {
+            if (value == null || (value.Type != JTokenType.Integer && value.Type != JTokenType.Float))
+            {
+                throw new InvalidOperationException($"{name} must be a number.");
+            }
+            double result = value.Value<double>();
+            if (double.IsNaN(result) || double.IsInfinity(result))
+            {
+                throw new InvalidOperationException($"{name} must be finite.");
+            }
+            return result;
+        }
+
+        private static void ValidateTimelineTime(
+            TimelineCharacterRecord character,
+            double timelineTime,
+            string name)
+        {
+            TimelineClip[] clips = character.Track != null
+                ? character.Track.GetClips().ToArray()
+                : Array.Empty<TimelineClip>();
+            if (clips.Length == 0)
+            {
+                throw new InvalidOperationException($"Character '{character.Name}' has no Timeline clips.");
+            }
+            bool insideClip = clips.Any(item =>
+                (timelineTime >= item.start - KimodoFrameTimeUtility.FrameTolerance) &&
+                (timelineTime < item.end - KimodoFrameTimeUtility.FrameTolerance));
+            if (!insideClip)
+            {
+                double start = clips.Min(item => item.start);
+                double end = clips.Max(item => item.end);
+                throw new InvalidOperationException(
+                    $"{name} must be inside Character Timeline range [{start:F6},{end:F6}).");
+            }
         }
 
         private static KimodoConstraintMarker FindUntypedPose(AnimationTrack track, int frame) =>

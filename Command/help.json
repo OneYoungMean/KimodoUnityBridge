@@ -886,7 +886,7 @@
     },
     {
       "name": "pose_get",
-      "description": "Sample one current-animation clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
+      "description": "Sample one Timeline time or Clip-local time into a new External Pose slot. Use exactly one source mode: timeline_time_seconds, or clip with clip_time_seconds. Returns the reusable pose identity {track,index}.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -900,16 +900,52 @@
               "clip": {
                 "type": "string"
               },
-              "timeline_frame_60": {
-                "type": "integer",
+              "timeline_time_seconds": {
+                "type": "number",
+                "description": "Absolute Timeline-global time in seconds."
+              },
+              "clip_time_seconds": {
+                "type": "number",
                 "minimum": 0,
-                "description": "Absolute Timeline-global command frame at 60 FPS. Use animation_analyze keyframes.timeline_frame_60."
+                "description": "Time in seconds relative to the selected Clip's Timeline range."
               }
             },
             "required": [
-              "character",
-              "clip",
-              "timeline_frame_60"
+              "character"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "character",
+                  "timeline_time_seconds"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "clip"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "clip_time_seconds"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "character",
+                  "clip",
+                  "clip_time_seconds"
+                ],
+                "not": {
+                  "required": [
+                    "timeline_time_seconds"
+                  ]
+                }
+              }
             ]
           },
           "full_data": {
@@ -924,12 +960,22 @@
       },
       "examples": [
         {
-          "description": "Capture an animation_analyze keyframe at the absolute Timeline-global 60 FPS frame; reuse the returned {track,index}.",
+          "description": "Capture a pose at an absolute Timeline-global time in seconds.",
+          "arguments": {
+            "source": {
+              "character": "<character>",
+              "timeline_time_seconds": 1.5
+            },
+            "full_data": true
+          }
+        },
+        {
+          "description": "Capture a pose at a time relative to a target Clip's Timeline range.",
           "arguments": {
             "source": {
               "character": "<character>",
               "clip": "<clip>",
-              "timeline_frame_60": 90
+              "clip_time_seconds": 0.5
             },
             "full_data": true
           }

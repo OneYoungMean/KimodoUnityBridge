@@ -26,7 +26,19 @@ description: Create and edit External Pose slots for explicit Humanoid pose cons
 - 编辑命令都创建派生 Pose，不覆盖已存在的 Pose。
 - Pose 引用只有在用户明确要求约束时才传入 generation；不能把分析选帧自动当作约束。
 
-`pose_get` 的 `source.timeline_frame_60` 是 Timeline 全局坐标下的命令帧，不是 Clip 局部帧；应直接复制 `animation_analyze` 返回的 `keyframes[*].timeline_frame_60`。底层会先换算为 Timeline 秒值，再按源动画自身帧率采样。
+`pose_get` 支持两种互斥的时间寻址方式，底层统一使用双精度秒值采样：
+
+```json
+{ "source": { "character": "<character>", "timeline_time_seconds": 1.5 } }
+```
+
+上面按角色的 Timeline 全局时间采样。也可以指定目标 Clip，并使用 Clip 在 Timeline 上的局部时间：
+
+```json
+{ "source": { "character": "<character>", "clip": "<clip>", "clip_time_seconds": 0.5 } }
+```
+
+两种模式不能混用。返回的 `timeline_frame_60` 是由全局秒值派生的 60 FPS 对齐字段；底层仍会根据 Timeline 的 `clipIn`、`timeScale` 和源动画帧率完成实际采样。
 
 `pose_set` 可在一次调用中同时更新 root 和 muscles，至少提供其中一项。输出至少包含新的 `{track,index}`、来源角色/Clip/全局帧，以及未验证项目。
 

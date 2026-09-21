@@ -118,7 +118,7 @@ namespace KimodoUnityBridge.Command
                             Optional("analysis_option", "object", "Optional analysis object for the phase-track analyzer. Legacy uniform keyframe-count controls are removed; Humanoid output always uses phase_track_version and continuous phase_track intervals."),
                             OptionalConstraints("constraints", "Point, root_path, and inout boundary constraints. In/Out sources are explicit Clips sampled in C#; command frames use 60 FPS."))),
                     CommandDefinition(PoseGetCommand,
-                        "Sample one current-animation clip frame into a new External Pose slot. Returns the only reusable pose identity: {track,index}.",
+                        "Sample one Timeline time or Clip-local time into a new External Pose slot. Use exactly one source mode: timeline_time_seconds, or clip with clip_time_seconds. Returns the reusable pose identity {track,index}.",
                         Properties(
                             RequiredPoseSource("source"),
                             Optional("full_data", "boolean", "Return all 49 muscles and TQ channels; defaults to false."))),
