@@ -253,13 +253,13 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(actualMarkers, Has.Length.EqualTo(2));
                 KimodoMarkerSampleResult actual = actualMarkers[1].SampleData;
                 KimodoMarkerSampleResult timelineActual = actualMarkers[0].SampleData;
-                Assert.That(Vector3.Distance(timelineActual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.02f),
+                Assert.That(Vector3.Distance(timelineActual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.001f),
                     "timeline_time_seconds pose root world position");
                 KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                     track, skeleton.animator, out Vector3 resolvedTrackPosition,
                     out Quaternion resolvedTrackRotation, out bool resolvedSceneOffset);
 
-                Assert.That(Vector3.Distance(actual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.02f),
+                Assert.That(Vector3.Distance(actual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.001f),
                     $"hips world position actual={actual.rootOverride.t} expected={expected.rootOverride.t} " +
                     $"track={resolvedTrackPosition} sceneOffset={resolvedSceneOffset} " +
                     $"characterRoot={skeleton.root.transform.position} " +
@@ -272,7 +272,7 @@ namespace KimodoUnityBridge.Command.Tests
                     (actual.effectors.rightFoot, expected.effectors.rightFoot, "right foot")
                 })
                 {
-                    Assert.That(Vector3.Distance(pair.Item1.t, pair.Item2.t), Is.LessThan(0.02f), pair.Item3 + " world position");
+                    Assert.That(Vector3.Distance(pair.Item1.t, pair.Item2.t), Is.LessThan(0.001f), pair.Item3 + " world position");
                 }
             }
             finally
