@@ -178,6 +178,120 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void PoseGet_MatchesAnalysisWorldCoordinatesAtSameTimelineTime()
+        {
+            const string model = KimodoMotionModelProfiles.DefaultModelName;
+            Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(model, out var avatar, out var error), Is.True, error);
+            Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(avatar, "PoseGetWorldCoordinateFixture", out var skeleton, out error), Is.True, error);
+            var directorObject = new GameObject("PoseGetWorldCoordinateDirector");
+            var director = directorObject.AddComponent<PlayableDirector>();
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            AnimationClip sourceClip = null;
+            FieldInfo currentSessionField = typeof(command_context).GetField("currentTimelineSession", PrivateStatic);
+            try
+            {
+                Assert.That(KimodoRetargetSamplingUtility.TryCaptureMuscleSample(skeleton, out var pose, out error), Is.True, error);
+                pose.GetRoot(out var position, out var rotation);
+                var frames = Enumerable.Range(0, 121).Select(i =>
+                {
+                    var frame = pose.Clone();
+                    frame.SetRoot(position + Vector3.forward * (i / 30f), rotation);
+                    return frame;
+                }).ToArray();
+                Assert.That(KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(frames, 30, out sourceClip, out error), Is.True, error);
+                sourceClip.SampleAnimation(skeleton.root, 0);
+
+                director.playableAsset = timeline;
+                skeleton.animator.applyRootMotion = false;
+                skeleton.animator.Rebind();
+                var track = timeline.CreateTrack<AnimationTrack>(null, "PoseGetCharacter");
+                track.trackOffset = TrackOffset.ApplyTransformOffsets;
+                track.position = new Vector3(3f, 0.5f, -2f);
+                track.rotation = Quaternion.Euler(0f, 35f, 0f);
+                director.SetGenericBinding(track, skeleton.animator);
+                var poseTrack = timeline.CreateTrack<AnimationTrack>(track, "PoseGetCharacter.Poses");
+                var timelineClip = track.CreateClip<AnimationPlayableAsset>();
+                ((AnimationPlayableAsset)timelineClip.asset).clip = sourceClip;
+                ((AnimationPlayableAsset)timelineClip.asset).removeStartOffset = false;
+                timelineClip.start = 0.0;
+                timelineClip.duration = 2.0;
+                timelineClip.clipIn = 0.25;
+                timelineClip.timeScale = 1.2;
+                var character = new command_context.TimelineCharacterRecord(
+                    "PoseGetCharacter", skeleton.root, skeleton.animator, avatar, track, poseTrack, "");
+                character.Animations.Add(new command_context.TimelineAnimationRecord(
+                    Guid.NewGuid(), "Sample", "test", sourceClip, timelineClip, null, null, 0, 120));
+
+                var sessionType = typeof(command_context).GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
+                var session = Activator.CreateInstance(sessionType,
+                    new object[] { Guid.NewGuid(), "PoseGetWorldCoordinateTest", director, timeline, "", false, null, directorObject });
+                ((List<command_context.TimelineCharacterRecord>)sessionType.GetProperty("Characters").GetValue(session)).Add(character);
+                currentSessionField.SetValue(null, session);
+
+                director.RebuildGraph();
+                director.Evaluate();
+                const double timelineTime = 1.0;
+                JObject timelineResponse = JObject.Parse(command_context.PoseGet(
+                    "{'source':{'character':'PoseGetCharacter','timeline_time_seconds':1.0},'full_data':true}"));
+                Assert.That(timelineResponse.Value<bool>("ok"), Is.True, timelineResponse.ToString());
+                JObject clipResponse = JObject.Parse(command_context.PoseGet(
+                    "{'source':{'character':'PoseGetCharacter','clip':'Sample','clip_time_seconds':1.0},'full_data':true}"));
+                Assert.That(clipResponse.Value<bool>("ok"), Is.True, clipResponse.ToString());
+
+                var expectedContext = new KimodoTimelineInOutConstraintContext
+                {
+                    Director = director,
+                    Track = track,
+                    Animator = skeleton.animator,
+                    SourceClip = timelineClip,
+                    ModelName = model
+                };
+                Assert.That(KimodoTimelineConstraintSampler.TrySampleMarker(
+                    expectedContext, timelineTime, 0, "fullbody", model, out var expected, out error), Is.True, error);
+                KimodoConstraintMarker[] actualMarkers = poseTrack.GetMarkers()
+                    .OfType<KimodoConstraintMarker>().OrderBy(marker => marker.time).ToArray();
+                Assert.That(actualMarkers, Has.Length.EqualTo(2));
+                KimodoMarkerSampleResult actual = actualMarkers[1].SampleData;
+                KimodoMarkerSampleResult timelineActual = actualMarkers[0].SampleData;
+                Assert.That(Vector3.Distance(timelineActual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.02f),
+                    "timeline_time_seconds pose root world position");
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    track, skeleton.animator, out Vector3 resolvedTrackPosition,
+                    out Quaternion resolvedTrackRotation, out bool resolvedSceneOffset);
+
+                Assert.That(Vector3.Distance(actual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.02f),
+                    $"hips world position actual={actual.rootOverride.t} expected={expected.rootOverride.t} " +
+                    $"track={resolvedTrackPosition} sceneOffset={resolvedSceneOffset} " +
+                    $"characterRoot={skeleton.root.transform.position} " +
+                    $"sourceTime={KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(timelineClip, timelineTime):F6}");
+                foreach (var pair in new[]
+                {
+                    (actual.effectors.leftHand, expected.effectors.leftHand, "left hand"),
+                    (actual.effectors.rightHand, expected.effectors.rightHand, "right hand"),
+                    (actual.effectors.leftFoot, expected.effectors.leftFoot, "left foot"),
+                    (actual.effectors.rightFoot, expected.effectors.rightFoot, "right foot")
+                })
+                {
+                    Assert.That(Vector3.Distance(pair.Item1.t, pair.Item2.t), Is.LessThan(0.02f), pair.Item3 + " world position");
+                }
+            }
+            finally
+            {
+                currentSessionField?.SetValue(null, null);
+                director.Stop();
+                foreach (var track in timeline.GetOutputTracks().ToArray())
+                {
+                    foreach (var clip in track.GetClips().ToArray()) Object.DestroyImmediate(clip.asset);
+                    Object.DestroyImmediate(track);
+                }
+                Object.DestroyImmediate(timeline);
+                Object.DestroyImmediate(directorObject);
+                if (sourceClip != null) Object.DestroyImmediate(sourceClip);
+                skeleton.Dispose();
+            }
+        }
+
+        [Test]
         public void EveryCommand_HasExamplesInStaticAndLiveHelp()
         {
             var definitions = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson());

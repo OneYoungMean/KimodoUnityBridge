@@ -209,15 +209,11 @@ namespace KimodoBridge
                 return Math.Max(0.0, timelineTime);
             }
 
-            double clipRelativeTime = timelineClip.ToLocalTime(timelineTime);
-            clipRelativeTime = Math.Max(0.0, Math.Min(timelineClip.duration, clipRelativeTime));
-            double sourceSampleTime = timelineClip.clipIn + (clipRelativeTime * timelineClip.timeScale);
-            if (sourceSampleTime < 0.0)
-            {
-                return 0.0;
-            }
-
-            return sourceSampleTime;
+            // TimelineClip.ToLocalTime already applies the clip start, clipIn,
+            // timeScale, looping, and extrapolation rules. Do not apply those
+            // factors a second time here.
+            double sourceSampleTime = timelineClip.ToLocalTime(timelineTime);
+            return Math.Max(0.0, sourceSampleTime);
         }
 
         internal static bool TryResolveEndEffectorBone(string markerType, out HumanBodyBones bone)

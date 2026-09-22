@@ -347,12 +347,21 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
                 }
 
-                Transform characterRoot = character.Animator != null
-                    ? character.Animator.transform
-                    : (character.Root != null ? character.Root.transform : null);
-                if (characterRoot != null)
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    character.Track,
+                    character.Animator,
+                    out _,
+                    out _,
+                    out bool isSceneOffset);
+                if (isSceneOffset)
                 {
-                    cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
+                    Transform characterRoot = character.Animator != null
+                        ? character.Animator.transform
+                        : (character.Root != null ? character.Root.transform : null);
+                    if (characterRoot != null)
+                    {
+                        cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
+                    }
                 }
 
                 double sourceTime = KimodoMarkerSamplingUtility.ResolveAnimationSourceTime(
@@ -365,6 +374,7 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
                 }
+                ApplyPoseSamplingWorldOffset(character, cache);
                 if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
                         cache,
                         out MuscleSample sample,
@@ -379,6 +389,38 @@ namespace KimodoUnityBridge.Command
                 samplingSession?.Dispose();
                 cache?.Dispose();
             }
+        }
+
+        private static void ApplyPoseSamplingWorldOffset(
+            TimelineCharacterRecord character,
+            RetargetSkeleton cache)
+        {
+            if (cache?.root == null)
+            {
+                return;
+            }
+
+            KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                character.Track,
+                character.Animator,
+                out Vector3 trackPosition,
+                out Quaternion trackRotation,
+                out bool isSceneOffset);
+            if (isSceneOffset)
+            {
+                return;
+            }
+            Vector3 sampledPosition = cache.root.transform.position;
+            Quaternion sampledRotation = cache.root.transform.rotation;
+
+            KimodoTimelineTrackOffsetUtility.TrackToWorldPose(
+                sampledPosition,
+                sampledRotation,
+                trackPosition,
+                trackRotation,
+                out Vector3 worldPosition,
+                out Quaternion worldRotation);
+            cache.root.transform.SetPositionAndRotation(worldPosition, worldRotation);
         }
 
         private static KimodoMarkerSampleResult BuildCapturedSampleResult(
@@ -515,12 +557,21 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException($"Timeline pose sampler failed: {error}");
                 }
 
-                Transform characterRoot = character.Animator != null
-                    ? character.Animator.transform
-                    : (character.Root != null ? character.Root.transform : null);
-                if (characterRoot != null)
+                KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
+                    character.Track,
+                    character.Animator,
+                    out _,
+                    out _,
+                    out bool isSceneOffset);
+                if (isSceneOffset)
                 {
-                    cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
+                    Transform characterRoot = character.Animator != null
+                        ? character.Animator.transform
+                        : (character.Root != null ? character.Root.transform : null);
+                    if (characterRoot != null)
+                    {
+                        cache.root.transform.SetPositionAndRotation(characterRoot.position, characterRoot.rotation);
+                    }
                 }
 
                 var results = new KimodoMarkerSampleResult[frameCount];
@@ -535,6 +586,7 @@ namespace KimodoUnityBridge.Command
                     {
                         throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
                     }
+                    ApplyPoseSamplingWorldOffset(character, cache);
                     if (!KimodoRetargetSamplingUtility.TryCaptureMuscleSample(cache, out MuscleSample sample, out error))
                     {
                         throw new InvalidOperationException($"Timeline pose sampling failed: {error}");
