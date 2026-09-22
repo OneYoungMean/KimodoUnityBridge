@@ -232,11 +232,14 @@ namespace KimodoUnityBridge.Command.Tests
                 director.Evaluate();
                 const double timelineTime = 1.0;
                 JObject timelineResponse = JObject.Parse(command_context.PoseGet(
-                    "{'source':{'character':'PoseGetCharacter','timeline_time_seconds':1.0},'full_data':true}"));
+                    "{'source':{'character':'PoseGetCharacter','timeline_time_seconds':0.8},'full_data':true}"));
                 Assert.That(timelineResponse.Value<bool>("ok"), Is.True, timelineResponse.ToString());
                 JObject clipResponse = JObject.Parse(command_context.PoseGet(
                     "{'source':{'character':'PoseGetCharacter','clip':'Sample','clip_time_seconds':1.0},'full_data':true}"));
                 Assert.That(clipResponse.Value<bool>("ok"), Is.True, clipResponse.ToString());
+                JObject numericClipResponse = JObject.Parse(command_context.PoseGet(
+                    "{'source':{'character':'PoseGetCharacter','clip':'Sample','clip_time_seconds':1.2},'full_data':true}"));
+                Assert.That(numericClipResponse.Value<bool>("ok"), Is.True, numericClipResponse.ToString());
 
                 var expectedContext = new KimodoTimelineInOutConstraintContext
                 {
@@ -248,13 +251,22 @@ namespace KimodoUnityBridge.Command.Tests
                 };
                 Assert.That(KimodoTimelineConstraintSampler.TrySampleMarker(
                     expectedContext, timelineTime, 0, "fullbody", model, out var expected, out error), Is.True, error);
+                Assert.That(KimodoTimelineConstraintSampler.TrySampleMarker(
+                    expectedContext, 0.8, 0, "fullbody", model, out var expectedTimeline, out error), Is.True, error);
+                Assert.That(KimodoTimelineConstraintSampler.TrySampleMarker(
+                    expectedContext, 1.2, 0, "fullbody", model, out var expectedNumericClip, out error), Is.True, error);
                 KimodoConstraintMarker[] actualMarkers = poseTrack.GetMarkers()
                     .OfType<KimodoConstraintMarker>().OrderBy(marker => marker.time).ToArray();
-                Assert.That(actualMarkers, Has.Length.EqualTo(2));
+                Assert.That(actualMarkers, Has.Length.EqualTo(3));
                 KimodoMarkerSampleResult actual = actualMarkers[1].SampleData;
                 KimodoMarkerSampleResult timelineActual = actualMarkers[0].SampleData;
-                Assert.That(Vector3.Distance(timelineActual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.001f),
+                KimodoMarkerSampleResult numericClipActual = actualMarkers[2].SampleData;
+                Assert.That(Vector3.Distance(timelineActual.rootOverride.t, expectedTimeline.rootOverride.t), Is.LessThan(0.001f),
                     "timeline_time_seconds pose root world position");
+                Assert.That(Vector3.Distance(actual.rootOverride.t, expected.rootOverride.t), Is.LessThan(0.001f),
+                    "clip_time_seconds pose root world position");
+                Assert.That(Vector3.Distance(numericClipActual.rootOverride.t, expectedNumericClip.rootOverride.t), Is.LessThan(0.001f),
+                    "numeric clip_time_seconds pose root world position");
                 KimodoTimelineTrackOffsetUtility.ResolveWorldOffset(
                     track, skeleton.animator, out Vector3 resolvedTrackPosition,
                     out Quaternion resolvedTrackRotation, out bool resolvedSceneOffset);

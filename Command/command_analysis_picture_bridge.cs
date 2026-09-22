@@ -98,7 +98,7 @@ namespace KimodoUnityBridge.Command
                             new JArray(), analysis, motionBytes, animation, inputSignature);
                         record = GetCachedAnalysis(session, id);
                     }
-                    subjects.Add(new AnalysisSubject(subjects.Count == 0 ? "source" : "target", character, animation, record, startFrame, endFrame));
+                    subjects.Add(new AnalysisSubject(character, animation, record, startFrame, endFrame));
                 }
                 if (subjects.Count == 0) { error = "No selected clips were provided."; return false; }
                 JObject pictures = RenderAnalysisPictures(

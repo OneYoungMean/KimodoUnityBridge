@@ -66,21 +66,18 @@ namespace KimodoUnityBridge.Command
         private sealed class AnalysisSubject
         {
             public AnalysisSubject(
-                string role,
                 TimelineCharacterRecord character,
                 TimelineAnimationRecord animation,
                 AnalysisCacheRecord record,
                 int startFrame,
                 int endFrameExclusive)
             {
-                Role = role;
                 Character = character;
                 Animation = animation;
                 Record = record;
                 StartFrame = startFrame;
                 EndFrameExclusive = endFrameExclusive;
             }
-            public string Role { get; }
             public TimelineCharacterRecord Character { get; }
             public TimelineAnimationRecord Animation { get; }
             public AnalysisCacheRecord Record { get; }

@@ -714,7 +714,7 @@ namespace KimodoUnityBridge.Command
                 JArray requestedClips = arguments["clips"] as JArray;
                 if (requestedClips == null || requestedClips.Count != 1)
                 {
-                    throw new InvalidOperationException("animation_analyze requires exactly one {character,clip,role?} object; analyze comparison clips separately.");
+                    throw new InvalidOperationException("animation_analyze requires exactly one {character,clip} object.");
                 }
 
                 JObject picture = AnalysisPictureRequest.Parse(arguments["picture"] as JObject).ToJson();
@@ -727,18 +727,11 @@ namespace KimodoUnityBridge.Command
                 }
                 JObject analysisOptions = BuildEffectiveAnalysisOptions(requestedAnalysisOptions);
                 var subjects = new List<AnalysisSubject>(requestedClips.Count);
-                var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 for (int index = 0; index < requestedClips.Count; index++)
                 {
                     if (requestedClips[index] is not JObject requested)
                     {
                         throw new InvalidOperationException($"clips[{index}] must be an object.");
-                    }
-
-                    string role = (requested.Value<string>("role") ?? (index == 0 ? "source" : "target")).Trim().ToLowerInvariant();
-                    if ((role != "source" && role != "target") || !roles.Add(role))
-                    {
-                        throw new InvalidOperationException("Each clips item requires a unique role of source or target.");
                     }
 
                     string characterName = RequiredStringValue(requested, "character");
@@ -791,7 +784,7 @@ namespace KimodoUnityBridge.Command
                         EnsureAnalysisRootTrajectory(session, character, record, startFrame, endFrame);
                         EnsureEndpointPoseComparison(session, character, animation, record, startFrame, endFrame);
                     }
-                    subjects.Add(new AnalysisSubject(role, character, animation, record, startFrame, endFrame));
+                    subjects.Add(new AnalysisSubject(character, animation, record, startFrame, endFrame));
                 }
 
                 JObject pictures = RenderAnalysisPictures(session, subjects, picture, pictureResolution);
@@ -802,7 +795,6 @@ namespace KimodoUnityBridge.Command
                     ["picture"] = picture.DeepClone(),
                     ["clips"] = new JArray(subjects.Select(subject => new JObject
                     {
-                        ["role"] = subject.Role,
                         ["character"] = subject.Character?.Name ?? string.Empty,
                         ["clip"] = subject.Animation?.Name ?? string.Empty,
                         ["analysis"] = subject.Record.Analysis?.DeepClone() ?? new JObject()
@@ -828,7 +820,6 @@ namespace KimodoUnityBridge.Command
             bool humanoid = IsHumanoidCharacter(subject.Character);
             var result = new JObject
             {
-                ["role"] = subject.Role,
                 ["character"] = subject.Character.Name,
                 ["clip"] = subject.Animation.Name,
                 ["analysis_schema_version"] = AnalysisContractVersion,

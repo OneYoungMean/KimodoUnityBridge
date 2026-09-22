@@ -230,7 +230,6 @@ namespace KimodoUnityBridge.Command
                     ["additionalProperties"] = false,
                     ["properties"] = new JObject
                     {
-                        ["role"] = new JObject { ["type"] = "string", ["enum"] = new JArray("source", "target") },
                         ["character"] = new JObject { ["type"] = "string" },
                         ["clip"] = new JObject { ["type"] = "string" }
                     },
@@ -425,6 +424,7 @@ namespace KimodoUnityBridge.Command
             };
             return new PropertyDefinition(name, schema, true);
         }
+
 
         private static PropertyDefinition RequiredPoseReference(string name)
         {

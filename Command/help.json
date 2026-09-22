@@ -63,13 +63,6 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "role": {
-                  "type": "string",
-                  "enum": [
-                    "source",
-                    "target"
-                  ]
-                },
                 "character": {
                   "type": "string"
                 },

@@ -163,7 +163,7 @@ namespace KimodoUnityBridge.Command
                 int panel = data.FindIndex(item => ReferenceEquals(item, tile.Subject));
                 int localIndex = tiles.Take(index).Count(item => ReferenceEquals(item.Subject, tile.Subject));
                 JObject description = (JObject)tile.Description.DeepClone();
-                description["subject"] = tile.Subject.Subject.Role;
+                description["subject"] = tile.Subject.Subject.Character.Name;
                 if (pictureRequest.WritesTiles)
                 {
                     string tilePath = Path.Combine(
@@ -363,7 +363,7 @@ namespace KimodoUnityBridge.Command
                     {
                         new JObject
                         {
-                            ["subject"] = subject.Role,
+                            ["subject"] = subject.Character.Name,
                             ["clip"] = subject.Animation?.Name ?? string.Empty,
                             ["total_frames"] = data.Pelvis.Length,
                             ["fps"] = SessionFrameRate,
@@ -674,7 +674,7 @@ namespace KimodoUnityBridge.Command
             int requestedResolution)
         {
             string source = UnifiedAnalysisPictureRenderVersion + "|" + pictureKey + "|" + requestedResolution + "|" + PictureSupersample + "|" +
-                string.Join("|", subjects.Select(item => item.Role + ":" + item.Record.Id));
+                string.Join("|", subjects.Select(item => item.Record.Id));
             using (SHA256 hash = SHA256.Create())
             {
                 return BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(source))).Replace("-", string.Empty).Substring(0, 16).ToLowerInvariant();

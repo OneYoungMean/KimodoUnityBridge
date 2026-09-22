@@ -71,7 +71,7 @@ namespace KimodoUnityBridge.Command
                         "Start an asynchronous project-local QuickServer installation task. Returns a request_id (install:<guid>) that can be polled with kimodo_get_generation; models and the Python environment are preserved.",
                         Properties()),
                     CommandDefinition(AnimationAnalyzeCommand,
-                        "Analyze one immutable animation clip at the fixed command time base of 60 FPS and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, keyframes with timeline_frame_60, and evidence paths. Completed Clips are never modified.",
+                        "Analyze one immutable animation clip at the fixed command time base of 60 FPS and render unified graph-space picture evidence. Select standard tile types explicitly and choose composite, individual tiles, or both outputs. Results include root_trajectory, endpoint_pose_comparison, motion_profile, foot_contacts, phase_track, keyframes with timeline_frame_60, and evidence paths. Completed Clips are never modified. The clip input contains only character and clip.",
                         Properties(
                             RequiredAnalysisClips(),
                             new PropertyDefinition("picture", new JObject
