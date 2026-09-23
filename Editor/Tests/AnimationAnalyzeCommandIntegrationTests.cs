@@ -57,7 +57,7 @@ namespace KimodoUnityBridge.Command.Tests
                     ["resolution"] = TestAnalysisResolution
                 });
 
-                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("2-phase-track-v1"));
+                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("3-command-60-phase-track-v2"));
                 Assert.That(analysis["pictures"]?.Value<string>("aspect"), Is.EqualTo("16:9"));
                 Assert.That(analysis["pictures"]?.Value<int>("tile_count"), Is.EqualTo(20));
                 Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("57-pose-spacing-event-ghosts-phase-v2"));
