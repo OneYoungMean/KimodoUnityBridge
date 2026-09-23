@@ -147,7 +147,7 @@ namespace KimodoUnityBridge.Command
                 {
                     PictureTile tile = tiles[index];
                     JObject description = (JObject)tile.Description.DeepClone();
-                    description["subject"] = subject.Role;
+                    description["subject"] = subject.Character?.Name ?? string.Empty;
                     if (tile.Presentation == "test_pose") description["frame"] = tile.Frame;
                     descriptions.Add(new JObject
                     {
@@ -168,7 +168,7 @@ namespace KimodoUnityBridge.Command
                     ["screenshot_generated_at"] = capturedText, ["supersample"] = 1, ["tile_count"] = tiles.Count,
                     ["title"] = new JObject { ["animation_name"] = subject.Animation?.Name ?? string.Empty, ["duration_seconds"] = duration, ["guid"] = subject.Animation?.Id.ToString("D") ?? string.Empty },
                     ["header"] = new JObject { ["clip"] = subject.Animation?.Name ?? string.Empty, ["frame_count"] = data.Pelvis.Length, ["fps"] = SessionFrameRate, ["duration_seconds"] = duration, ["tile_type"] = "analysis-test", ["screenshot_generated_at"] = capturedText },
-                    ["headers"] = new JArray(new JObject { ["subject"] = subject.Role, ["clip"] = subject.Animation?.Name ?? string.Empty, ["total_frames"] = data.Pelvis.Length, ["fps"] = SessionFrameRate, ["duration_seconds"] = duration, ["screenshot_generated_at"] = capturedText, ["tile_types"] = new JArray("3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "test_pose"), ["rect"] = new JObject { ["x"] = 0, ["y"] = 0, ["width"] = width, ["height"] = height } }),
+                    ["headers"] = new JArray(new JObject { ["subject"] = subject.Character?.Name ?? string.Empty, ["clip"] = subject.Animation?.Name ?? string.Empty, ["total_frames"] = data.Pelvis.Length, ["fps"] = SessionFrameRate, ["duration_seconds"] = duration, ["screenshot_generated_at"] = capturedText, ["tile_types"] = new JArray("3d_track", "height_time_track", "3d_ghost", "3d_ghost_track", "test_pose"), ["rect"] = new JObject { ["x"] = 0, ["y"] = 0, ["width"] = width, ["height"] = height } }),
                     ["images"] = descriptions, ["cached"] = false
                 };
             PersistPictureSummary(session, subject.Record, result);
