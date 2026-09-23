@@ -1777,11 +1777,6 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             raise runtime_helpers.GenerateCancelledError(str(exc)) from exc
                         if task["cancel_event"].is_set():
                             raise runtime_helpers.GenerateCancelledError("Generation canceled.")
-                        logger.log(
-                            f"[PHASE] runtime complete task_id={task_id} model={runtime['model']} "
-                            f"device={runtime.get('device', runtime.get('runtime_device', 'unknown'))} "
-                            f"reused={runtime.get('reused', False)}"
-                        )
                         _update_task_progress(task, "Generating motion...")
                         task["phase"] = "generating"
                         task["eta_seconds"] = None

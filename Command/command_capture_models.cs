@@ -295,6 +295,9 @@ namespace KimodoUnityBridge.Command
                     : new JObject
                     {
                         ["presentation"] = type,
+                        ["frames"] = type == "height_time_track"
+                            ? new JArray(subject.KeyFrameSet.Append(0).Append(Math.Max(0, subject.Pelvis.Length - 1)).Distinct().OrderBy(frame => frame))
+                            : new JArray(),
                         ["test"] = true
                     };
                 return new PictureTile(subject, "test_overview_" + type, description)
@@ -433,62 +436,141 @@ namespace KimodoUnityBridge.Command
 
         }
 
-        private const string AnalysisColorShaderName = "Kimodo/AnalysisUnlit";
-
-        private static Material CreateAnalysisColorMaterial(Material source, Color tint, float alpha)
+        private static Material ClonePoseMaterial(Material source, Color tint, bool applyTint)
         {
-            Shader shader = Shader.Find(AnalysisColorShaderName);
-            if (shader == null)
+            Shader fallback = FindAnalysisShader(
+                "HDRP/Unlit",
+                "Universal Render Pipeline/Unlit",
+                "Unlit/Color");
+            if (source == null && fallback == null)
             {
-                throw new InvalidOperationException(
-                    "Kimodo analysis shader is missing: Kimodo/AnalysisUnlit");
+                throw new InvalidOperationException("No default character material shader is available.");
             }
 
-            var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
-            Texture texture = null;
-            if (source != null && source.HasProperty("_BaseColorMap")) texture = source.GetTexture("_BaseColorMap");
-            if (texture == null && source != null && source.HasProperty("_BaseMap")) texture = source.GetTexture("_BaseMap");
-            if (texture == null && source != null && source.HasProperty("_MainTex")) texture = source.GetTexture("_MainTex");
-            if (texture != null)
+            bool sourceCompatible = source != null && IsPoseMaterialCompatible(source.shader);
+            var material = source != null ? new Material(source) : new Material(fallback);
+            material.hideFlags = HideFlags.HideAndDontSave;
+            material.name = (sourceCompatible ? source.name : "DefaultPoseMaterial") + " (Kimodo Pose)";
+            if (!sourceCompatible && source != null)
             {
-                material.SetTexture("_BaseColorMap", texture);
-                material.SetTexture("_BaseMap", texture);
-                material.SetTexture("_MainTex", texture);
+                Texture baseTexture = GetPoseTexture(source, "_BaseColorMap") ??
+                    GetPoseTexture(source, "_MainTex");
+                Vector2 baseScale = GetPoseTextureScale(source, "_BaseColorMap", "_MainTex");
+                Vector2 baseOffset = GetPoseTextureOffset(source, "_BaseColorMap", "_MainTex");
+                Color baseColor = GetPoseColor(source, "_BaseColor", "_Color");
+                Texture emissionTexture = GetPoseTexture(source, "_EmissiveColorMap") ??
+                    GetPoseTexture(source, "_EmissionMap");
+                Color emissionColor = GetPoseColor(source, "_EmissiveColor", "_EmissionColor");
+                material.shader = fallback;
+                if (baseTexture != null && material.HasProperty("_BaseMap"))
+                {
+                    material.SetTexture("_BaseMap", baseTexture);
+                    material.SetTextureScale("_BaseMap", baseScale);
+                    material.SetTextureOffset("_BaseMap", baseOffset);
+                }
+                if (baseTexture != null && material.HasProperty("_MainTex")) material.SetTexture("_MainTex", baseTexture);
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", baseColor);
+                if (material.HasProperty("_Color")) material.SetColor("_Color", baseColor);
+                if (emissionTexture != null && material.HasProperty("_EmissionMap")) material.SetTexture("_EmissionMap", emissionTexture);
+                if (material.HasProperty("_EmissionColor")) material.SetColor("_EmissionColor", emissionColor);
             }
-            Texture normal = null;
-            if (source != null && source.HasProperty("_NormalMap")) normal = source.GetTexture("_NormalMap");
-            if (normal == null && source != null && source.HasProperty("_BumpMap")) normal = source.GetTexture("_BumpMap");
-            if (normal != null) material.SetTexture("_NormalMap", normal);
-            Texture mask = source != null && source.HasProperty("_MaskMap") ? source.GetTexture("_MaskMap") : null;
-            if (mask != null) material.SetTexture("_MaskMap", mask);
-
-            Color sourceColor = Color.white;
-            if (source != null)
+            if (applyTint)
             {
-                if (source.HasProperty("_BaseColor")) sourceColor = source.GetColor("_BaseColor");
-                else if (source.HasProperty("_Color")) sourceColor = source.GetColor("_Color");
-                else if (source.HasProperty("_TintColor")) sourceColor = source.GetColor("_TintColor");
+                Color sourceColor = Color.white;
+                if (source != null)
+                {
+                    if (source.HasProperty("_BaseColor")) sourceColor = source.GetColor("_BaseColor");
+                    else if (source.HasProperty("_Color")) sourceColor = source.GetColor("_Color");
+                    else if (source.HasProperty("_TintColor")) sourceColor = source.GetColor("_TintColor");
+                }
+                Color tinted = new Color(
+                    sourceColor.r * tint.r,
+                    sourceColor.g * tint.g,
+                    sourceColor.b * tint.b,
+                    sourceColor.a);
+                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", tinted);
+                if (material.HasProperty("_Color")) material.SetColor("_Color", tinted);
+                if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", tinted);
             }
-            // Keep the source palette in the base colour and apply the ghost
-            // tint once in the analysis shader.
-            material.SetColor("_BaseColor", sourceColor);
-            material.SetColor("_Color", sourceColor);
-            material.SetColor("_TintColor", sourceColor);
-            material.SetColor("_GhostTint", tint);
-            material.SetFloat("_GhostAlpha", Mathf.Clamp01(alpha));
-            if (source != null && source.HasProperty("_Cutoff")) material.SetFloat("_Cutoff", source.GetFloat("_Cutoff"));
-            // Analysis captures use a matte, non-metallic surface so source
-            // material highlights do not overpower the pose evidence.
-            material.SetFloat("_Metallic", 0f);
-            material.SetFloat("_Smoothness", 0f);
-            material.SetFloat("_Roughness", 1f);
             return material;
         }
 
-        private static void ApplyAnalysisMaterials(
+        private static Texture GetPoseTexture(Material material, string propertyName) =>
+            material != null && material.HasProperty(propertyName) ? material.GetTexture(propertyName) : null;
+
+        private static Vector2 GetPoseTextureScale(Material material, string primary, string fallback)
+        {
+            string property = material != null && material.HasProperty(primary) ? primary : fallback;
+            return material != null && material.HasProperty(property) ? material.GetTextureScale(property) : Vector2.one;
+        }
+
+        private static Vector2 GetPoseTextureOffset(Material material, string primary, string fallback)
+        {
+            string property = material != null && material.HasProperty(primary) ? primary : fallback;
+            return material != null && material.HasProperty(property) ? material.GetTextureOffset(property) : Vector2.zero;
+        }
+
+        private static Color GetPoseColor(Material material, string primary, string fallback)
+        {
+            if (material != null && material.HasProperty(primary)) return material.GetColor(primary);
+            if (material != null && material.HasProperty(fallback)) return material.GetColor(fallback);
+            return Color.white;
+        }
+
+        private static bool IsPoseMaterialCompatible(Shader shader)
+        {
+            if (shader == null) return false;
+            string name = shader.name ?? string.Empty;
+            switch (GetCapturePipeline())
+            {
+                case CapturePipeline.Hdrp:
+                    return name.IndexOf("HDRP/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        name.IndexOf("High Definition Render Pipeline", StringComparison.OrdinalIgnoreCase) >= 0;
+                case CapturePipeline.Urp:
+                    return name.IndexOf("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        name.StartsWith("Sprites/", StringComparison.OrdinalIgnoreCase) ||
+                        name.StartsWith("Unlit/", StringComparison.OrdinalIgnoreCase);
+                default:
+                    return name.IndexOf("HDRP/", StringComparison.OrdinalIgnoreCase) < 0 &&
+                        name.IndexOf("Universal Render Pipeline/", StringComparison.OrdinalIgnoreCase) < 0;
+            }
+        }
+
+        private static void CopyPoseMaterialProperties(Material source, Material target)
+        {
+            CopyPoseTexture(source, target, "_BaseColorMap", "_BaseMap");
+            CopyPoseTexture(source, target, "_BaseColorMap", "_MainTex");
+            CopyPoseTexture(source, target, "_MainTex", "_BaseMap");
+            CopyPoseTexture(source, target, "_MainTex", "_MainTex");
+            CopyPoseTexture(source, target, "_EmissiveColorMap", "_EmissionMap");
+            CopyPoseTexture(source, target, "_EmissiveColorMap", "_EmissionColorMap");
+
+            Color color = Color.white;
+            if (source.HasProperty("_BaseColor")) color = source.GetColor("_BaseColor");
+            else if (source.HasProperty("_Color")) color = source.GetColor("_Color");
+            if (target.HasProperty("_BaseColor")) target.SetColor("_BaseColor", color);
+            if (target.HasProperty("_Color")) target.SetColor("_Color", color);
+
+            Color emission = Color.black;
+            if (source.HasProperty("_EmissiveColor")) emission = source.GetColor("_EmissiveColor");
+            else if (source.HasProperty("_EmissionColor")) emission = source.GetColor("_EmissionColor");
+            if (target.HasProperty("_EmissionColor")) target.SetColor("_EmissionColor", emission);
+        }
+
+        private static void CopyPoseTexture(Material source, Material target, string sourceName, string targetName)
+        {
+            if (!source.HasProperty(sourceName) || !target.HasProperty(targetName)) return;
+            Texture texture = source.GetTexture(sourceName);
+            if (texture == null) return;
+            target.SetTexture(targetName, texture);
+            target.SetTextureScale(targetName, source.GetTextureScale(sourceName));
+            target.SetTextureOffset(targetName, source.GetTextureOffset(sourceName));
+        }
+
+        private static void ApplyPoseMaterials(
             GameObject preview,
             Color tint,
-            float alpha,
+            bool applyTint,
             List<Material> transientMaterials,
             List<Tuple<Renderer, Material[]>> originalMaterials = null)
         {
@@ -502,7 +584,7 @@ namespace KimodoUnityBridge.Command
                 var replacements = new Material[sourceMaterials.Length];
                 for (int index = 0; index < sourceMaterials.Length; index++)
                 {
-                    Material replacement = CreateAnalysisColorMaterial(sourceMaterials[index], tint, alpha);
+                    Material replacement = ClonePoseMaterial(sourceMaterials[index], tint, applyTint);
                     replacements[index] = replacement;
                     transientMaterials?.Add(replacement);
                 }
@@ -525,9 +607,8 @@ namespace KimodoUnityBridge.Command
             public TestVirtualPose(
                 GameObject preview,
                 IReadOnlyList<Material> transientMaterials,
-                float alpha,
-                bool usesGhostMaterial)
-                : this(preview, transientMaterials, alpha, usesGhostMaterial, Vector3.zero, false)
+                float alpha)
+                : this(preview, transientMaterials, alpha, Vector3.zero, false)
             {
             }
 
@@ -535,9 +616,8 @@ namespace KimodoUnityBridge.Command
                 GameObject preview,
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
-                bool usesGhostMaterial,
                 Vector3 targetPosition)
-                : this(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition, true)
+                : this(preview, transientMaterials, alpha, targetPosition, true)
             {
             }
 
@@ -545,14 +625,12 @@ namespace KimodoUnityBridge.Command
                 GameObject preview,
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
-                bool usesGhostMaterial,
                 Vector3 targetPosition,
                 bool hasTargetPosition)
             {
                 Preview = preview;
                 TransientMaterials = transientMaterials;
                 Alpha = alpha;
-                UsesGhostMaterial = usesGhostMaterial;
                 TargetPosition = targetPosition;
                 HasTargetPosition = hasTargetPosition;
             }
@@ -560,9 +638,8 @@ namespace KimodoUnityBridge.Command
             public TestVirtualPose(
                 EvaluatedPosePreview preview,
                 IReadOnlyList<Material> transientMaterials,
-                float alpha,
-                bool usesGhostMaterial)
-                : this(preview, transientMaterials, alpha, usesGhostMaterial, Vector3.zero, false)
+                float alpha)
+                : this(preview, transientMaterials, alpha, Vector3.zero, false)
             {
             }
 
@@ -570,9 +647,8 @@ namespace KimodoUnityBridge.Command
                 EvaluatedPosePreview preview,
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
-                bool usesGhostMaterial,
                 Vector3 targetPosition)
-                : this(preview, transientMaterials, alpha, usesGhostMaterial, targetPosition, true)
+                : this(preview, transientMaterials, alpha, targetPosition, true)
             {
             }
 
@@ -580,7 +656,6 @@ namespace KimodoUnityBridge.Command
                 EvaluatedPosePreview preview,
                 IReadOnlyList<Material> transientMaterials,
                 float alpha,
-                bool usesGhostMaterial,
                 Vector3 targetPosition,
                 bool hasTargetPosition)
             {
@@ -588,7 +663,6 @@ namespace KimodoUnityBridge.Command
                 Preview = preview?.Root;
                 TransientMaterials = transientMaterials;
                 Alpha = alpha;
-                UsesGhostMaterial = usesGhostMaterial;
                 TargetPosition = targetPosition;
                 HasTargetPosition = hasTargetPosition;
             }
@@ -597,7 +671,6 @@ namespace KimodoUnityBridge.Command
             private EvaluatedPosePreview EvaluatedPreview { get; }
             public IReadOnlyList<Material> TransientMaterials { get; }
             public float Alpha { get; }
-            public bool UsesGhostMaterial { get; }
             public Vector3 TargetPosition { get; }
             public bool HasTargetPosition { get; }
 
@@ -812,6 +885,47 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException("picture.environment.mode must be preserve or isolated.");
                 }
                 return mode;
+            }
+        }
+
+        private readonly struct TestPictureLayout
+        {
+            public const int TileGapPixels = 8;
+            private readonly int overviewWidth;
+            private readonly int overviewHeight;
+            private readonly int poseWidth;
+            private readonly int poseHeight;
+
+            private TestPictureLayout(int width, int height)
+            {
+                CanvasWidth = width;
+                CanvasHeight = height;
+                HeaderHeight = Mathf.Clamp(Mathf.RoundToInt(width * 60f / 1920f), 48, 96);
+                overviewWidth = Mathf.Max(1, (width - TileGapPixels * 3) / 4);
+                overviewHeight = Mathf.Max(1, Mathf.RoundToInt(overviewWidth * .75f));
+                poseWidth = Mathf.Max(1, (width - TileGapPixels * 7) / 8);
+                poseHeight = Mathf.Max(1, (height - HeaderHeight - overviewHeight) / 2);
+                RowHeights = new[] { overviewHeight, poseHeight, poseHeight };
+            }
+
+            public int CanvasWidth { get; }
+            public int CanvasHeight { get; }
+            public int HeaderHeight { get; }
+            public IReadOnlyList<int> RowHeights { get; }
+
+            public static TestPictureLayout ForResolution(int requestedResolution)
+            {
+                int width = Mathf.Max(64, requestedResolution);
+                return new TestPictureLayout(width, Mathf.Max(36, Mathf.RoundToInt(width * 9f / 16f)));
+            }
+
+            public int WidthFor(PictureTile tile) => IsOverview(tile) ? overviewWidth : poseWidth;
+            public int HeightFor(PictureTile tile) => IsOverview(tile) ? overviewHeight : poseHeight;
+
+            private static bool IsOverview(PictureTile tile)
+            {
+                return tile != null && (tile.Presentation.StartsWith("test_overview_", StringComparison.Ordinal) ||
+                    tile.Presentation.StartsWith("test_selected_", StringComparison.Ordinal));
             }
         }
 
