@@ -38,7 +38,10 @@ namespace KimodoUnityBridge.Command
         }
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string UnifiedAnalysisPictureRenderVersion = "52-test-analysis-picture";
+        private const string UnifiedAnalysisPictureRenderVersion = "64-test-analysis-picture-default-material-hdrp-lights-2x";
+        private const string TestAnalysisPicture20TileRenderVersion = "57-pose-spacing-event-ghosts-phase-v2";
+        private const int TestAnalysisCanvasWidth = 1920;
+        private const int TestAnalysisCanvasHeight = 1080;
         private const int PictureSupersample = 2;
         private const float TestPoseJointCameraOffsetMeters = .2f;
         private const float TestPoseFootForwardCameraOffsetMeters = .3f;
@@ -51,14 +54,69 @@ namespace KimodoUnityBridge.Command
         private const int StationaryTrajectoryMinFrames = 10;
         private const float StationaryTrajectoryAlphaBoost = .1f;
         private const float MaxPromotedGhostAlpha = .75f;
+        private const float HeightTimePoseGapMeters = .06f;
         private static readonly Color TestStartFrameTint = new Color(.35f, .65f, .62f, 1f);
         private static readonly Color TestEndFrameTint = new Color(.78f, .35f, .40f, 1f);
         private static readonly Color TestKeyframeTint = new Color(.82f, .70f, .22f, 1f);
         private static GameObject captureSessionRoot;
 
+        private enum CapturePipeline
+        {
+            BuiltIn,
+            Urp,
+            Hdrp,
+            OtherSrp
+        }
+
+        private static CapturePipeline GetCapturePipeline()
+        {
+            RenderPipelineAsset pipeline = GraphicsSettings.currentRenderPipeline;
+            if (pipeline == null) return CapturePipeline.BuiltIn;
+            string name = pipeline.GetType().FullName ?? string.Empty;
+            if (name.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return CapturePipeline.Hdrp;
+            }
+            if (name.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return CapturePipeline.Urp;
+            }
+            return CapturePipeline.OtherSrp;
+        }
+
+        private static Shader FindAnalysisShader(string hdrpName, string urpName, string builtInName)
+        {
+            string[] orderedNames;
+            switch (GetCapturePipeline())
+            {
+                case CapturePipeline.Hdrp:
+                    orderedNames = new[] { hdrpName, urpName, builtInName };
+                    break;
+                case CapturePipeline.Urp:
+                    orderedNames = new[] { urpName, hdrpName, builtInName };
+                    break;
+                case CapturePipeline.BuiltIn:
+                    orderedNames = new[] { builtInName, urpName, hdrpName };
+                    break;
+                default:
+                    orderedNames = new[] { urpName, hdrpName, builtInName };
+                    break;
+            }
+
+            foreach (string name in orderedNames)
+            {
+                if (string.IsNullOrEmpty(name)) continue;
+                Shader shader = Shader.Find(name);
+                if (shader != null) return shader;
+            }
+            return null;
+        }
+
         private static bool IsBuiltInCapturePipeline()
         {
-            return GraphicsSettings.currentRenderPipeline == null;
+            return GetCapturePipeline() == CapturePipeline.BuiltIn;
         }
     }
 }

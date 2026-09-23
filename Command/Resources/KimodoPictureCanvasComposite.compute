@@ -1,0 +1,123 @@
+#pragma kernel CompositeTiles
+
+RWTexture2D<float4> _Canvas;
+Texture2D<float4> _Tile0;
+Texture2D<float4> _Tile1;
+Texture2D<float4> _Tile2;
+Texture2D<float4> _Tile3;
+Texture2D<float4> _Tile4;
+Texture2D<float4> _Tile5;
+Texture2D<float4> _Tile6;
+Texture2D<float4> _Tile7;
+Texture2D<float4> _Tile8;
+Texture2D<float4> _Tile9;
+Texture2D<float4> _Tile10;
+Texture2D<float4> _Tile11;
+Texture2D<float4> _Tile12;
+Texture2D<float4> _Tile13;
+Texture2D<float4> _Tile14;
+Texture2D<float4> _Tile15;
+Texture2D<float4> _Tile16;
+Texture2D<float4> _Tile17;
+Texture2D<float4> _Tile18;
+Texture2D<float4> _Tile19;
+float4 _Rects[20];
+float4 _Labels[20];
+int _TileCount;
+int _Width;
+int _Height;
+int _HeaderHeight;
+
+bool SegmentOn(int digit, int segment)
+{
+    if (digit == 0) return segment != 6;
+    if (digit == 1) return segment == 1 || segment == 2;
+    if (digit == 2) return segment == 0 || segment == 1 || segment == 3 || segment == 4 || segment == 6;
+    if (digit == 3) return segment == 0 || segment == 1 || segment == 2 || segment == 3 || segment == 6;
+    if (digit == 4) return segment == 1 || segment == 2 || segment == 5 || segment == 6;
+    if (digit == 5) return segment == 0 || segment == 2 || segment == 3 || segment == 5 || segment == 6;
+    if (digit == 6) return segment != 1;
+    if (digit == 7) return segment == 0 || segment == 1 || segment == 2;
+    if (digit == 8) return true;
+    if (digit == 9) return segment != 3 && segment != 4;
+    return false;
+}
+
+bool DigitPixel(int digit, int2 position, int size)
+{
+    int width = size * 3;
+    int height = size * 6;
+    int halfHeight = height >> 1;
+    int halfSize = max(1, size >> 1);
+    int segment = -1;
+    if (position.x >= size && position.x < size + width && position.y >= height - size && position.y < height) segment = 0;
+    else if (position.x >= width + size && position.x < width + size * 2 && position.y >= halfHeight && position.y < height - size) segment = 1;
+    else if (position.x >= width + size && position.x < width + size * 2 && position.y >= 0 && position.y < halfHeight) segment = 2;
+    else if (position.x >= size && position.x < size + width && position.y >= 0 && position.y < size) segment = 3;
+    else if (position.x >= 0 && position.x < size && position.y >= 0 && position.y < halfHeight) segment = 4;
+    else if (position.x >= 0 && position.x < size && position.y >= halfHeight && position.y < height - size) segment = 5;
+    else if (position.x >= size && position.x < size + width && position.y >= halfHeight - halfSize && position.y < halfHeight + halfSize + 1) segment = 6;
+    return segment >= 0 && SegmentOn(digit, segment);
+}
+
+bool LabelPixel(int2 local, int2 tileSize, float4 label)
+{
+    int size = tileSize.x >= 256 ? 3 : 2;
+    int y = tileSize.y - size * 8;
+    int2 p = int2(local.x - size * 2, local.y - y);
+    int row = (int)label.x;
+    int column = (int)label.y;
+    if (p.x >= 0 && p.y >= 0 && DigitPixel(row, p, size)) return true;
+    int next = size * 5;
+    if (p.x >= next && p.y >= size * 2 && p.y < size * 3 && p.x < next + size * 3) return true;
+    p.x -= size * 9;
+    if (p.x >= 0 && p.y >= 0 && DigitPixel(column, p, size)) return true;
+    return false;
+}
+
+float4 LoadTile(int index, int2 position)
+{
+    float4 value = float4(0.0, 0.0, 0.0, 1.0);
+    if (index == 0) value = _Tile0.Load(int3(position, 0));
+    else if (index == 1) value = _Tile1.Load(int3(position, 0));
+    else if (index == 2) value = _Tile2.Load(int3(position, 0));
+    else if (index == 3) value = _Tile3.Load(int3(position, 0));
+    else if (index == 4) value = _Tile4.Load(int3(position, 0));
+    else if (index == 5) value = _Tile5.Load(int3(position, 0));
+    else if (index == 6) value = _Tile6.Load(int3(position, 0));
+    else if (index == 7) value = _Tile7.Load(int3(position, 0));
+    else if (index == 8) value = _Tile8.Load(int3(position, 0));
+    else if (index == 9) value = _Tile9.Load(int3(position, 0));
+    else if (index == 10) value = _Tile10.Load(int3(position, 0));
+    else if (index == 11) value = _Tile11.Load(int3(position, 0));
+    else if (index == 12) value = _Tile12.Load(int3(position, 0));
+    else if (index == 13) value = _Tile13.Load(int3(position, 0));
+    else if (index == 14) value = _Tile14.Load(int3(position, 0));
+    else if (index == 15) value = _Tile15.Load(int3(position, 0));
+    else if (index == 16) value = _Tile16.Load(int3(position, 0));
+    else if (index == 17) value = _Tile17.Load(int3(position, 0));
+    else if (index == 18) value = _Tile18.Load(int3(position, 0));
+    else if (index == 19) value = _Tile19.Load(int3(position, 0));
+    return value;
+}
+
+[numthreads(8, 8, 1)]
+void CompositeTiles(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Width || id.y >= (uint)_Height) return;
+    int2 pixel = int2(id.xy);
+    float4 color = float4(.12, .12, .12, 1.0);
+    for (int index = 0; index < _TileCount; index++)
+    {
+        int4 rect = (int4)_Rects[index];
+        if (pixel.x >= rect.x && pixel.x < rect.x + rect.z &&
+            pixel.y >= rect.y && pixel.y < rect.y + rect.w)
+        {
+            color = LoadTile(index, pixel - rect.xy);
+            if (LabelPixel(pixel - rect.xy, rect.zw, _Labels[index])) color = float4(1.0, 1.0, 1.0, 1.0);
+            break;
+        }
+    }
+    if (pixel.y >= _Height - _HeaderHeight) color = float4(.025, .03, .045, 1.0);
+    _Canvas[pixel] = color;
+}

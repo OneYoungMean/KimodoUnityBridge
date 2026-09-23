@@ -143,7 +143,6 @@ namespace KimodoUnityBridge.Command
         private static Camera CreateAnalysisPictureCamera(Bounds bounds, Vector3 direction, bool orthographic)
         {
             Camera camera = CreateAnalysisPictureCamera("Kimodo Analysis Picture Camera");
-            ConfigureAnalysisCameraExposure(camera);
             camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = orthographic;
             camera.nearClipPlane = .01f;
@@ -163,36 +162,23 @@ namespace KimodoUnityBridge.Command
             Vector3 direction,
             float aspect)
         {
-            Camera camera = CreateTestAnalysisPictureCameraBase("Kimodo Test Analysis Picture Camera", aspect);
+            Camera camera = CreateAnalysisPictureCamera("Kimodo Test Analysis Picture Camera");
+            camera.cullingMask = 1 << SessionCaptureLayer;
+            camera.orthographic = true;
+            camera.aspect = Mathf.Max(.1f, aspect);
+            camera.nearClipPlane = .01f;
+            camera.farClipPlane = 1000f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
             Vector3 normalizedDirection = direction.sqrMagnitude > .0001f ? direction.normalized : new Vector3(1f, .75f, -1f).normalized;
-            CalculateTestViewExtents(
-                subject,
-                normalizedDirection,
-                out Vector3 viewCenter,
-                out float maxHorizontal,
-                out float maxVertical,
-                out float maxDepth);
+            CalculateTestViewExtents(subject, normalizedDirection, out Vector3 viewCenter, out float maxHorizontal, out float maxVertical, out float maxDepth);
             float distance = Mathf.Max(8f, bounds.extents.magnitude * 4f);
             camera.transform.position = viewCenter + normalizedDirection * distance;
             Vector3 up = Mathf.Abs(Vector3.Dot(normalizedDirection, Vector3.up)) > .95f ? Vector3.forward : Vector3.up;
             camera.transform.LookAt(viewCenter, up);
-
-            float horizontalHalf = maxHorizontal * TestCameraFitScale + TestCameraMarginMeters;
-            float verticalHalf = maxVertical * TestCameraFitScale + TestCameraMarginMeters;
-            camera.orthographicSize = Mathf.Max(
-                .5f,
-                verticalHalf,
-                horizontalHalf / camera.aspect);
+            camera.orthographicSize = Mathf.Max(.5f, maxVertical * TestCameraFitScale + TestCameraMarginMeters,
+                (maxHorizontal * TestCameraFitScale + TestCameraMarginMeters) / camera.aspect);
             camera.farClipPlane = Mathf.Max(100f, distance + maxDepth + 10f);
             return camera;
-        }
-
-        private static Camera CreateTestAnalysisPictureCamera(
-            Bounds bounds,
-            Vector3 direction,
-            float aspect)
-        {
-            return CreateTestAnalysisPictureCamera(bounds, direction, aspect, TestCameraMarginMeters);
         }
 
         private static Camera CreateTestAnalysisPictureCamera(
@@ -248,7 +234,6 @@ namespace KimodoUnityBridge.Command
         private static Camera CreateTestAnalysisPictureCameraBase(string name, float aspect)
         {
             Camera camera = CreateAnalysisPictureCamera(name);
-            ConfigureAnalysisCameraExposure(camera);
             camera.cullingMask = 1 << SessionCaptureLayer;
             camera.orthographic = true;
             camera.aspect = Mathf.Max(.0001f, aspect);
@@ -258,41 +243,25 @@ namespace KimodoUnityBridge.Command
             return camera;
         }
 
-        private static void ConfigureAnalysisCameraExposure(Camera camera)
-        {
-            // The camera is intentionally assigned to a layer with no Volume
-            // components. HDRP resolves volume overrides using this mask, so
-            // scene exposure/tonemapping cannot wash the analysis pose white.
-            if (camera == null) return;
-            Type type = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData");
-            if (type == null) return;
-            Component data = camera.GetComponent(type);
-            if (data == null) return;
-            FieldInfo mask = type.GetField("volumeLayerMask", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (mask != null) mask.SetValue(data, (LayerMask)0);
-            else type.GetProperty("volumeLayerMask", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.SetValue(data, (LayerMask)0);
-        }
-
         private static Camera CreateAnalysisPictureCamera(string name)
         {
             GameObject cameraObject = MoveToAnalysisSessionRoot(
                 new GameObject(name) { hideFlags = HideFlags.HideAndDontSave });
             Camera camera = cameraObject.AddComponent<Camera>();
-            ConfigureRenderPipelineAnalysisCamera(camera);
+            ConfigureAnalysisCamera(camera);
             return camera;
         }
 
-        private static void ConfigureRenderPipelineAnalysisCamera(Camera camera)
+        private static void ConfigureAnalysisCamera(Camera camera)
         {
-            if (camera == null || GraphicsSettings.currentRenderPipeline == null) return;
+            if (camera == null) return;
+            camera.allowHDR = false;
 
-            string pipelineName = GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
-            string cameraDataTypeName = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0
-                    ? "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData"
-                    : pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0
-                        ? "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData"
-                        : null;
+            string cameraDataTypeName = GetCapturePipeline() == CapturePipeline.Hdrp
+                ? "UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData"
+                : GetCapturePipeline() == CapturePipeline.Urp
+                    ? "UnityEngine.Rendering.Universal.UniversalAdditionalCameraData"
+                    : null;
             if (cameraDataTypeName == null) return;
 
             Type additionalCameraDataType = AppDomain.CurrentDomain.GetAssemblies()
@@ -311,8 +280,7 @@ namespace KimodoUnityBridge.Command
             {
                 additionalCameraDataType.GetProperty("volumeLayerMask")?.SetValue(additionalCameraData, (LayerMask)0);
             }
-            if (pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (GetCapturePipeline() == CapturePipeline.Hdrp)
             {
                 Type clearColorModeType = additionalCameraDataType.GetNestedType(
                     "ClearColorMode", BindingFlags.Public | BindingFlags.NonPublic);
@@ -718,7 +686,23 @@ namespace KimodoUnityBridge.Command
                     new GameObject("Kimodo Evidence Light " + setup.name) { hideFlags = HideFlags.HideAndDontSave });
                 Light light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
+                // HDRP lazily adds this component on first render and resets
+                // directional intensity to 100000 lux. Initialize it before
+                // applying our evidence-light intensity instead.
+                Component hdrpLightData = null;
+                if (GetCapturePipeline() == CapturePipeline.Hdrp)
+                {
+                    Type type = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalLightData");
+                    if (type != null)
+                    {
+                        hdrpLightData = lightObject.AddComponent(type);
+                        type.GetMethod("InitDefaultHDAdditionalLightData", BindingFlags.Public | BindingFlags.Static)
+                            ?.Invoke(null, new object[] { hdrpLightData });
+                    }
+                }
                 light.intensity = setup.intensity;
+                // Older HDRP versions store intensity on the additional data.
+                hdrpLightData?.GetType().GetProperty("intensity")?.SetValue(hdrpLightData, setup.intensity);
                 light.color = Color.white;
                 light.cullingMask = 1 << SessionCaptureLayer;
                 lightObject.transform.position = center + setup.position;
@@ -749,19 +733,11 @@ namespace KimodoUnityBridge.Command
 
         private static Material MakeMaterial(Color color)
         {
-            string pipelineName = GraphicsSettings.currentRenderPipeline == null
-                ? string.Empty
-                : GraphicsSettings.currentRenderPipeline.GetType().FullName ?? string.Empty;
-            bool isHdrp = pipelineName.IndexOf("HighDefinition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("HDRP", StringComparison.OrdinalIgnoreCase) >= 0;
-            bool isUrp = pipelineName.IndexOf("Universal", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                pipelineName.IndexOf("URP", StringComparison.OrdinalIgnoreCase) >= 0;
-            Shader shader = isHdrp
-                ? Shader.Find("HDRP/Unlit")
-                : isUrp
-                    ? Shader.Find("Universal Render Pipeline/Unlit")
-                    : Shader.Find("Sprites/Default") ?? Shader.Find("Standard");
-            shader ??= Shader.Find("Sprites/Default") ?? Shader.Find("Standard");
+            Shader shader = FindAnalysisShader(
+                "HDRP/Unlit",
+                "Universal Render Pipeline/Unlit",
+                "Sprites/Default") ?? Shader.Find("Standard");
+            if (shader == null) throw new InvalidOperationException("No analysis environment shader is available.");
             var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
             if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", color);
