@@ -60,7 +60,7 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("3-command-60-phase-track-v2"));
                 Assert.That(analysis["pictures"]?.Value<string>("aspect"), Is.EqualTo("16:9"));
                 Assert.That(analysis["pictures"]?.Value<int>("tile_count"), Is.EqualTo(20));
-                Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("57-pose-spacing-event-ghosts-phase-v2"));
+                Assert.That(analysis["pictures"]?.Value<string>("render_version"), Is.EqualTo("63-height-time-ratio5-dim-hdrp-lights"));
 
                 JObject clipAnalysis = analysis["clips"]?.Children<JObject>().Single();
                 Assert.That(clipAnalysis?.Value<string>("phase_track_version"), Is.EqualTo("1-temporal-cluster-v2-command-60"));

@@ -296,7 +296,7 @@ namespace KimodoUnityBridge.Command
                     {
                         ["presentation"] = type,
                         ["frames"] = type == "height_time_track"
-                            ? new JArray(subject.KeyFrameSet.Append(0).Append(Math.Max(0, subject.Pelvis.Length - 1)).Distinct().OrderBy(frame => frame))
+                            ? new JArray(BuildHeightTimePoseFrames(subject))
                             : new JArray(),
                         ["test"] = true
                     };

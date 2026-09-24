@@ -38,8 +38,8 @@ namespace KimodoUnityBridge.Command
         }
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string UnifiedAnalysisPictureRenderVersion = "64-test-analysis-picture-default-material-hdrp-lights-2x";
-        private const string TestAnalysisPicture20TileRenderVersion = "57-pose-spacing-event-ghosts-phase-v2";
+        private const string UnifiedAnalysisPictureRenderVersion = "67-test-analysis-picture-dim-hdrp-lights";
+        private const string TestAnalysisPicture20TileRenderVersion = "63-height-time-ratio5-dim-hdrp-lights";
         private const int TestAnalysisCanvasWidth = 1920;
         private const int TestAnalysisCanvasHeight = 1080;
         private const int PictureSupersample = 2;
@@ -55,9 +55,9 @@ namespace KimodoUnityBridge.Command
         private const float StationaryTrajectoryAlphaBoost = .1f;
         private const float MaxPromotedGhostAlpha = .75f;
         private const float HeightTimePoseGapMeters = .06f;
-        private static readonly Color TestStartFrameTint = new Color(.35f, .65f, .62f, 1f);
-        private static readonly Color TestEndFrameTint = new Color(.78f, .35f, .40f, 1f);
-        private static readonly Color TestKeyframeTint = new Color(.82f, .70f, .22f, 1f);
+        private static readonly Color TestStartFrameTint = new Color(.05f, .90f, .85f, 1f);
+        private static readonly Color TestEndFrameTint = new Color(.95f, .08f, .08f, 1f);
+        private static readonly Color TestKeyframeTint = new Color(1f, 1f, .02f, 1f);
         private static GameObject captureSessionRoot;
 
         private enum CapturePipeline

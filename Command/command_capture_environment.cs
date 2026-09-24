@@ -25,25 +25,47 @@ namespace KimodoUnityBridge.Command
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
         {
             const int captureLayer = SessionCaptureLayer;
-            float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-            GameObject floor = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Plane));
-            floor.hideFlags = HideFlags.HideAndDontSave;
-            floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
-            floor.transform.localScale = Vector3.one * (size / 10f);
-            SetLayerRecursively(floor, captureLayer);
-            floor.GetComponent<Renderer>().sharedMaterial = MakeMaterial(new Color(.31f, .31f, .31f, 1f));
+            GameObject floor = CloneSceneGround(captureLayer);
+            if (floor == null)
+            {
+                // Analysis fixtures may not contain an authored floor. Keep a
+                // visible diagnostic fallback in that case; authored scene
+                // floors always take the clone path above.
+                CreateTestPictureEnvironment(objects, bounds);
+                return;
+            }
             objects.Add(floor);
-            for (float x = bounds.min.x; x <= bounds.max.x; x += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(x, .006f, bounds.min.z), new Vector3(x, .006f, bounds.max.z),
-                    Mathf.Abs(x % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
-            for (float z = bounds.min.z; z <= bounds.max.z; z += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(bounds.min.x, .006f, z), new Vector3(bounds.max.x, .006f, z),
-                    Mathf.Abs(z % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
             CreateEvidenceLights(objects, bounds.center);
+        }
+
+        private static GameObject CloneSceneGround(int captureLayer)
+        {
+            GameObject source = Resources.FindObjectsOfTypeAll<Renderer>()
+                .Where(renderer => renderer != null && renderer.gameObject != null &&
+                    renderer.gameObject.scene.IsValid() && !EditorUtility.IsPersistent(renderer) &&
+                    renderer.gameObject.activeInHierarchy && !IsSessionObject(renderer.gameObject))
+                .Select(renderer => renderer.gameObject)
+                .Where(gameObject =>
+                    string.Equals(gameObject.name, "Plane", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(gameObject.name, "Ground", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(gameObject.name, "Terrain", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(gameObject => string.Equals(gameObject.name, "Ground", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .FirstOrDefault();
+            if (source == null)
+            {
+                Terrain terrain = Resources.FindObjectsOfTypeAll<Terrain>()
+                    .FirstOrDefault(item => item != null && item.gameObject != null &&
+                        item.gameObject.scene.IsValid() && !EditorUtility.IsPersistent(item) &&
+                        item.gameObject.activeInHierarchy && !IsSessionObject(item.gameObject));
+                source = terrain?.gameObject;
+            }
+            if (source == null) return null;
+
+            GameObject clone = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(source));
+            clone.name = "Kimodo Scene Ground";
+            clone.hideFlags = HideFlags.HideAndDontSave;
+            SetLayerRecursively(clone, captureLayer);
+            return clone;
         }
 
         private static Bounds IncludeGroundInBounds(Bounds bounds)
@@ -128,7 +150,7 @@ namespace KimodoUnityBridge.Command
             MeshFilter filter = floor.AddComponent<MeshFilter>();
             filter.sharedMesh = mesh;
             MeshRenderer renderer = floor.AddComponent<MeshRenderer>();
-            Material material = MakeMaterial(Color.white);
+            Material material = MakeEnvironmentMaterial(Color.white);
             if (gridTexture != null)
             {
                 if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", gridTexture);
@@ -671,12 +693,23 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateEvidenceLights(List<GameObject> objects, Vector3 center)
         {
-            bool isBuiltIn = IsBuiltInCapturePipeline();
+            // Characters use an Unlit evidence material, but the floor and
+            // other environment geometry remain Lit. Isolate them from
+            // arbitrary scene lights and provide a small, pipeline-aware rig.
+            foreach (Light light in UnityEngine.Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+            {
+                if (light != null && light.gameObject != null &&
+                    light.name.StartsWith("Kimodo Evidence Light", StringComparison.Ordinal))
+                {
+                    UnityEngine.Object.DestroyImmediate(light.gameObject);
+                }
+            }
+            bool hdrp = GetCapturePipeline() == CapturePipeline.Hdrp;
             var setups = new[]
             {
-                (name: "Key", position: new Vector3(-4f, 6f, -4f), intensity: isBuiltIn ? 1.125f : 3.3f),
-                (name: "Fill", position: new Vector3(4f, 3f, -2f), intensity: isBuiltIn ? .525f : 1.65f),
-                (name: "Rim", position: new Vector3(0f, 5f, 5f), intensity: isBuiltIn ? .30f : 1.05f)
+                (name: "Key", position: new Vector3(-4f, 6f, -4f), intensity: hdrp ? 16f : 1.05f),
+                (name: "Fill", position: new Vector3(4f, 3f, -2f), intensity: hdrp ? 4f : .45f),
+                (name: "Rim", position: new Vector3(0f, 5f, 5f), intensity: hdrp ? 1.5f : .20f)
             };
             var directions = new Vector4[setups.Length];
             for (int index = 0; index < setups.Length; index++)
@@ -686,11 +719,9 @@ namespace KimodoUnityBridge.Command
                     new GameObject("Kimodo Evidence Light " + setup.name) { hideFlags = HideFlags.HideAndDontSave });
                 Light light = lightObject.AddComponent<Light>();
                 light.type = LightType.Directional;
-                // HDRP lazily adds this component on first render and resets
-                // directional intensity to 100000 lux. Initialize it before
-                // applying our evidence-light intensity instead.
+                light.shadows = LightShadows.None;
                 Component hdrpLightData = null;
-                if (GetCapturePipeline() == CapturePipeline.Hdrp)
+                if (hdrp)
                 {
                     Type type = FindLoadedType("UnityEngine.Rendering.HighDefinition.HDAdditionalLightData");
                     if (type != null)
@@ -701,7 +732,6 @@ namespace KimodoUnityBridge.Command
                     }
                 }
                 light.intensity = setup.intensity;
-                // Older HDRP versions store intensity on the additional data.
                 hdrpLightData?.GetType().GetProperty("intensity")?.SetValue(hdrpLightData, setup.intensity);
                 light.color = Color.white;
                 light.cullingMask = 1 << SessionCaptureLayer;
@@ -741,6 +771,19 @@ namespace KimodoUnityBridge.Command
             var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
             if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", color);
+            return material;
+        }
+
+        private static Material MakeEnvironmentMaterial(Color color)
+        {
+            Shader shader = FindAnalysisShader(
+                "HDRP/Lit",
+                "Universal Render Pipeline/Lit",
+                "Standard") ?? Shader.Find("Standard");
+            if (shader == null) throw new InvalidOperationException("No analysis environment Lit shader is available.");
+            var material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave, color = color };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", color);
             return material;
         }
 

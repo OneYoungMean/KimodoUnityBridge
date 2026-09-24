@@ -246,17 +246,73 @@ namespace KimodoUnityBridge.Command
             }
         }
 
+        private static List<int> BuildHeightTimePoseFrames(SubjectPictureData subject)
+        {
+            int lastFrame = Math.Max(0, subject?.Pelvis?.Length - 1 ?? 0);
+            var frames = (subject?.KeyFrameSet ?? new HashSet<int>())
+                .Append(0)
+                .Append(lastFrame)
+                .Select(frame => Mathf.Clamp(frame, 0, lastFrame))
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+            if (subject == null || frames.Count <= 2) return frames;
+
+            // 1-2 is a height-versus-time view. Start with every authored
+            // keyframe and the two time boundaries. If near-identical events
+            // force the time axis to become more than five times the pose
+            // height, remove the later frame from the closest interior pair.
+            // This keeps the temporal endpoints and never reduces the sample
+            // set below two poses.
+            const float maximumWidthToHeight = 5f;
+            const float layoutAspect = 4f / 3f;
+            while (frames.Count > 2)
+            {
+                float poseHeight = CalculateHeightTimePoseHeight(subject, frames);
+                float length = CalculateHeightTimeLength(subject, frames, layoutAspect);
+                if (length / Mathf.Max(.001f, poseHeight) <= maximumWidthToHeight) break;
+
+                int removeIndex = -1;
+                int closestGap = int.MaxValue;
+                for (int index = 0; index < frames.Count - 1; index++)
+                {
+                    if (frames[index + 1] == lastFrame) continue;
+                    int gap = frames[index + 1] - frames[index];
+                    if (gap <= closestGap)
+                    {
+                        closestGap = gap;
+                        removeIndex = index + 1;
+                    }
+                }
+                if (removeIndex < 0) break;
+                frames.RemoveAt(removeIndex);
+            }
+            return frames;
+        }
+
+        private static float CalculateHeightTimePoseHeight(
+            SubjectPictureData subject,
+            IReadOnlyList<int> poseFrames)
+        {
+            float minY = float.PositiveInfinity;
+            float maxY = float.NegativeInfinity;
+            for (int index = 0; index < poseFrames.Count; index++)
+            {
+                int frame = Mathf.Clamp(poseFrames[index], 0, Math.Max(0, subject.Pelvis.Length - 1));
+                Bounds pose = CalculateRawPreviewPoseBounds(subject, frame);
+                minY = Mathf.Min(minY, pose.min.y);
+                maxY = Mathf.Max(maxY, pose.max.y);
+            }
+            if (float.IsInfinity(minY) || float.IsInfinity(maxY)) return 1f;
+            return Mathf.Max(.001f, maxY - minY);
+        }
+
         private static Texture2D RenderTestHeightTimeTile(PictureTile tile, int width, int height)
         {
             SubjectPictureData subject = tile.Subject;
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             float aspect = width / (float)Mathf.Max(1, height);
-            List<int> poseFrames = subject.KeyFrameSet
-                .Append(0)
-                .Append(lastFrame)
-                .Distinct()
-                .OrderBy(frame => frame)
-                .ToList();
+            List<int> poseFrames = BuildHeightTimePoseFrames(subject);
             float length = CalculateHeightTimeLength(subject, poseFrames, aspect);
             var poseTargets = new Dictionary<int, Vector3>();
             var curvePoints = new List<Vector3>(Math.Max(1, subject.Pelvis.Length));
@@ -286,26 +342,32 @@ namespace KimodoUnityBridge.Command
 
                 float minY = contentBounds.min.y;
                 float maxY = contentBounds.max.y;
-                float axisX = contentBounds.min.x;
-                Color gridColor = new Color(.55f, .62f, .68f, .45f);
+                // Keep the time/height diagnostic plane through the sampled
+                // hips path. Using the bounds edge can place every line on a
+                // clipped silhouette edge when the preview root has an
+                // import offset, which makes the second overview panel look
+                // empty even though its geometry was created.
+                float axisX = 0f;
+                Color gridColor = new Color(.65f, .72f, .78f, .8f);
+                float baseLineWidth = Mathf.Max(.025f, length * 2f / Mathf.Max(1, width));
                 var environment = new List<GameObject>();
                 CreateEvidenceLights(environment, contentBounds.center);
                 for (int index = 0; index <= 5; index++)
                 {
                     float z = length * index / 5f;
                     bool edge = index == 0 || index == 5;
-                    CreateWorldLine(environment, new Vector3(axisX, minY, z), new Vector3(axisX, maxY, z), edge ? .012f : .006f, gridColor, true);
+                    CreateWorldLine(environment, new Vector3(axisX, minY, z), new Vector3(axisX, maxY, z), edge ? baseLineWidth : baseLineWidth * .5f, gridColor, true);
                 }
                 const int horizontalDivisions = 5;
                 for (int index = 0; index <= horizontalDivisions; index++)
                 {
                     float y = Mathf.Lerp(minY, maxY, index / (float)horizontalDivisions);
                     bool edge = index == 0 || index == horizontalDivisions;
-                    CreateWorldLine(environment, new Vector3(axisX, y, 0f), new Vector3(axisX, y, length), edge ? .016f : .006f, gridColor, true);
+                    CreateWorldLine(environment, new Vector3(axisX, y, 0f), new Vector3(axisX, y, length), edge ? baseLineWidth : baseLineWidth * .5f, gridColor, true);
                 }
-                CreateDiagnosticLine(environment, curvePoints, new Color(.15f, .9f, .25f, 1f), .025f);
-                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, minY, length), .022f, Color.white, true);
-                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, maxY, 0f), .022f, Color.white, true);
+                CreateDiagnosticLine(environment, curvePoints, new Color(.15f, .9f, .25f, 1f), baseLineWidth * 1.25f);
+                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, minY, length), baseLineWidth * 1.4f, Color.white, true);
+                CreateWorldLine(environment, new Vector3(axisX, minY, 0f), new Vector3(axisX, maxY, 0f), baseLineWidth * 1.4f, Color.white, true);
                 float diagnosticMargin = Mathf.Max(.05f, contentBounds.size.magnitude * .03f);
                 contentBounds.Expand(Vector3.one * diagnosticMargin);
 
@@ -329,7 +391,11 @@ namespace KimodoUnityBridge.Command
                     0f);
                 try
                 {
-                    return RenderTestPoseLayers(camera, environment, poses, width, height, new Color(.12f, .12f, .12f, 1f));
+                    // Use the same depth-aware pose compositor as the other
+                    // evidence tiles. Direct Camera.Render() is unreliable for
+                    // these transient HDRP pose clones and can drop every pose.
+                    return RenderTestPoseLayers(camera, environment, poses, width, height,
+                        new Color(.12f, .12f, .12f, 1f));
                 }
                 finally
                 {
@@ -1048,8 +1114,10 @@ namespace KimodoUnityBridge.Command
                 groundBounds.Expand(new Vector3(0f, 0f, groundWidth / aspect - groundDepth));
             }
 
+            WriteFirstTileLightSnapshot("root2d_entry", tile, groundBounds, null);
             var environment = new List<GameObject>();
             CreatePictureEnvironment(environment, groundBounds);
+            WriteFirstTileLightSnapshot("after_environment", tile, groundBounds, null);
             CreateWorldLine(environment, groundPoints, new Color(.1f, .85f, .25f, .95f), .06f);
             var keyframes = new HashSet<int>(tile.PrimaryFrames);
             foreach (int frame in tile.TrajectoryFrames.Where(frame => !keyframes.Contains(frame)))
@@ -1071,10 +1139,26 @@ namespace KimodoUnityBridge.Command
                 CreateHeadingArrow(environment, origin, forward, .45f, tint);
             }
 
+            WriteFirstTileLightSnapshot("before_camera", tile, groundBounds, null);
             Camera camera = CreateTestAnalysisPictureCamera(groundBounds, tile.Direction, aspect, 0f);
             try
             {
-                return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
+                WriteFirstTileLightSnapshot("after_camera", tile, groundBounds, camera);
+                // HDRP can omit transient mesh geometry when the camera uses
+                // the old direct Camera.Render() readback path. Render into an
+                // explicit target, matching the other evidence tiles, so the
+                // cloned scene ground is included in 1-1.
+                RenderTexture target = RenderCameraToTexture(
+                    camera, width, height, new Color(.12f, .12f, .12f, 1f),
+                    RenderTextureFormat.ARGB32, false);
+                try
+                {
+                    return ReadRenderTexture(target, width, height);
+                }
+                finally
+                {
+                    DestroyAnalysisRenderTexture(target);
+                }
             }
             finally
             {
@@ -1083,6 +1167,78 @@ namespace KimodoUnityBridge.Command
                 {
                     if (item != null) UnityEngine.Object.DestroyImmediate(item);
                 }
+            }
+        }
+
+        private static void WriteFirstTileLightSnapshot(
+            string stage,
+            PictureTile tile,
+            Bounds bounds,
+            Camera camera)
+        {
+            var lines = new List<string>
+            {
+                $"Kimodo 1-1 light snapshot ({stage})",
+                $"presentation={tile?.Presentation ?? string.Empty}",
+                $"test_tile_type={tile?.TestTileType ?? string.Empty}",
+                $"bounds={bounds}",
+                $"camera={camera?.name ?? string.Empty}",
+                $"active_pipeline={GraphicsSettings.currentRenderPipeline?.GetType().FullName ?? "BuiltIn"}",
+                $"color_space={QualitySettings.activeColorSpace}",
+                $"ambient_intensity={RenderSettings.ambientIntensity}",
+                $"ambient_light={RenderSettings.ambientLight}",
+                $"skybox={RenderSettings.skybox?.name ?? "none"}"
+            };
+
+            foreach (Light light in Resources.FindObjectsOfTypeAll<Light>()
+                .Where(item => item != null && item.gameObject != null && item.gameObject.scene.IsValid())
+                .OrderBy(item => item.gameObject.scene.name)
+                .ThenBy(item => item.name))
+            {
+                Component hdrpData = light.GetComponent("HDAdditionalLightData");
+                PropertyInfo intensityProperty = hdrpData?.GetType().GetProperty("intensity");
+                string hdrpIntensity = intensityProperty == null
+                    ? "n/a"
+                    : Convert.ToString(intensityProperty.GetValue(hdrpData), CultureInfo.InvariantCulture);
+                lines.Add(
+                    $"light name={light.name};hash={light.GetHashCode()};" +
+                    $"scene={light.gameObject.scene.name};scene_path={light.gameObject.scene.path};" +
+                    $"scene_handle={light.gameObject.scene.handle};scene_loaded={light.gameObject.scene.isLoaded};" +
+                    $"parent={(light.transform.parent == null ? "none" : light.transform.parent.name)};" +
+                    $"hide_flags={light.gameObject.hideFlags};persistent={EditorUtility.IsPersistent(light)};" +
+                    $"active={light.gameObject.activeInHierarchy};enabled={light.enabled};" +
+                    $"type={light.type};intensity={light.intensity.ToString(CultureInfo.InvariantCulture)};" +
+                    $"hdrp_intensity={hdrpIntensity};culling_mask={light.cullingMask}");
+            }
+
+            foreach (Component volume in Resources.FindObjectsOfTypeAll<Component>()
+                .Where(item => item != null && item.GetType().FullName == "UnityEngine.Rendering.Volume" &&
+                    item.gameObject != null && item.gameObject.scene.IsValid())
+                .OrderBy(item => item.gameObject.scene.name)
+                .ThenBy(item => item.name))
+            {
+                Type volumeType = volume.GetType();
+                bool isGlobal = Convert.ToBoolean(volumeType.GetProperty("isGlobal")?.GetValue(volume) ?? false);
+                float priority = Convert.ToSingle(volumeType.GetProperty("priority")?.GetValue(volume) ?? 0f);
+                bool volumeEnabled = (volume as Behaviour)?.enabled ?? false;
+                lines.Add(
+                    $"volume name={volume.name};scene={volume.gameObject.scene.name};" +
+                    $"active={volume.gameObject.activeInHierarchy};enabled={volumeEnabled};" +
+                    $"global={isGlobal};priority={priority.ToString(CultureInfo.InvariantCulture)}");
+            }
+
+            string snapshot = string.Join(Environment.NewLine, lines);
+            Debug.Log(snapshot);
+            string path = Path.GetFullPath(Path.Combine(
+                Application.dataPath, "..", "Library", "KimodoData", "light_snapshot_1_1.txt"));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            if (string.Equals(stage, "before_camera", StringComparison.Ordinal))
+            {
+                File.WriteAllText(path, snapshot + Environment.NewLine, Encoding.UTF8);
+            }
+            else
+            {
+                File.AppendAllText(path, snapshot + Environment.NewLine, Encoding.UTF8);
             }
         }
 

@@ -299,10 +299,9 @@ namespace KimodoUnityBridge.Command
 
         private static List<int> BuildGhostFrames(SubjectPictureData subject, out HashSet<int> promotedFrames)
         {
-            // Ghost3D and Track3D must use the same temporal sampling rule:
-            // preserve every authored event and insert auxiliary poses so no
-            // interval exceeds ten session frames. This keeps both views
-            // spatially comparable instead of one appearing half-covered.
+            // Ghost3D and Track3D share the same temporal sampling rule:
+            // preserve every authored event and insert auxiliary poses only
+            // when a gap exceeds twenty session frames.
             return BuildTestSampleFrames(
                 subject,
                 new HashSet<int>(subject.KeyFrameSet).Concat(FootTransitionFrames(subject)),
@@ -324,28 +323,6 @@ namespace KimodoUnityBridge.Command
                 .Distinct()
                 .OrderBy(frame => frame)
                 .ToList();
-
-            // Keyframe panels compact nearby events. Foot-transition panels keep
-            // every authored transition, even when two events are within 10 frames.
-            for (int index = 1; !preserveAllPrimaryFrames && index < events.Count;)
-            {
-                int previous = events[index - 1];
-                int current = events[index];
-                if (current - previous >= 10)
-                {
-                    index++;
-                    continue;
-                }
-                if (current == lastFrame && previous != 0)
-                {
-                    events.RemoveAt(index - 1);
-                    if (index > 1) index--;
-                }
-                else
-                {
-                    events.RemoveAt(index);
-                }
-            }
 
             List<int> result = InsertTestGhostFrames(events);
             var protectedFrames = new HashSet<int>((primaryFrames ?? Enumerable.Empty<int>())
@@ -472,6 +449,7 @@ namespace KimodoUnityBridge.Command
             // fallback or merged into the rendered markers.
             return (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray())
                 .OfType<JObject>()
+                .Where(IsFootLandingEvent)
                 .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, subject.Pelvis.Length - 1)))
                 .Distinct()
                 .OrderBy(frame => frame)
@@ -486,19 +464,23 @@ namespace KimodoUnityBridge.Command
             bool right = false;
             foreach (JObject item in (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray()).OfType<JObject>())
             {
+                if (!IsFootLandingEvent(item)) continue;
                 int eventFrame = Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, Math.Max(0, subject.Pelvis.Length - 1));
                 if (eventFrame != frame) continue;
                 string foot = item.Value<string>("foot") ?? string.Empty;
                 left |= foot.IndexOf("left", StringComparison.OrdinalIgnoreCase) >= 0;
                 right |= foot.IndexOf("right", StringComparison.OrdinalIgnoreCase) >= 0;
             }
-            if (left)
+            // When both feet share one frame, keep the event visibly distinct
+            // from the left-foot blue marker by giving the right-foot red
+            // marker precedence.
+            if (right)
             {
-                tint = new Color(.2f, .45f, 1f);
+                tint = new Color(1f, .2f, .2f);
                 return true;
             }
-            tint = right ? new Color(1f, .2f, .2f) : Color.white;
-            return right;
+            tint = left ? new Color(.2f, .45f, 1f) : Color.white;
+            return left;
         }
 
         private static bool IsKeyframe(SubjectPictureData subject, int frame)
