@@ -246,17 +246,73 @@ namespace KimodoUnityBridge.Command
             }
         }
 
+        private static List<int> BuildHeightTimePoseFrames(SubjectPictureData subject)
+        {
+            int lastFrame = Math.Max(0, subject?.Pelvis?.Length - 1 ?? 0);
+            var frames = (subject?.KeyFrameSet ?? new HashSet<int>())
+                .Append(0)
+                .Append(lastFrame)
+                .Select(frame => Mathf.Clamp(frame, 0, lastFrame))
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+            if (subject == null || frames.Count <= 2) return frames;
+
+            // 1-2 is a height-versus-time view. Start with every authored
+            // keyframe and the two time boundaries. If near-identical events
+            // force the time axis to become more than five times the pose
+            // height, remove the later frame from the closest interior pair.
+            // This keeps the temporal endpoints and never reduces the sample
+            // set below two poses.
+            const float maximumWidthToHeight = 5f;
+            const float layoutAspect = 4f / 3f;
+            while (frames.Count > 2)
+            {
+                float poseHeight = CalculateHeightTimePoseHeight(subject, frames);
+                float length = CalculateHeightTimeLength(subject, frames, layoutAspect);
+                if (length / Mathf.Max(.001f, poseHeight) <= maximumWidthToHeight) break;
+
+                int removeIndex = -1;
+                int closestGap = int.MaxValue;
+                for (int index = 0; index < frames.Count - 1; index++)
+                {
+                    if (frames[index + 1] == lastFrame) continue;
+                    int gap = frames[index + 1] - frames[index];
+                    if (gap <= closestGap)
+                    {
+                        closestGap = gap;
+                        removeIndex = index + 1;
+                    }
+                }
+                if (removeIndex < 0) break;
+                frames.RemoveAt(removeIndex);
+            }
+            return frames;
+        }
+
+        private static float CalculateHeightTimePoseHeight(
+            SubjectPictureData subject,
+            IReadOnlyList<int> poseFrames)
+        {
+            float minY = float.PositiveInfinity;
+            float maxY = float.NegativeInfinity;
+            for (int index = 0; index < poseFrames.Count; index++)
+            {
+                int frame = Mathf.Clamp(poseFrames[index], 0, Math.Max(0, subject.Pelvis.Length - 1));
+                Bounds pose = CalculateRawPreviewPoseBounds(subject, frame);
+                minY = Mathf.Min(minY, pose.min.y);
+                maxY = Mathf.Max(maxY, pose.max.y);
+            }
+            if (float.IsInfinity(minY) || float.IsInfinity(maxY)) return 1f;
+            return Mathf.Max(.001f, maxY - minY);
+        }
+
         private static Texture2D RenderTestHeightTimeTile(PictureTile tile, int width, int height)
         {
             SubjectPictureData subject = tile.Subject;
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             float aspect = width / (float)Mathf.Max(1, height);
-            List<int> poseFrames = subject.KeyFrameSet
-                .Append(0)
-                .Append(lastFrame)
-                .Distinct()
-                .OrderBy(frame => frame)
-                .ToList();
+            List<int> poseFrames = BuildHeightTimePoseFrames(subject);
             float length = CalculateHeightTimeLength(subject, poseFrames, aspect);
             var poseTargets = new Dictionary<int, Vector3>();
             var curvePoints = new List<Vector3>(Math.Max(1, subject.Pelvis.Length));
@@ -335,32 +391,11 @@ namespace KimodoUnityBridge.Command
                     0f);
                 try
                 {
-                    // This panel is a diagnostic chart rather than a layered
-                    // ghost composition. Render its axis, curve, and sampled
-                    // poses together so the thin time/height guides are not
-                    // discarded by the depth-only replacement pass.
-                    SetEvidenceVisualsEnabled(environment, true);
-                    var movedPoses = new List<Tuple<TestVirtualPose, Vector3>>();
-                    foreach (TestVirtualPose pose in poses)
-                    {
-                        if (pose.Preview == null) continue;
-                        Vector3 previousPosition = pose.Preview.transform.position;
-                        if (pose.HasTargetPosition) pose.Preview.transform.position = pose.TargetPosition;
-                        SetPreviewRenderersEnabled(pose.Preview, true);
-                        movedPoses.Add(Tuple.Create(pose, previousPosition));
-                    }
-                    try
-                    {
-                        return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
-                    }
-                    finally
-                    {
-                        foreach (Tuple<TestVirtualPose, Vector3> moved in movedPoses)
-                        {
-                            SetPreviewRenderersEnabled(moved.Item1.Preview, false);
-                            moved.Item1.Preview.transform.position = moved.Item2;
-                        }
-                    }
+                    // Use the same depth-aware pose compositor as the other
+                    // evidence tiles. Direct Camera.Render() is unreliable for
+                    // these transient HDRP pose clones and can drop every pose.
+                    return RenderTestPoseLayers(camera, environment, poses, width, height,
+                        new Color(.12f, .12f, .12f, 1f));
                 }
                 finally
                 {

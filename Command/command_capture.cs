@@ -38,8 +38,8 @@ namespace KimodoUnityBridge.Command
         }
 
         private const string AnalysisPictureRenderVersion = "21-humanbodybones-mesh";
-        private const string UnifiedAnalysisPictureRenderVersion = "64-test-analysis-picture-default-material-hdrp-lights-2x";
-        private const string TestAnalysisPicture20TileRenderVersion = "60-unlit-light-free-nonoverlap-height-time-v3";
+        private const string UnifiedAnalysisPictureRenderVersion = "65-test-analysis-picture-height-time-ratio5";
+        private const string TestAnalysisPicture20TileRenderVersion = "61-height-time-ratio5-depth-composite";
         private const int TestAnalysisCanvasWidth = 1920;
         private const int TestAnalysisCanvasHeight = 1080;
         private const int PictureSupersample = 2;
