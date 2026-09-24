@@ -445,56 +445,26 @@ namespace KimodoUnityBridge.Command
                 "HDRP/Unlit",
                 "Universal Render Pipeline/Unlit",
                 "Unlit/Color");
-            if (source == null && fallback == null)
+            if (fallback == null)
             {
                 throw new InvalidOperationException("No default character material shader is available.");
             }
 
-            bool sourceCompatible = source != null && IsPoseMaterialCompatible(source.shader);
-            var material = source != null ? new Material(source) : new Material(fallback);
+            // Analysis poses are evidence layers, not scene lighting previews.
+            // Always use the active pipeline's Unlit shader so HDRP and URP
+            // produce the same flat, role-coded colors regardless of scene
+            // lights or the source model's original material.
+            var material = new Material(fallback);
             material.hideFlags = HideFlags.HideAndDontSave;
-            material.name = (sourceCompatible ? source.name : "DefaultPoseMaterial") + " (Kimodo Pose)";
-            if (!sourceCompatible && source != null)
-            {
-                Texture baseTexture = GetPoseTexture(source, "_BaseColorMap") ??
-                    GetPoseTexture(source, "_MainTex");
-                Vector2 baseScale = GetPoseTextureScale(source, "_BaseColorMap", "_MainTex");
-                Vector2 baseOffset = GetPoseTextureOffset(source, "_BaseColorMap", "_MainTex");
-                Color baseColor = GetPoseColor(source, "_BaseColor", "_Color");
-                Texture emissionTexture = GetPoseTexture(source, "_EmissiveColorMap") ??
-                    GetPoseTexture(source, "_EmissionMap");
-                Color emissionColor = GetPoseColor(source, "_EmissiveColor", "_EmissionColor");
-                material.shader = fallback;
-                if (baseTexture != null && material.HasProperty("_BaseMap"))
-                {
-                    material.SetTexture("_BaseMap", baseTexture);
-                    material.SetTextureScale("_BaseMap", baseScale);
-                    material.SetTextureOffset("_BaseMap", baseOffset);
-                }
-                if (baseTexture != null && material.HasProperty("_MainTex")) material.SetTexture("_MainTex", baseTexture);
-                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", baseColor);
-                if (material.HasProperty("_Color")) material.SetColor("_Color", baseColor);
-                if (emissionTexture != null && material.HasProperty("_EmissionMap")) material.SetTexture("_EmissionMap", emissionTexture);
-                if (material.HasProperty("_EmissionColor")) material.SetColor("_EmissionColor", emissionColor);
-            }
-            if (applyTint)
-            {
-                Color sourceColor = Color.white;
-                if (source != null)
-                {
-                    if (source.HasProperty("_BaseColor")) sourceColor = source.GetColor("_BaseColor");
-                    else if (source.HasProperty("_Color")) sourceColor = source.GetColor("_Color");
-                    else if (source.HasProperty("_TintColor")) sourceColor = source.GetColor("_TintColor");
-                }
-                Color tinted = new Color(
-                    sourceColor.r * tint.r,
-                    sourceColor.g * tint.g,
-                    sourceColor.b * tint.b,
-                    sourceColor.a);
-                if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", tinted);
-                if (material.HasProperty("_Color")) material.SetColor("_Color", tinted);
-                if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", tinted);
-            }
+            material.name = "Kimodo Analysis Pose (Unlit)";
+            Color evidenceColor = applyTint ? tint : Color.white;
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", evidenceColor);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", evidenceColor);
+            if (material.HasProperty("_TintColor")) material.SetColor("_TintColor", evidenceColor);
+            // HDRP/Unlit exposes its actual albedo as _UnlitColor. Keep this
+            // write last; Material.color targets the legacy _Color alias and
+            // can reset the HDRP property back to white.
+            if (material.HasProperty("_UnlitColor")) material.SetColor("_UnlitColor", evidenceColor);
             return material;
         }
 

@@ -91,53 +91,56 @@ namespace KimodoUnityBridge.Command
             Texture2D canvas = null;
             try
             {
-                captureSessionRoot = session?.SessionRoot;
-                if (subject.Character?.Root != null)
+                using (var captureLights = new AnalysisCaptureLightScope())
                 {
-                    foreach (Renderer renderer in subject.Character.Root.GetComponentsInChildren<Renderer>(true))
+                    captureSessionRoot = session?.SessionRoot;
+                    if (subject.Character?.Root != null)
                     {
-                        hiddenRenderers.Add((renderer, renderer.enabled));
-                        renderer.enabled = false;
+                        foreach (Renderer renderer in subject.Character.Root.GetComponentsInChildren<Renderer>(true))
+                        {
+                            hiddenRenderers.Add((renderer, renderer.enabled));
+                            renderer.enabled = false;
+                        }
                     }
-                }
-                RenderSettings.fog = false;
-                TrajectoryScale scale = BuildTrajectoryScale(new[] { data }, true);
-                for (int index = 0; index < tiles.Count; index++)
-                {
-                    int tileWidth = index < 4 ? overviewWidth : poseWidth;
-                    int tileHeight = index < 4 ? overviewHeight : poseHeight;
-                    images.Add(tiles[index].IsEmpty
-                        ? CreateEmptyTestTile(tileWidth, tileHeight)
-                        : RenderPictureTileSupersampled(tiles[index], tileWidth, tileHeight, scale, 1));
-                }
-                for (int row = 0; row < 3; row++)
-                {
-                    int count = row == 0 ? 4 : 8;
-                    int tileWidth = row == 0 ? overviewWidth : poseWidth;
-                    int tileHeight = row == 0 ? overviewHeight : poseHeight;
-                    int x = Math.Max(0, (renderWidth - count * tileWidth - gap * (count - 1)) / 2);
-                    int y = row == 0 ? renderHeight - header - overviewHeight : renderHeight - header - overviewHeight - poseHeight * row;
-                    for (int column = 0; column < count; column++)
+                    RenderSettings.fog = false;
+                    TrajectoryScale scale = BuildTrajectoryScale(new[] { data }, true);
+                    for (int index = 0; index < tiles.Count; index++)
                     {
-                        rects.Add(new RectInt(x, y, tileWidth, tileHeight));
-                        x += tileWidth + gap;
+                        captureLights.Refresh();
+                        int tileWidth = index < 4 ? overviewWidth : poseWidth;
+                        int tileHeight = index < 4 ? overviewHeight : poseHeight;
+                        images.Add(tiles[index].IsEmpty
+                            ? CreateEmptyTestTile(tileWidth, tileHeight)
+                            : RenderPictureTileSupersampled(tiles[index], tileWidth, tileHeight, scale, 1));
                     }
-                }
-                canvas = ComposePictureCanvasGpu(images, rects, renderWidth, renderHeight);
-                DrawTestAnalysisHeader(canvas, subject.Animation?.Name, (float)(data.Pelvis.Length / SessionFrameRate), capturedAt);
-                canvas.Apply(false, false);
-                List<RectInt> outputRects = rects;
-                if (width != renderWidth || height != renderHeight)
-                {
-                    outputRects = rects.Select(rect => new RectInt(
-                        Mathf.RoundToInt(rect.x * width / (float)renderWidth),
-                        Mathf.RoundToInt(rect.y * height / (float)renderHeight),
-                        Mathf.Max(1, Mathf.RoundToInt(rect.width * width / (float)renderWidth)),
-                        Mathf.Max(1, Mathf.RoundToInt(rect.height * height / (float)renderHeight)))).ToList();
-                    Texture2D resized = ResizeTexture(canvas, width, height);
-                    UnityEngine.Object.DestroyImmediate(canvas);
-                    canvas = resized;
-                }
+                    for (int row = 0; row < 3; row++)
+                    {
+                        int count = row == 0 ? 4 : 8;
+                        int tileWidth = row == 0 ? overviewWidth : poseWidth;
+                        int tileHeight = row == 0 ? overviewHeight : poseHeight;
+                        int x = Math.Max(0, (renderWidth - count * tileWidth - gap * (count - 1)) / 2);
+                        int y = row == 0 ? renderHeight - header - overviewHeight : renderHeight - header - overviewHeight - poseHeight * row;
+                        for (int column = 0; column < count; column++)
+                        {
+                            rects.Add(new RectInt(x, y, tileWidth, tileHeight));
+                            x += tileWidth + gap;
+                        }
+                    }
+                    canvas = ComposePictureCanvasGpu(images, rects, renderWidth, renderHeight);
+                    DrawTestAnalysisHeader(canvas, subject.Animation?.Name, (float)(data.Pelvis.Length / SessionFrameRate), capturedAt);
+                    canvas.Apply(false, false);
+                    List<RectInt> outputRects = rects;
+                    if (width != renderWidth || height != renderHeight)
+                    {
+                        outputRects = rects.Select(rect => new RectInt(
+                            Mathf.RoundToInt(rect.x * width / (float)renderWidth),
+                            Mathf.RoundToInt(rect.y * height / (float)renderHeight),
+                            Mathf.Max(1, Mathf.RoundToInt(rect.width * width / (float)renderWidth)),
+                            Mathf.Max(1, Mathf.RoundToInt(rect.height * height / (float)renderHeight)))).ToList();
+                        Texture2D resized = ResizeTexture(canvas, width, height);
+                        UnityEngine.Object.DestroyImmediate(canvas);
+                        canvas = resized;
+                    }
             string signature = BuildPictureSignature(new[] { subject }, "16:9-layout", requestedResolution);
                 string imagePath = Path.Combine(EvidenceFolder(session), $"analysis_picture_{signature}.png");
                 Directory.CreateDirectory(EvidenceFolder(session));
@@ -173,6 +176,7 @@ namespace KimodoUnityBridge.Command
                 };
             PersistPictureSummary(session, subject.Record, result);
             return result;
+                }
             }
             finally
             {
@@ -186,63 +190,97 @@ namespace KimodoUnityBridge.Command
 
         private static List<PictureTile> BuildTestAnalysisTiles(SubjectPictureData subject)
         {
-            IReadOnlyList<int?> keyframes = NormalizeTestKeyframes(subject, 8);
-            IReadOnlyList<int?> steps = NormalizeTestStepFrames(subject, 8);
+            List<int> allKeyframes = GetAllAnalysisKeyframes(subject);
+            List<int> allFootEvents = GetAllFootEventFrames(subject);
+            IReadOnlyList<int?> keyframes = SelectFirstNonOverlappingFrames(subject, allKeyframes, 8);
+            IReadOnlyList<int?> steps = SelectFirstNonOverlappingFrames(subject, allFootEvents, 8);
             var result = new List<PictureTile>
             {
                 PictureTile.TestOverview(subject, "3d_track", Vector3.up),
                 PictureTile.TestOverview(subject, "height_time_track", Vector3.up),
-                PictureTile.TestSelectedOverview(subject, "3d_ghost", keyframes.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f)),
-                PictureTile.TestSelectedOverview(subject, "3d_ghost_track", steps.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f))
+                PictureTile.TestSelectedOverview(subject, "3d_ghost", allKeyframes, new Vector3(1f, .75f, -1f)),
+                PictureTile.TestSelectedOverview(subject, "3d_ghost_track", allFootEvents, new Vector3(1f, .75f, -1f))
             };
             for (int index = 0; index < 8; index++) result.Add(PictureTile.TestPoseSlot(subject, keyframes[index], "key_pose", index + 1));
             for (int index = 0; index < 8; index++) result.Add(PictureTile.TestPoseSlot(subject, steps[index], "step_pose", index + 1));
-            result[2].Description["frames"] = new JArray(keyframes.Where(value => value.HasValue).Select(value => value.Value));
-            result[3].Description["frames"] = new JArray(steps.Where(value => value.HasValue).Select(value => value.Value));
+            result[2].Description["frames"] = new JArray(allKeyframes);
+            result[3].Description["frames"] = new JArray(allFootEvents);
+            result[2].Description["selected_frames"] = new JArray(keyframes.Where(value => value.HasValue).Select(value => value.Value));
+            result[3].Description["selected_frames"] = new JArray(steps.Where(value => value.HasValue).Select(value => value.Value));
             result[2].Description["shared_with"] = "key_pose";
             result[3].Description["shared_with"] = "step_pose";
             return result;
         }
 
-        private static IReadOnlyList<int?> NormalizeTestKeyframes(SubjectPictureData subject, int count)
+        private static List<int> GetAllAnalysisKeyframes(SubjectPictureData subject)
         {
             int last = Math.Max(0, subject.Pelvis.Length - 1);
-            var candidates = (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
-                .OfType<JObject>().Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, last))
-                .Distinct().OrderBy(frame => frame).ToList();
+            return (subject.Subject.Record.Analysis?["keyframes"] as JArray ?? new JArray())
+                .OfType<JObject>()
+                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, last))
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+        }
+
+        private static List<int> GetAllFootEventFrames(SubjectPictureData subject)
+        {
+            int last = Math.Max(0, subject.Pelvis.Length - 1);
+            return (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray())
+                .OfType<JObject>()
+                .Where(IsFootLandingEvent)
+                .Select(item => Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, last))
+                .Distinct()
+                .OrderBy(frame => frame)
+                .ToList();
+        }
+
+        private static bool IsFootLandingEvent(JObject item)
+        {
+            return item?.Value<bool?>("contact") == true;
+        }
+
+        private static IReadOnlyList<int?> SelectFirstNonOverlappingFrames(
+            SubjectPictureData subject,
+            IEnumerable<int> candidates,
+            int count)
+        {
+            int last = Math.Max(0, subject.Pelvis.Length - 1);
             var selected = new List<int>();
-            if (count > 0) selected.Add(0);
-            if (count > 1 && last != 0) selected.Add(last);
-            int middleCount = Math.Max(0, count - selected.Count);
-            var middle = candidates.Where(frame => frame != 0 && frame != last).ToList();
-            if (middle.Count > middleCount && middleCount > 0)
-                middle = Enumerable.Range(0, middleCount).Select(index => middle[Mathf.RoundToInt(index * (middle.Count - 1) / (float)Math.Max(1, middleCount - 1))]).ToList();
-            selected = selected.Take(1).Concat(middle).Concat(selected.Skip(1)).Distinct().Take(count).ToList();
-            return selected.Cast<int?>().Concat(Enumerable.Repeat<int?>(null, Math.Max(0, count - selected.Count))).ToArray();
+            foreach (int frame in (candidates ?? Enumerable.Empty<int>())
+                .Select(item => Mathf.Clamp(item, 0, last))
+                .Distinct()
+                .OrderBy(item => item))
+            {
+                Vector3 candidate = subject.Pelvis[frame];
+                candidate.y = 0f;
+                if (selected.Any(previousFrame =>
+                {
+                    Vector3 previous = subject.Pelvis[previousFrame];
+                    previous.y = 0f;
+                    return Vector3.Distance(previous, candidate) < .5f;
+                }))
+                {
+                    continue;
+                }
+
+                selected.Add(frame);
+                if (selected.Count >= Math.Max(0, count)) break;
+            }
+
+            return selected.Cast<int?>()
+                .Concat(Enumerable.Repeat<int?>(null, Math.Max(0, count - selected.Count)))
+                .ToArray();
+        }
+
+        private static IReadOnlyList<int?> NormalizeTestKeyframes(SubjectPictureData subject, int count)
+        {
+            return SelectFirstNonOverlappingFrames(subject, GetAllAnalysisKeyframes(subject), count);
         }
 
         private static IReadOnlyList<int?> NormalizeTestStepFrames(SubjectPictureData subject, int count)
         {
-            int last = Math.Max(0, subject.Pelvis.Length - 1);
-            var contacts = (subject.Subject.Record.Analysis?["foot_contacts"] as JArray ?? new JArray()).OfType<JObject>()
-                .Select(item => new { Frame = Mathf.Clamp(item.Value<int?>("frame") ?? 0, 0, last), Foot = item.Value<string>("foot") ?? string.Empty })
-                .GroupBy(item => item.Frame).Select(group => group.First()).OrderBy(item => item.Frame).ToList();
-            var selected = new HashSet<int>();
-            if (count > 0 && contacts.Count > 0)
-            {
-                foreach (string foot in new[] { "left", "right" })
-                {
-                    var first = contacts.FirstOrDefault(item => item.Foot.IndexOf(foot, StringComparison.OrdinalIgnoreCase) >= 0);
-                    if (first != null) selected.Add(first.Frame);
-                }
-                int target = Math.Min(count, contacts.Count);
-                for (int rank = 0; rank < target && selected.Count < target; rank++)
-                    selected.Add(contacts[target <= 1 ? 0 : Mathf.RoundToInt(rank * (contacts.Count - 1) / (float)(target - 1))].Frame);
-                for (int index = 0; index < contacts.Count && selected.Count < target; index++) selected.Add(contacts[index].Frame);
-            }
-            var frames = selected.OrderBy(frame => frame).Take(Math.Max(0, count)).Cast<int?>().ToList();
-            while (frames.Count < count) frames.Add(null);
-            return frames;
+            return SelectFirstNonOverlappingFrames(subject, GetAllFootEventFrames(subject), count);
         }
 
         private static JObject RenderUnifiedAnalysisPictures(
@@ -998,15 +1036,17 @@ namespace KimodoUnityBridge.Command
             var result = new List<PictureTile>();
             if (request.Includes("3d_track")) result.Add(PictureTile.TestOverview(subject, "3d_track", Vector3.up));
             if (request.Includes("height_time_track")) result.Add(PictureTile.TestOverview(subject, "height_time_track", Vector3.up));
-            IReadOnlyList<int?> keyframes = NormalizeTestKeyframes(subject, 8);
-            IReadOnlyList<int?> steps = NormalizeTestStepFrames(subject, 8);
+            List<int> allKeyframes = GetAllAnalysisKeyframes(subject);
+            List<int> allFootEvents = GetAllFootEventFrames(subject);
+            IReadOnlyList<int?> keyframes = SelectFirstNonOverlappingFrames(subject, allKeyframes, 8);
+            IReadOnlyList<int?> steps = SelectFirstNonOverlappingFrames(subject, allFootEvents, 8);
             if (request.Includes("3d_ghost"))
             {
-                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost", keyframes.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f)));
+                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost", allKeyframes, new Vector3(1f, .75f, -1f)));
             }
             if (request.Includes("3d_ghost_track"))
             {
-                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost_track", steps.Where(value => value.HasValue).Select(value => value.Value), new Vector3(1f, .75f, -1f)));
+                result.Add(PictureTile.TestSelectedOverview(subject, "3d_ghost_track", allFootEvents, new Vector3(1f, .75f, -1f)));
             }
             if (request.Includes("key_pose"))
             {
