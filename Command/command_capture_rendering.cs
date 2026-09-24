@@ -251,16 +251,13 @@ namespace KimodoUnityBridge.Command
             SubjectPictureData subject = tile.Subject;
             int lastFrame = Math.Max(0, subject.Pelvis.Length - 1);
             float aspect = width / (float)Mathf.Max(1, height);
-            List<int> poseFrameCandidates = subject.KeyFrameSet
+            List<int> poseFrames = subject.KeyFrameSet
                 .Append(0)
                 .Append(lastFrame)
                 .Distinct()
                 .OrderBy(frame => frame)
                 .ToList();
-            List<int> poseFrames = ResolveHeightTimePoseFrames(subject, poseFrameCandidates, aspect);
             float length = CalculateHeightTimeLength(subject, poseFrames, aspect);
-            float temporalLength = Mathf.Max(1f, lastFrame * .08f);
-            length = Mathf.Clamp(length, temporalLength, temporalLength * 2f);
             var poseTargets = new Dictionary<int, Vector3>();
             var curvePoints = new List<Vector3>(Math.Max(1, subject.Pelvis.Length));
             for (int frame = 0; frame <= lastFrame; frame++)
@@ -431,75 +428,6 @@ namespace KimodoUnityBridge.Command
                 else upper = middle;
             }
             return Mathf.Max(.001f, upper, minimumLength);
-        }
-
-        private static List<int> ResolveHeightTimePoseFrames(
-            SubjectPictureData subject,
-            IReadOnlyList<int> candidates,
-            float aspect)
-        {
-            int lastFrame = Math.Max(0, subject?.Pelvis?.Length - 1 ?? 0);
-            var frames = (candidates ?? Array.Empty<int>())
-                .Select(frame => Mathf.Clamp(frame, 0, lastFrame))
-                .Distinct()
-                .OrderBy(frame => frame)
-                .ToList();
-            if (frames.Count <= 2 || subject == null) return frames;
-
-            while (frames.Count > 2)
-            {
-                float height = CalculateHeightTimePoseHeight(subject, frames);
-                float length = CalculateHeightTimeLength(subject, frames, aspect);
-                if (length / Mathf.Max(.001f, height) <= 5f) break;
-
-                int removeIndex = -1;
-                int closestGap = int.MaxValue;
-                // Keep the first and last frame as the time-range anchors when
-                // an interior pair is available. Ties resolve to the later
-                // frame, matching the requested pruning rule.
-                for (int index = 0; index < frames.Count - 1; index++)
-                {
-                    if (frames[index] == 0 || frames[index + 1] == lastFrame) continue;
-                    int gap = frames[index + 1] - frames[index];
-                    if (gap <= closestGap)
-                    {
-                        closestGap = gap;
-                        removeIndex = index + 1;
-                    }
-                }
-                if (removeIndex < 0)
-                {
-                    for (int index = 0; index < frames.Count - 1; index++)
-                    {
-                        int gap = frames[index + 1] - frames[index];
-                        if (gap <= closestGap)
-                        {
-                            closestGap = gap;
-                            removeIndex = index + 1;
-                        }
-                    }
-                }
-                if (removeIndex < 0) break;
-                frames.RemoveAt(removeIndex);
-            }
-            return frames;
-        }
-
-        private static float CalculateHeightTimePoseHeight(
-            SubjectPictureData subject,
-            IReadOnlyList<int> poseFrames)
-        {
-            float minY = float.PositiveInfinity;
-            float maxY = float.NegativeInfinity;
-            for (int index = 0; index < poseFrames.Count; index++)
-            {
-                int frame = Mathf.Clamp(poseFrames[index], 0, Math.Max(0, subject.Pelvis.Length - 1));
-                Bounds pose = CalculateRawPreviewPoseBounds(subject, frame);
-                minY = Mathf.Min(minY, pose.min.y);
-                maxY = Mathf.Max(maxY, pose.max.y);
-            }
-            if (float.IsInfinity(minY) || float.IsInfinity(maxY)) return 1f;
-            return Mathf.Max(.001f, maxY - minY);
         }
 
         private static Texture2D ComposePictureCanvasGpu(

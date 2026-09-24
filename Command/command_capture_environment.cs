@@ -25,25 +25,49 @@ namespace KimodoUnityBridge.Command
         private static void CreatePictureEnvironment(List<GameObject> objects, Bounds bounds)
         {
             const int captureLayer = SessionCaptureLayer;
-            float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-            GameObject floor = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Plane));
-            floor.hideFlags = HideFlags.HideAndDontSave;
-            floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
-            floor.transform.localScale = Vector3.one * (size / 10f);
-            SetLayerRecursively(floor, captureLayer);
-            floor.GetComponent<Renderer>().sharedMaterial = MakeEnvironmentMaterial(new Color(.31f, .31f, .31f, 1f));
+            GameObject floor = CloneSceneGround(captureLayer);
+            if (floor == null)
+            {
+                float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
+                floor = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Plane));
+                floor.hideFlags = HideFlags.HideAndDontSave;
+                floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
+                floor.transform.localScale = Vector3.one * (size / 10f);
+                SetLayerRecursively(floor, captureLayer);
+                floor.GetComponent<Renderer>().sharedMaterial = MakeEnvironmentMaterial(new Color(.31f, .31f, .31f, 1f));
+            }
             objects.Add(floor);
-            for (float x = bounds.min.x; x <= bounds.max.x; x += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(x, .006f, bounds.min.z), new Vector3(x, .006f, bounds.max.z),
-                    Mathf.Abs(x % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
-            for (float z = bounds.min.z; z <= bounds.max.z; z += .25f)
-            {
-                CreateWorldLine(objects, new Vector3(bounds.min.x, .006f, z), new Vector3(bounds.max.x, .006f, z),
-                    Mathf.Abs(z % 1f) < .01f ? .010f : .003f, new Color(.65f, .65f, .65f, .25f));
-            }
             CreateEvidenceLights(objects, bounds.center);
+        }
+
+        private static GameObject CloneSceneGround(int captureLayer)
+        {
+            GameObject source = Resources.FindObjectsOfTypeAll<Renderer>()
+                .Where(renderer => renderer != null && renderer.gameObject != null &&
+                    renderer.gameObject.scene.IsValid() && !EditorUtility.IsPersistent(renderer) &&
+                    renderer.gameObject.activeInHierarchy && !IsSessionObject(renderer.gameObject))
+                .Select(renderer => renderer.gameObject)
+                .Where(gameObject =>
+                    string.Equals(gameObject.name, "Plane", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(gameObject.name, "Ground", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(gameObject.name, "Terrain", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(gameObject => string.Equals(gameObject.name, "Ground", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .FirstOrDefault();
+            if (source == null)
+            {
+                Terrain terrain = Resources.FindObjectsOfTypeAll<Terrain>()
+                    .FirstOrDefault(item => item != null && item.gameObject != null &&
+                        item.gameObject.scene.IsValid() && !EditorUtility.IsPersistent(item) &&
+                        item.gameObject.activeInHierarchy && !IsSessionObject(item.gameObject));
+                source = terrain?.gameObject;
+            }
+            if (source == null) return null;
+
+            GameObject clone = MoveToAnalysisSessionRoot(UnityEngine.Object.Instantiate(source));
+            clone.name = "Kimodo Scene Ground";
+            clone.hideFlags = HideFlags.HideAndDontSave;
+            SetLayerRecursively(clone, captureLayer);
+            return clone;
         }
 
         private static Bounds IncludeGroundInBounds(Bounds bounds)
