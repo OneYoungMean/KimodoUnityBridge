@@ -1144,7 +1144,21 @@ namespace KimodoUnityBridge.Command
             try
             {
                 WriteFirstTileLightSnapshot("after_camera", tile, groundBounds, camera);
-                return RenderCamera(camera, width, height, new Color(.12f, .12f, .12f, 1f));
+                // HDRP can omit transient mesh geometry when the camera uses
+                // the old direct Camera.Render() readback path. Render into an
+                // explicit target, matching the other evidence tiles, so the
+                // cloned scene ground is included in 1-1.
+                RenderTexture target = RenderCameraToTexture(
+                    camera, width, height, new Color(.12f, .12f, .12f, 1f),
+                    RenderTextureFormat.ARGB32, false);
+                try
+                {
+                    return ReadRenderTexture(target, width, height);
+                }
+                finally
+                {
+                    DestroyAnalysisRenderTexture(target);
+                }
             }
             finally
             {

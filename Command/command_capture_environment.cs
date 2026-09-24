@@ -28,13 +28,11 @@ namespace KimodoUnityBridge.Command
             GameObject floor = CloneSceneGround(captureLayer);
             if (floor == null)
             {
-                float size = Mathf.Ceil(Mathf.Max(bounds.size.x, bounds.size.z) * .5f) * 2f;
-                floor = MoveToAnalysisSessionRoot(GameObject.CreatePrimitive(PrimitiveType.Plane));
-                floor.hideFlags = HideFlags.HideAndDontSave;
-                floor.transform.position = new Vector3(bounds.center.x, 0f, bounds.center.z);
-                floor.transform.localScale = Vector3.one * (size / 10f);
-                SetLayerRecursively(floor, captureLayer);
-                floor.GetComponent<Renderer>().sharedMaterial = MakeEnvironmentMaterial(new Color(.31f, .31f, .31f, 1f));
+                // Analysis fixtures may not contain an authored floor. Keep a
+                // visible diagnostic fallback in that case; authored scene
+                // floors always take the clone path above.
+                CreateTestPictureEnvironment(objects, bounds);
+                return;
             }
             objects.Add(floor);
             CreateEvidenceLights(objects, bounds.center);
