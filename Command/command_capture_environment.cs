@@ -707,9 +707,9 @@ namespace KimodoUnityBridge.Command
             bool hdrp = GetCapturePipeline() == CapturePipeline.Hdrp;
             var setups = new[]
             {
-                (name: "Key", position: new Vector3(-4f, 6f, -4f), intensity: hdrp ? 24f : 1.05f),
-                (name: "Fill", position: new Vector3(4f, 3f, -2f), intensity: hdrp ? 8f : .45f),
-                (name: "Rim", position: new Vector3(0f, 5f, 5f), intensity: hdrp ? 3f : .20f)
+                (name: "Key", position: new Vector3(-4f, 6f, -4f), intensity: hdrp ? 8f : 1.05f),
+                (name: "Fill", position: new Vector3(4f, 3f, -2f), intensity: hdrp ? 2f : .45f),
+                (name: "Rim", position: new Vector3(0f, 5f, 5f), intensity: hdrp ? .75f : .20f)
             };
             var directions = new Vector4[setups.Length];
             for (int index = 0; index < setups.Length; index++)
