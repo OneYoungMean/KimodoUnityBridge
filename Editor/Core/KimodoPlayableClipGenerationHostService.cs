@@ -28,7 +28,8 @@ namespace KimodoBridge.Editor
             TimelineClip timelineClipOverride = null,
             bool? generateLoopOverride = null,
             bool deferOutConstraint = false,
-            bool deferInConstraint = false)
+            bool deferInConstraint = false,
+            double? targetDurationSecondsOverride = null)
         {
             if (clip == null)
             {
@@ -45,9 +46,12 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Generation length requires a Timeline clip with positive duration.");
             }
             float targetFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(resolvedModelName);
+            double targetDurationSeconds = targetDurationSecondsOverride.HasValue
+                ? Math.Max(0.0, targetDurationSecondsOverride.Value)
+                : timelineClip.duration;
             int targetFrameCount = Mathf.Max(
                 KimodoMotionModelProfiles.MinGenerationFrames,
-                KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, targetFrameRate));
+                KimodoFrameTimeUtility.SecondsToFrameCount(targetDurationSeconds, targetFrameRate));
             int generationFrameCount = Mathf.Max(
                 targetFrameCount,
                 KimodoFrameTimeUtility.SecondsToFrameCount(

@@ -635,6 +635,23 @@ namespace KimodoBridge.Editor.Tests
                     generateLoopOverride: false);
                 Assert.That(firstPass.RuntimeFrameCount, Is.EqualTo(firstPass.TargetFrameCount));
                 Assert.That(firstPass.RuntimeTrimStartFrame, Is.Zero);
+
+                KimodoEditorGenerateRequest loopTrajectoryPass =
+                    KimodoPlayableClipGenerationHostService.BuildRequest(
+                        clip,
+                        "walk",
+                        externalConstraint: null,
+                        default,
+                        targetDurationSecondsOverride: 3.0,
+                        generateLoopOverride: false);
+                Assert.That(
+                    loopTrajectoryPass.TargetFrameCount,
+                    Is.EqualTo(KimodoFrameTimeUtility.SecondsToFrameCount(
+                        3.0,
+                        loopTrajectoryPass.TargetFrameRate)));
+                Assert.That(
+                    loopTrajectoryPass.RuntimeFrameCount,
+                    Is.EqualTo(loopTrajectoryPass.TargetFrameCount));
             }
             finally
             {

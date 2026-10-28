@@ -231,39 +231,58 @@ namespace KimodoBridge
             bool lockRotationY = false,
             bool lockRotationZ = true)
         {
-            if (motion == null || motion.FrameCount != targetFrameCount ||
+            if (motion == null || motion.FrameCount < 2 || motion.FrameRate <= 0f ||
                 runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f)
             {
                 throw new InvalidOperationException("Loop constraint frame range is invalid.");
             }
 
-            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
-            int virtualTailFrame = runtimeFrameCount - 1;
-            if (terminalFrame >= runtimeFrameCount)
-            {
-                throw new InvalidOperationException("Loop terminal frame is outside the runtime range.");
-            }
-            bool hasFirstFrame = TryBuildFullBodyFrame(
-                motion, modelName, 0, out KimodoConstraintInternalData first, out string firstError);
-            bool hasTailFrame = TryBuildFullBodyFrame(
-                motion, modelName, motion.FrameCount - 1, out KimodoConstraintInternalData tail, out string tailError);
-            if (!hasFirstFrame || !hasTailFrame)
+            int anchorSourceFrame = ResolveLoopAnchorFrame(motion);
+            if (!TryBuildFullBodyFrame(
+                    motion, modelName, anchorSourceFrame,
+                    out KimodoConstraintInternalData first, out string anchorError))
             {
                 throw new InvalidOperationException(
-                    $"Loop pass 1 raw sampling failed: first='{firstError}', tail='{tailError}'.");
+                    $"Loop pass 1 anchor pose sampling failed at frame {anchorSourceFrame}: {anchorError}");
+            }
+            if (!TryBuildFullBodyFrame(
+                    motion, modelName, motion.FrameCount - 1,
+                    out KimodoConstraintInternalData tail, out string tailError))
+            {
+                throw new InvalidOperationException(
+                    $"Loop pass 1 tail pose sampling failed at frame {motion.FrameCount - 1}: {tailError}");
+            }
+            if (!TryEstimatePlanarVelocity(motion, out Vector3 averageVelocity, out string velocityError))
+            {
+                throw new InvalidOperationException(
+                    $"Loop pass 1 average velocity estimation failed: {velocityError}");
+            }
+
+            int terminalFrame = runtimeTrimStartFrame + targetFrameCount - 1;
+            int virtualTailFrame = runtimeFrameCount - 1;
+            if (terminalFrame >= runtimeFrameCount || virtualTailFrame < terminalFrame)
+            {
+                throw new InvalidOperationException("Loop terminal frame is outside the runtime range.");
             }
 
             Quaternion firstRotation = ResolveRootRotation(first);
             Quaternion tailRotation = ResolveRootRotation(tail);
-            Vector3 planarDelta = tail.rootPosition - first.rootPosition;
+            float targetSpanSeconds = targetFrameCount / frameRate;
+            Vector3 projectedDelta = averageVelocity * targetSpanSeconds;
+            projectedDelta.y = 0f;
+            Vector3 projectedTerminalRoot = first.rootPosition + projectedDelta;
+            Vector3 terminalRoot = new Vector3(
+                lockPositionX ? first.rootPosition.x : projectedTerminalRoot.x,
+                lockPositionY ? first.rootPosition.y : tail.rootPosition.y,
+                lockPositionZ ? first.rootPosition.z : projectedTerminalRoot.z);
+            Vector3 planarDelta = terminalRoot - first.rootPosition;
             planarDelta.y = 0f;
-            float sourceSpanFrames = targetFrameCount - 1f;
-            float headRatio = runtimeTrimStartFrame / sourceSpanFrames;
-            float tailRatio = (virtualTailFrame - terminalFrame) / sourceSpanFrames;
+            float headRatio = runtimeTrimStartFrame / (float)targetFrameCount;
+            float tailRatio = (virtualTailFrame - terminalFrame) / (float)targetFrameCount;
             Vector3 virtualHeadPosition = first.rootPosition - planarDelta * headRatio;
-            Vector3 virtualTailPosition = tail.rootPosition + planarDelta * tailRatio;
+            Vector3 virtualTailPosition = terminalRoot + planarDelta * tailRatio;
             virtualHeadPosition.y = first.rootPosition.y;
-            virtualTailPosition.y = tail.rootPosition.y;
+            virtualTailPosition.y = terminalRoot.y;
 
             float firstYaw = KimodoMotionMath.ResolvePlanarYawDegrees(firstRotation);
             float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(tailRotation);
@@ -274,10 +293,7 @@ namespace KimodoBridge
             first.sampleTime = runtimeTrimStartFrame / (double)frameRate;
             KimodoConstraintInternalData terminal = first.Clone();
             terminal.sampleTime = terminalFrame / (double)frameRate;
-            terminal.rootPosition = new Vector3(
-                lockPositionX ? first.rootPosition.x : tail.rootPosition.x,
-                lockPositionY ? first.rootPosition.y : tail.rootPosition.y,
-                lockPositionZ ? first.rootPosition.z : tail.rootPosition.z);
+            terminal.rootPosition = terminalRoot;
             Quaternion firstYawRotation = Quaternion.Euler(0f, firstYaw, 0f);
             Quaternion tailYawRotation = Quaternion.Euler(0f, tailYaw, 0f);
             Quaternion firstTilt = Quaternion.Inverse(firstYawRotation) * firstRotation;
@@ -305,6 +321,101 @@ namespace KimodoBridge
                     includeSmoothRoot: true)[0]
             };
             return constraints.ToString(Formatting.None);
+        }
+
+        private static bool TryEstimatePlanarVelocity(
+            KimodoRawMotionData motion,
+            out Vector3 velocity,
+            out string error)
+        {
+            velocity = Vector3.zero;
+            error = string.Empty;
+            if (motion == null || motion.FrameCount < 2 || motion.FrameRate <= 0f)
+            {
+                error = "Raw motion does not contain enough timed frames.";
+                return false;
+            }
+
+            double meanFrame = (motion.FrameCount - 1) * 0.5;
+            double denominator = 0.0;
+            double numeratorX = 0.0;
+            double numeratorZ = 0.0;
+            for (int frame = 0; frame < motion.FrameCount; frame++)
+            {
+                if (!motion.TryReadUnityRootPosition(frame, out Vector3 position))
+                {
+                    error = $"Raw motion root position is invalid at frame {frame}.";
+                    return false;
+                }
+
+                double centeredFrame = frame - meanFrame;
+                denominator += centeredFrame * centeredFrame;
+                numeratorX += position.x * centeredFrame;
+                numeratorZ += position.z * centeredFrame;
+            }
+
+            if (denominator <= 1e-9)
+            {
+                error = "Raw motion frame times have no span.";
+                return false;
+            }
+
+            velocity = new Vector3(
+                (float)(numeratorX / denominator * motion.FrameRate),
+                0f,
+                (float)(numeratorZ / denominator * motion.FrameRate));
+            return true;
+        }
+
+        private static int ResolveLoopAnchorFrame(KimodoRawMotionData motion)
+        {
+            if (motion == null || !motion.HasFootContacts || motion.FrameCount < 2 ||
+                !TryReadFootSupport(motion, 0, out bool previousLeft, out bool previousRight))
+            {
+                return 0;
+            }
+
+            for (int frame = 1; frame < motion.FrameCount; frame++)
+            {
+                if (!TryReadFootSupport(motion, frame, out bool left, out bool right))
+                {
+                    return 0;
+                }
+
+                bool leftToRight = previousLeft && !previousRight && !left && right;
+                bool rightToLeft = previousRight && !previousLeft && left && !right;
+                if (leftToRight || rightToLeft)
+                {
+                    return frame;
+                }
+
+                previousLeft = left;
+                previousRight = right;
+            }
+
+            return 0;
+        }
+
+        private static bool TryReadFootSupport(
+            KimodoRawMotionData motion,
+            int frame,
+            out bool left,
+            out bool right)
+        {
+            left = false;
+            right = false;
+            if (motion == null || !motion.HasFootContacts || frame < 0 || frame >= motion.FrameCount ||
+                !motion.TryReadFootContact(frame, 0, out float leftHeel) ||
+                !motion.TryReadFootContact(frame, 1, out float leftToe) ||
+                !motion.TryReadFootContact(frame, 2, out float rightHeel) ||
+                !motion.TryReadFootContact(frame, 3, out float rightToe))
+            {
+                return false;
+            }
+
+            left = leftHeel > 0.5f || leftToe > 0.5f;
+            right = rightHeel > 0.5f || rightToe > 0.5f;
+            return true;
         }
 
         private static Vector3 ToSignedEuler(Quaternion rotation)

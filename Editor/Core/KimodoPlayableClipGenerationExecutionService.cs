@@ -26,6 +26,8 @@ namespace KimodoBridge.Editor
 
     internal static class KimodoPlayableClipGenerationExecutionService
     {
+        private const double LoopTrajectoryDurationSeconds = 3.0;
+
         private sealed class ConnectedClipEntry
         {
             public TimelineClip TimelineClip;
@@ -1422,7 +1424,9 @@ namespace KimodoBridge.Editor
                     externalConstraint,
                     token,
                     timelineClipOverride: timelineClipOverride,
+                    targetDurationSecondsOverride: generateLoop ? LoopTrajectoryDurationSeconds : (double?)null,
                     generateLoopOverride: false,
+                    enableAutoBeginAnchor: !generateLoop,
                     deferOutConstraint: clip.postApplyOutConstraint,
                     deferInConstraint: clip.postApplyInConstraint);
                 firstRequest.AnalysisOptionsJson = string.Empty;

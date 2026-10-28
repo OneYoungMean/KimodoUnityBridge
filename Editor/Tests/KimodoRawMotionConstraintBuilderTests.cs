@@ -22,17 +22,18 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void BuildLoopConstraintJson_UsesRawMotionWithoutCharacterSpaceSamples()
+        public void BuildLoopConstraintJson_UsesFootSwitchAnchorAndEstimatedVelocity()
         {
             const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
-            const int frameCount = 3;
+            const int frameCount = 4;
             const float frameRate = 20f;
             string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
             var roots = new[]
             {
                 new Vector3(2f, 0f, 3f),
                 new Vector3(4f, 0f, 5f),
-                new Vector3(6f, 0f, 7f)
+                new Vector3(6f, 0f, 7f),
+                new Vector3(8f, 0f, 9f)
             };
             Quaternion firstRootRotation = Quaternion.Euler(20f, 10f, 30f);
             Quaternion tailRootRotation = Quaternion.Euler(-40f, 70f, 80f);
@@ -49,6 +50,11 @@ namespace KimodoBridge.Editor.Tests
                     rotations.Add(-rotation.z);
                 }
             }
+            var footContacts = new byte[frameCount * 4];
+            footContacts[0] = 1; // Left heel support.
+            footContacts[4 + 1] = 1; // Left toe support.
+            footContacts[8 + 2] = 1; // Right heel support: left-to-right switch.
+            footContacts[12 + 2] = 1; // Right heel support.
 
             var motion = new KimodoRawMotionData(
                 frameCount,
@@ -58,20 +64,33 @@ namespace KimodoBridge.Editor.Tests
                 KimodoRigProfileDatabase.GetParentIndicesForModel(model),
                 roots,
                 rotations,
-                rootJointIndex: 0);
+                rootJointIndex: 0,
+                footContacts: footContacts);
 
             JArray constraints = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopConstraintJson(
-                motion, model, runtimeTrimStartFrame: 1, targetFrameCount: frameCount,
-                runtimeFrameCount: 5, frameRate: frameRate));
+                motion, model, runtimeTrimStartFrame: 4, targetFrameCount: 8,
+                runtimeFrameCount: 16, frameRate: frameRate));
 
             Assert.That(constraints, Has.Count.EqualTo(2));
             Assert.That((string)constraints[0]["type"], Is.EqualTo("root2d"));
-            Assert.That((int)constraints[1]["frame_indices"][0], Is.EqualTo(1));
-            Assert.That((float)constraints[1]["root_positions"][0][0], Is.EqualTo(-2f));
-            Assert.That((int)constraints[1]["frame_indices"][1], Is.EqualTo(3));
-            Assert.That((float)constraints[1]["root_positions"][1][0], Is.EqualTo(-6f));
-            Assert.That((int)constraints[0]["frame_indices"][1], Is.EqualTo(4));
-            Assert.That((float)constraints[0]["smooth_root_2d"][1][0], Is.EqualTo(-8f));
+            Assert.That((int)constraints[1]["frame_indices"][0], Is.EqualTo(4));
+            Assert.That((float)constraints[1]["root_positions"][0][0], Is.EqualTo(-6f));
+            Assert.That((int)constraints[1]["frame_indices"][1], Is.EqualTo(11));
+            Assert.That((float)constraints[1]["root_positions"][1][0], Is.EqualTo(-22f));
+            Assert.That((int)constraints[0]["frame_indices"][1], Is.EqualTo(15));
+            Assert.That((float)constraints[0]["smooth_root_2d"][0][0], Is.EqualTo(2f));
+            Assert.That((float)constraints[0]["smooth_root_2d"][0][1], Is.EqualTo(-1f));
+            Assert.That((float)constraints[0]["smooth_root_2d"][1][0], Is.EqualTo(-30f));
+            Assert.That((float)constraints[0]["smooth_root_2d"][1][1], Is.EqualTo(31f));
+            JArray anchorRoot = (JArray)constraints[1]["local_joints_rot"][0][0];
+            Quaternion anchorProtocolRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(
+                new Vector3((float)anchorRoot[0], (float)anchorRoot[1], (float)anchorRoot[2]));
+            Quaternion anchorRotation = new Quaternion(
+                anchorProtocolRotation.x,
+                -anchorProtocolRotation.y,
+                -anchorProtocolRotation.z,
+                anchorProtocolRotation.w);
+            Assert.That(Quaternion.Angle(anchorRotation, Quaternion.identity), Is.LessThan(1e-3f));
             Assert.That(
                 ((JArray)constraints[1]["smooth_root_2d"]).Count,
                 Is.EqualTo(((JArray)constraints[1]["frame_indices"]).Count));
@@ -80,8 +99,7 @@ namespace KimodoBridge.Editor.Tests
                 (float)terminalRoot[0], (float)terminalRoot[1], (float)terminalRoot[2]));
             Quaternion terminalRotation = new Quaternion(
                 protocolRotation.x, -protocolRotation.y, -protocolRotation.z, protocolRotation.w);
-            Quaternion expectedTerminalRotation = Planar(tailRootRotation) *
-                Quaternion.Inverse(Planar(firstRootRotation)) * firstRootRotation;
+            Quaternion expectedTerminalRotation = Planar(tailRootRotation);
             Assert.That(Quaternion.Angle(terminalRotation, expectedTerminalRotation), Is.LessThan(1e-3f));
 
             JArray root2D = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildRoot2DConstraintsJson(
