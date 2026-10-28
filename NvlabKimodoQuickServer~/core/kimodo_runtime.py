@@ -10,7 +10,9 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import sys
+import subprocess
 import threading
 import time
 import uuid
@@ -36,6 +38,24 @@ def _default_bridge_log_path(root: str) -> str:
     return os.path.join(root, "log", "bridge_server.log")
 
 
+def _detect_nvidia_smi_free_vram_gb(index: int) -> float | None:
+    executable = shutil.which("nvidia-smi")
+    if not executable:
+        return None
+    try:
+        result = subprocess.run(
+            [executable, "--id", str(index), "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        free_mib = float(result.stdout.strip().splitlines()[0].strip())
+        return free_mib / 1024.0 if math.isfinite(free_mib) and free_mib >= 0.0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
 def _detect_free_vram_gb(device: str | None = None) -> float:
     """Best-effort currently free accelerator memory in GiB."""
     try:
@@ -44,6 +64,12 @@ def _detect_free_vram_gb(device: str | None = None) -> float:
         target = str(device or "").strip().lower()
         if target.startswith("cuda") and torch.cuda.is_available() and torch.cuda.device_count() > 0:
             index = int(target.split(":", 1)[1]) if ":" in target else 0
+            if sys.platform == "win32" and "nvidia" in torch.cuda.get_device_name(index).lower():
+                # Under Windows WDDM, PyTorch's free-memory view can miss VRAM
+                # already committed by other processes; use the adapter-wide reading.
+                nvidia_free = _detect_nvidia_smi_free_vram_gb(index)
+                if nvidia_free is not None:
+                    return nvidia_free
             free, _ = torch.cuda.mem_get_info(index)
             return float(free) / (1024 ** 3)
         if target.startswith("mps") and torch.backends.mps.is_available():

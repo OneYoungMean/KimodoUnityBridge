@@ -159,6 +159,35 @@ class TextEncoderRuntimeDecisionTests(unittest.TestCase):
             profile = kimodo_runtime._runtime_self_check("cuda:0")
         self.assertEqual(profile.free_vram_gb, 6.0)
 
+    def test_windows_prefers_nvidia_smi_dedicated_free_vram(self):
+        nvidia_smi_result = SimpleNamespace(stdout="9059\n")
+        with patch.object(kimodo_runtime.sys, "platform", "win32"), patch(
+            "torch.cuda.is_available", return_value=True
+        ), patch("torch.cuda.device_count", return_value=1), patch(
+            "torch.cuda.get_device_name", return_value="NVIDIA GeForce RTX 4090"
+        ), patch("torch.cuda.mem_get_info", return_value=(46_453 * 1024**2, 49_139 * 1024**2)), patch(
+            "core.kimodo_runtime.shutil.which", return_value="nvidia-smi"
+        ), patch(
+            "core.kimodo_runtime.subprocess.run", return_value=nvidia_smi_result
+        ) as run:
+            free_gb = kimodo_runtime._detect_free_vram_gb("cuda:0")
+
+        self.assertAlmostEqual(free_gb, 9059.0 / 1024.0, places=5)
+        run.assert_called_once()
+        self.assertIn("--query-gpu=memory.free", run.call_args.args[0])
+
+    def test_windows_falls_back_to_torch_when_nvidia_smi_is_unavailable(self):
+        with patch.object(kimodo_runtime.sys, "platform", "win32"), patch(
+            "torch.cuda.is_available", return_value=True
+        ), patch("torch.cuda.device_count", return_value=1), patch(
+            "torch.cuda.get_device_name", return_value="NVIDIA GeForce RTX 4090"
+        ), patch("torch.cuda.mem_get_info", return_value=(12 * 1024**3, 49 * 1024**3)), patch(
+            "core.kimodo_runtime.shutil.which", return_value=None
+        ):
+            free_gb = kimodo_runtime._detect_free_vram_gb("cuda:0")
+
+        self.assertAlmostEqual(free_gb, 12.0, places=5)
+
     def test_motion_model_requires_two_gb_before_encoder_routing(self):
         profile = kimodo_runtime._RuntimeSelfCheckResult(
             backend_profile="cuda",

@@ -885,15 +885,45 @@ def _ensure_runtime(
         )
         runtime_config = dict(config)
         runtime_config["models_root"] = str(models_root)
-        model = ardy_backend.load_runtime(
-            motion_profile,
-            runtime_config,
-            kimodo_root,
-            runtime_decision.motion_device,
-            text_encoder=text_encoder,
-            cancel_event=cancel_event,
-            logger=logger,
-        )
+        try:
+            model = ardy_backend.load_runtime(
+                motion_profile,
+                runtime_config,
+                kimodo_root,
+                runtime_decision.motion_device,
+                text_encoder=text_encoder,
+                cancel_event=cancel_event,
+                logger=logger,
+            )
+        except Exception as exc:
+            if runtime_decision.motion_device == "cpu" or not _is_accelerator_oom(exc):
+                raise
+            logger.log(
+                "[WARN] Motion runtime accelerator OOM; retrying the motion model and "
+                "text encoder on CPU."
+            )
+            _release_accelerator_cache()
+            runtime_profile = runtime_helpers._runtime_self_check("cpu")
+            runtime_decision = _resolve_cpu_text_encoder_decision(config)
+            os.environ["KIMODO_RUNTIME_BACKEND_PROFILE"] = runtime_profile.backend_profile
+            os.environ["KIMODO_RUNTIME_DEVICE"] = "cpu"
+            model = ardy_backend.load_runtime(
+                motion_profile,
+                runtime_config,
+                kimodo_root,
+                "cpu",
+                text_encoder=False,
+                cancel_event=cancel_event,
+                logger=logger,
+            )
+            _replace_text_encoder(
+                model,
+                config,
+                runtime_decision,
+                kimodo_root,
+                logger,
+                cancel_event,
+            )
         runtime_decision = _refresh_encoder_route_after_motion_load(
             model,
             config,
@@ -1141,6 +1171,18 @@ def _is_encoder_oom(error: Exception) -> bool:
         return not bool(torch.cuda.is_available())
     except Exception:
         return False
+
+
+def _resolve_cpu_text_encoder_decision(config: dict[str, Any]) -> assets.TextEncoderRuntimeDecision:
+    decision = assets.resolve_text_encoder_runtime(
+        config["text_encoder_mode"],
+        "cpu",
+        0.0,
+        nf4_available=False,
+        int8_accelerator_available=False,
+        fp16_accelerator_available=False,
+    )
+    return assets.force_text_encoder_cpu(decision)
 
 
 def _write_protocol_message(file, writer_lock: threading.Lock, payload: dict[str, Any], binary_payload: bytes | None = None) -> None:
