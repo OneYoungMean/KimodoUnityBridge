@@ -21,7 +21,7 @@ public class KimodoConstraintMarker : Marker, IKimodoConstraintPreviewSelectable
     [Tooltip("If disabled, this marker is ignored by preview, sampling, and generation.")]
     public bool constraintEnabled = true;
 
-    [Tooltip("When enabled, initialize the pose, root and effectors from the Avatar skeleton rest pose, without sampling Timeline animation.")]
+    [Tooltip("When enabled, the active constraint follows the Timeline pose at this marker time.")]
     public bool autoSample = true;
 
     [SerializeField] private KimodoConstraintMode constraintMode = KimodoConstraintMode.FullBody;

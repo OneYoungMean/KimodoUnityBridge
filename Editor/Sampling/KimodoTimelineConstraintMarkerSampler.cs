@@ -895,16 +895,57 @@ namespace KimodoBridge.Editor
 
             if (sampledMarkerIndices.Count > 0)
             {
-                if (!KimodoConstraintPoseUtility.TryCreateRestPoseSample(context, out var restPose, out error))
+                if (!KimodoTimelineSamplingSession.TryCreate(context, context.ModelName, out KimodoTimelineSamplingSession sampler, out error))
                     return false;
 
-                foreach (int markerIndex in sampledMarkerIndices)
+                try
                 {
-                    KimodoConstraintMarker marker = markers[markerIndex];
-                    KimodoMarkerSampleResult initialPose = restPose.Clone();
-                    initialPose.sampleTime = marker.time;
-                    if (!TryNormalizeMarkerSample(marker, initialPose, "rest", out resolvedSamples[markerIndex], out error))
+                    float frameRate = KimodoTimelineConstraintSampler.DefaultSessionFrameRate;
+                    var uniqueTimes = new List<double>();
+                    var timeToSample = new Dictionary<double, int>();
+                    var markerSampleIndices = new int[sampledMarkerIndices.Count];
+                    for (int i = 0; i < sampledMarkerIndices.Count; i++)
+                    {
+                        double time = Math.Max(0.0, markers[sampledMarkerIndices[i]].time);
+                        if (!timeToSample.TryGetValue(time, out int sampleIndex))
+                        {
+                            sampleIndex = uniqueTimes.Count;
+                            timeToSample.Add(time, sampleIndex);
+                            uniqueTimes.Add(time);
+                        }
+                        markerSampleIndices[i] = sampleIndex;
+                    }
+
+                    if (!sampler.TryCaptureTargetBoneSamples(
+                            uniqueTimes,
+                            frameRate,
+                            out BoneSample[] targetSamples,
+                            out error))
+                    {
                         return false;
+                    }
+
+                    for (int i = 0; i < sampledMarkerIndices.Count; i++)
+                    {
+                        int markerIndex = sampledMarkerIndices[i];
+                        KimodoConstraintMarker marker = markers[markerIndex];
+                        if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                                targetSamples[markerSampleIndices[i]],
+                                sampler.TargetCache,
+                                context.ModelName,
+                                "fullbody",
+                                marker.time,
+                                out KimodoMarkerSampleResult captured,
+                                out error) ||
+                            !TryNormalizeMarkerSample(marker, captured, "sampled", out resolvedSamples[markerIndex], out error))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                finally
+                {
+                    sampler.Dispose();
                 }
             }
 
