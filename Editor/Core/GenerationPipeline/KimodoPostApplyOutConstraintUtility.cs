@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
 {
@@ -26,25 +25,6 @@ namespace KimodoBridge.Editor
             public bool HasHeading;
         }
 
-        internal static string Apply(
-            string existingJson,
-            string deferredOutJson,
-            KimodoRawMotionData firstPassMotion,
-            string modelName,
-            float frameRate,
-            int runtimeTrimStartFrame,
-            KimodoTimelineInOutConstraintContext timelineContext,
-            int? syntheticAutoBeginFrame = null,
-            bool preferStart = false,
-            int targetFrameCount = 0)
-        {
-            return preferStart
-                ? ApplyInOut(existingJson, deferredOutJson, string.Empty, firstPassMotion, modelName, frameRate,
-                    runtimeTrimStartFrame, timelineContext, syntheticAutoBeginFrame, targetFrameCount)
-                : ApplyInOut(existingJson, string.Empty, deferredOutJson, firstPassMotion, modelName, frameRate,
-                    runtimeTrimStartFrame, timelineContext, syntheticAutoBeginFrame, targetFrameCount);
-        }
-
         internal static string ApplyInOut(
             string existingJson,
             string deferredInJson,
@@ -52,10 +32,7 @@ namespace KimodoBridge.Editor
             KimodoRawMotionData firstPassMotion,
             string modelName,
             float frameRate,
-            int runtimeTrimStartFrame,
-            KimodoTimelineInOutConstraintContext timelineContext,
-            int? syntheticAutoBeginFrame = null,
-            int targetFrameCount = 0)
+            int runtimeTrimStartFrame)
         {
             JArray existing = ParseArray(existingJson);
             JArray deferredIn = ParseArray(deferredInJson);
@@ -65,22 +42,8 @@ namespace KimodoBridge.Editor
             if (inRows.Count == 0 && outRows.Count == 0)
                 return existing.ToString(Formatting.None);
 
-            List<RootRow> existingRows = ReadRows(existing);
-            bool preferStartForIn = ResolveBoundaryPreference(
-                inRows, runtimeTrimStartFrame, targetFrameCount, isIn: true);
-            PlanarTransform inTransform = ResolveTransform(
-                existingRows, inRows, firstPassMotion, modelName, frameRate,
-                runtimeTrimStartFrame, timelineContext, syntheticAutoBeginFrame, isIn: true,
-                targetFrameCount: targetFrameCount,
-                preferStart: preferStartForIn);
-            bool preferStartForOut = ResolveBoundaryPreference(
-                outRows, runtimeTrimStartFrame, targetFrameCount, isIn: false);
-            PlanarTransform outTransform = ResolveTransform(
-                existingRows, outRows, firstPassMotion, modelName, frameRate,
-                runtimeTrimStartFrame, timelineContext, syntheticAutoBeginFrame, isIn: false,
-                targetFrameCount: targetFrameCount,
-                preferStart: preferStartForOut);
-
+            PlanarTransform inTransform = ResolveTransform(inRows, firstPassMotion, modelName, runtimeTrimStartFrame);
+            PlanarTransform outTransform = ResolveTransform(outRows, firstPassMotion, modelName, runtimeTrimStartFrame);
             JArray filtered = new JArray();
             var deferredFrames = new HashSet<int>(inRows.Concat(outRows).Select(row => row.Frame));
             foreach (JObject record in existing.OfType<JObject>())
@@ -163,112 +126,38 @@ namespace KimodoBridge.Editor
         }
 
         private static PlanarTransform ResolveTransform(
-            List<RootRow> existingRows,
             List<RootRow> deferredRows,
             KimodoRawMotionData firstPassMotion,
             string modelName,
-            float frameRate,
-            int runtimeTrimStartFrame,
-            KimodoTimelineInOutConstraintContext timelineContext,
-            int? syntheticAutoBeginFrame,
-            bool isIn,
-            int targetFrameCount,
-            bool preferStart)
+            int runtimeTrimStartFrame)
         {
-            if (deferredRows == null || deferredRows.Count == 0) return PlanarTransform.Identity;
-            int firstFrame = deferredRows.Min(row => row.Frame);
-            int lastFrame = deferredRows.Max(row => row.Frame);
-            // An Outside Out window lives after the generated output range. Its
-            // seam is therefore the last sample of the pass-1 raw motion, not
-            // an arbitrary earlier constraint from existingJson (for example a
-            // synthetic AutoBegin or a path anchor). Prefer that seam whenever
-            // the deferred rows are on the output's far side and raw motion is
-            // available. Otherwise retain the existing anchor behavior used by
-            // inside windows and In boundaries.
-            bool deferredOutAfterOutput = !isIn && targetFrameCount > 0 &&
-                firstFrame >= Mathf.Max(0, runtimeTrimStartFrame) + targetFrameCount;
-            bool useFirstPassOutSeam = deferredOutAfterOutput && firstPassMotion != null;
-            RootRow anchor = useFirstPassOutSeam
-                ? null
-                : SelectAnchor(existingRows, firstFrame, lastFrame, syntheticAutoBeginFrame, preferStart);
-            if (anchor != null)
-            {
-                if (TryReadOriginalTimelineRoot(timelineContext, anchor.Frame, frameRate,
-                        runtimeTrimStartFrame, modelName, false,
-                        out Vector3 sourcePosition, out Quaternion sourceHeading))
-                {
-                    return PlanarTransform.FromSourceToTarget(
-                        sourcePosition, sourceHeading, anchor.Position,
-                        anchor.HasHeading ? anchor.Heading : sourceHeading);
-                }
-                throw new InvalidOperationException($"Postapply {(isIn ? "In" : "Out")} could not read the original SOMA FullBody anchor.");
-            }
-            if (firstPassMotion == null) return PlanarTransform.Identity;
+            if (deferredRows == null || deferredRows.Count == 0 || firstPassMotion == null)
+                return PlanarTransform.Identity;
 
-            RootRow boundary = deferredRows
-                .OrderBy(row => preferStart ? row.Frame : -row.Frame)
-                .ThenByDescending(row => row.RecordIndex)
-                .ThenByDescending(row => row.RowIndex)
+            int anchorFrame = ResolveDeferredWindowAnchorFrame(deferredRows.Select(row => row.Frame).ToArray());
+            RootRow anchor = deferredRows
+                .Where(row => row.Frame == anchorFrame)
+                .OrderBy(row => row.RecordIndex)
+                .ThenBy(row => row.RowIndex)
                 .First();
             int outputFrame = Mathf.Clamp(
-                boundary.Frame - Mathf.Max(0, runtimeTrimStartFrame),
+                anchor.Frame - Mathf.Max(0, runtimeTrimStartFrame),
                 0,
                 Mathf.Max(0, firstPassMotion.FrameCount - 1));
-            if (!TryReadOriginalTimelineRoot(timelineContext, boundary.Frame, frameRate,
-                    runtimeTrimStartFrame, modelName,
-                    !isIn && deferredOutAfterOutput,
-                    out Vector3 originalPosition, out Quaternion originalHeading) ||
-                !TryReadMotionRoot(firstPassMotion, modelName, outputFrame,
+            if (!TryReadMotionRoot(firstPassMotion, modelName, outputFrame,
                     out Vector3 generatedPosition, out Quaternion generatedHeading))
-            {
-                throw new InvalidOperationException($"Postapply {(isIn ? "In" : "Out")} could not resolve its first-pass trajectory Root2D anchor at frame {outputFrame}.");
-            }
+                return PlanarTransform.Identity;
+
+            Quaternion sourceHeading = anchor.HasHeading ? anchor.Heading : generatedHeading;
             return PlanarTransform.FromSourceToTarget(
-                originalPosition, originalHeading, generatedPosition, generatedHeading);
+                anchor.Position, sourceHeading, generatedPosition, generatedHeading);
         }
 
-        /// <summary>
-        /// Chooses the sample nearest the generated clip seam. Outside windows
-        /// sit on the opposite side of the seam, so their preferred endpoint is
-        /// reversed from the normal inside-window direction.
-        /// </summary>
-        private static bool ResolveBoundaryPreference(
-            List<RootRow> rows,
-            int runtimeTrimStartFrame,
-            int targetFrameCount,
-            bool isIn)
+        internal static int ResolveDeferredWindowAnchorFrame(IReadOnlyList<int> sampleFrames)
         {
-            return PreferStartForDeferredWindow(
-                rows?.Select(row => row.Frame).ToArray(),
-                runtimeTrimStartFrame,
-                targetFrameCount,
-                isIn);
-        }
-
-        internal static bool PreferStartForDeferredWindow(
-            IReadOnlyList<int> sampleFrames,
-            int runtimeTrimStartFrame,
-            int targetFrameCount,
-            bool isIn)
-        {
-            bool preferStart = isIn;
-            if (sampleFrames == null || sampleFrames.Count == 0 || targetFrameCount <= 0)
-                return preferStart;
-
-            int outputStart = Mathf.Max(0, runtimeTrimStartFrame);
-            int outputEndExclusive = outputStart + targetFrameCount;
-            int firstFrame = sampleFrames.Min();
-            int lastFrame = sampleFrames.Max();
-            if (isIn)
-            {
-                // Outside In samples precede the generated range. The last
-                // sample is nearest to the generated start seam.
-                return lastFrame >= outputStart;
-            }
-
-            // Outside Out samples follow the generated range. The first
-            // sample is nearest to the generated end seam.
-            return firstFrame >= outputEndExclusive;
+            if (sampleFrames == null || sampleFrames.Count == 0)
+                throw new ArgumentException();
+            return sampleFrames.Min();
         }
 
         private static void AppendTransformed(
@@ -331,39 +220,6 @@ namespace KimodoBridge.Editor
                 }
             }
             return rows;
-        }
-
-        private static RootRow SelectAnchor(
-            List<RootRow> rows,
-            int firstFrame,
-            int lastFrame,
-            int? syntheticAutoBeginFrame,
-            bool preferStart)
-        {
-            if (rows == null || rows.Count == 0) return null;
-            IEnumerable<RootRow> eligibleRows = syntheticAutoBeginFrame.HasValue
-                ? rows.Where(row => row.Frame != syntheticAutoBeginFrame.Value)
-                : rows;
-            RootRow inRange = rows
-                .Where(row => !syntheticAutoBeginFrame.HasValue || row.Frame != syntheticAutoBeginFrame.Value)
-                .Where(row => row.Frame >= firstFrame && row.Frame <= lastFrame)
-                .OrderBy(row => preferStart ? row.Frame : -row.Frame)
-                .ThenByDescending(row => row.RecordIndex)
-                .ThenByDescending(row => row.RowIndex)
-                .FirstOrDefault();
-            if (inRange != null) return inRange;
-
-            return eligibleRows
-                .OrderBy(row => DistanceToRange(row.Frame, firstFrame, lastFrame))
-                .ThenBy(row => preferStart ? row.Frame : -row.Frame)
-                .ThenByDescending(row => row.RecordIndex)
-                .ThenByDescending(row => row.RowIndex)
-                .FirstOrDefault();
-        }
-
-        private static int DistanceToRange(int frame, int firstFrame, int lastFrame)
-        {
-            return frame < firstFrame ? firstFrame - frame : frame > lastFrame ? frame - lastFrame : 0;
         }
 
         private static bool FilterRecordOutsideFrames(
@@ -452,77 +308,6 @@ namespace KimodoBridge.Editor
                     joints[0] = new JArray(result.x, result.y, result.z);
                 }
             }
-        }
-
-        private static bool TryReadOriginalTimelineRoot(
-            KimodoTimelineInOutConstraintContext context,
-            int runtimeFrame,
-            float frameRate,
-            int runtimeTrimStartFrame,
-            string modelName,
-            bool sampleAfterBoundary,
-            out Vector3 position,
-            out Quaternion heading)
-        {
-            position = Vector3.zero;
-            heading = Quaternion.identity;
-            if (context?.SourceClip == null || frameRate <= 0f)
-            {
-                return false;
-            }
-
-            int outputFrame = runtimeFrame - Mathf.Max(0, runtimeTrimStartFrame);
-            double clipTime = outputFrame / (double)frameRate;
-            double timeScale = Math.Abs(context.SourceClip.timeScale) > 1e-9
-                ? context.SourceClip.timeScale
-                : 1.0;
-            double timelineTime = context.SourceClip.start +
-                (clipTime - context.SourceClip.clipIn) / timeScale;
-            double epsilon = 1.0 / Math.Max(1.0, KimodoTimelineConstraintSampler.ResolveTimelineFrameRate(context));
-            if (sampleAfterBoundary)
-            {
-                timelineTime += epsilon;
-            }
-            TimelineClip range = timelineTime < context.SourceClip.start
-                ? context.PreviousTimelineClip
-                : timelineTime > context.SourceClip.end
-                    ? context.NextTimelineClip
-                    : context.SourceClip;
-            if (range != null)
-            {
-                timelineTime = Math.Max(range.start, Math.Min(range.end - epsilon, timelineTime));
-            }
-
-            if (!KimodoTimelineConstraintSampler.TrySampleMarker(
-                    context,
-                    timelineTime,
-                    0.0,
-                    "fullbody",
-                    modelName,
-                    out KimodoMarkerSampleResult sample,
-                    out _))
-            {
-                return false;
-            }
-
-            string json = KimodoConstraintJsonExporter.ToConstraintsJson(
-                new[] { sample },
-                new KimodoConstraintExportContext
-                {
-                    projectedPoseProjector = KimodoConstraintExportProjector.Create(context)
-                },
-                0.0,
-                1.0 / frameRate,
-                frameRate);
-            List<RootRow> rows = ReadRows(ParseArray(json));
-            RootRow row = rows.FirstOrDefault();
-            if (row == null)
-            {
-                return false;
-            }
-            position = row.Position;
-            heading = row.HasHeading ? row.Heading : Quaternion.identity;
-            return true;
         }
 
         private static bool TryReadMotionRoot(

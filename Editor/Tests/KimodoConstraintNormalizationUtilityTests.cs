@@ -95,6 +95,20 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void DeferredAutoBegin_GenericEffectorWithinOneSecondBeatsSyntheticConstraint()
+        {
+            var synthetic = new KimodoMarkerSampleResult { constraintMode = "root2d", sampleTime = 0.0 };
+            var effector = new KimodoMarkerSampleResult { constraintMode = "effector", sampleTime = 0.999 };
+
+            Assert.That(
+                KimodoConstraintNormalizationUtility.HasNormalizationAnchor(
+                    new List<KimodoMarkerSampleResult> { synthetic, effector },
+                    1.0,
+                    synthetic),
+                Is.True);
+        }
+
+        [Test]
         public void ConstraintAtExactlyOneSecond_GetsFrameZeroAutoBeginRoot2DConstraint()
         {
             using (AutoBeginSceneFixture fixture = CreateAutoBeginSceneFixture())

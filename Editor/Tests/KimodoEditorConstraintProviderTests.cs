@@ -111,7 +111,7 @@ namespace KimodoUnityBridge.Command.Tests
 
             JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
                 "[]", inJson, outJson, null, KimodoMotionModelProfiles.DefaultModelName,
-                30f, 0, null));
+                30f, 0));
 
             Assert.That(result, Has.Count.EqualTo(1), result.ToString());
             Assert.That(result[0]["frame_indices"][0].Value<int>(), Is.Zero);
@@ -138,32 +138,24 @@ namespace KimodoUnityBridge.Command.Tests
 
             JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
                 existing, deferredIn, "[]", null,
-                KimodoMotionModelProfiles.DefaultModelName, 30f, 0, null));
+                KimodoMotionModelProfiles.DefaultModelName, 30f, 0));
             JObject effector = result.Values<JObject>().Single(item => item.Value<string>("type") == "effector");
             CollectionAssert.AreEqual(new[] { 5 }, effector["frame_indices"].Values<int>().ToArray());
             Assert.That(effector["target_positions"].Count(), Is.EqualTo(1));
             Assert.That(effector["target_positions"][0][0].Value<float>(), Is.EqualTo(5f));
         }
 
-        [TestCase(true, 0, 90, new[] { 0, 5, 11 }, true,
-            TestName = "InsideIn_AnchorsAtWindowStart")]
-        [TestCase(false, 0, 90, new[] { 78, 84, 89 }, false,
-            TestName = "InsideOut_AnchorsAtWindowEnd")]
-        [TestCase(true, 12, 90, new[] { 0, 5, 11 }, false,
-            TestName = "OutsideIn_AnchorsAtWindowEndNearSeam")]
-        [TestCase(false, 0, 90, new[] { 90, 95, 101 }, true,
-            TestName = "OutsideOut_AnchorsAtWindowStartNearSeam")]
-        public void DeferredWindow_ChoosesTheSampleNearestToTheOutputSeam(
-            bool isIn,
-            int trimStart,
-            int targetFrames,
+        [TestCase(new[] { 0, 5, 11 }, 0)]
+        [TestCase(new[] { 78, 84, 89 }, 78)]
+        [TestCase(new[] { 0, 5, 11 }, 0)]
+        [TestCase(new[] { 90, 95, 101 }, 90)]
+        public void DeferredWindow_UsesEarliestWindowSampleAsAnchor(
             int[] sampleFrames,
-            bool expectedPreferStart)
+            int expectedAnchor)
         {
             Assert.That(
-                KimodoPostApplyOutConstraintUtility.PreferStartForDeferredWindow(
-                    sampleFrames, trimStart, targetFrames, isIn),
-                Is.EqualTo(expectedPreferStart));
+                KimodoPostApplyOutConstraintUtility.ResolveDeferredWindowAnchorFrame(sampleFrames),
+                Is.EqualTo(expectedAnchor));
         }
 
         [Test]
@@ -177,15 +169,125 @@ namespace KimodoUnityBridge.Command.Tests
                 clip.enableInConstraint = false;
                 clip.enableOutConstraint = true;
 
-                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresTrajectoryPass(clip, null), Is.False);
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage2Generation(clip, null), Is.False);
 
                 clip.enableInConstraint = true;
-                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresTrajectoryPass(clip, null), Is.True);
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage2Generation(clip, null), Is.True);
             }
             finally
             {
                 Object.DestroyImmediate(clip);
             }
+        }
+
+        [Test]
+        public void StageRouting_UsesStage3ForDeferredWindowsOrBodyConstraints()
+        {
+            Assert.That(
+                KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
+                    generateLoop: false,
+                    hasDeferredPostApplyWindow: true,
+                    stage2ConstraintsJson: "[]"),
+                Is.True);
+            Assert.That(
+                KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
+                    generateLoop: false,
+                    hasDeferredPostApplyWindow: false,
+                    stage2ConstraintsJson: "[{\"type\":\"fullbody\"}]"),
+                Is.True);
+            Assert.That(
+                KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
+                    generateLoop: false,
+                    hasDeferredPostApplyWindow: false,
+                    stage2ConstraintsJson: "[{\"type\":\"root2d\"}]"),
+                Is.False);
+        }
+
+        [Test]
+        public void StageRouting_NoStage2ConditionKeepsDirectGeneration()
+        {
+            var clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.RequiresStage2Generation(clip, null),
+                    Is.False);
+
+                clip.overridePathDistance = true;
+                clip.pathDistance = 0f;
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.RequiresStage2Generation(clip, null),
+                    Is.True,
+                    "An explicit zero distance still requests Stage 2.");
+                clip.overridePathDistance = false;
+                clip.overrideHeading = true;
+                Assert.That(
+                    KimodoPlayableClipGenerationExecutionService.RequiresStage2Generation(clip, null),
+                    Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
+        public void Stage2PathOrigin_PrefersRelativeOffsetThenAutoBeginSnapshot()
+        {
+            Vector3 relativeOffset = new Vector3(8f, 2f, -3f);
+            Vector3 autoBegin = new Vector3(1f, 4f, 7f);
+            var request = new KimodoEditorGenerateRequest
+            {
+                UseRelativeOffset = true,
+                RelativeOffset = relativeOffset,
+                HasSyntheticAutoBeginConstraint = true,
+                ConstraintSamples = new List<KimodoMarkerSampleResult>
+                {
+                    new KimodoMarkerSampleResult
+                    {
+                        constraintMode = "root2d",
+                        rootOverride = new KimodoUnityBridge.KimodoRigidTransform { t = autoBegin }
+                    }
+                }
+            };
+
+            Assert.That(
+                Vector3.Distance(
+                    KimodoPlayableClipGenerationExecutionService.ResolveStage1PathRootOrigin(request).Value,
+                    relativeOffset),
+                Is.LessThan(0.001f));
+
+            request.UseRelativeOffset = false;
+            Assert.That(
+                Vector3.Distance(
+                    KimodoPlayableClipGenerationExecutionService.ResolveStage1PathRootOrigin(request).Value,
+                    autoBegin),
+                Is.LessThan(0.001f));
+
+            request.HasSyntheticAutoBeginConstraint = false;
+            Vector3 capturedRoot = new Vector3(-2f, 1f, 6f);
+            request.TimelineContextSnapshot = new KimodoTimelineInOutConstraintContext
+            {
+                HasOriginalRootSnapshot = true,
+                OriginalRootPosition = capturedRoot
+            };
+            Assert.That(
+                Vector3.Distance(
+                    KimodoPlayableClipGenerationExecutionService.ResolveStage1PathRootOrigin(request).Value,
+                    capturedRoot),
+                Is.LessThan(0.001f));
+        }
+
+        [Test]
+        public void StageRouting_ResolvesFullBodyConstraintWindowSpan()
+        {
+            const string json = "[{\"type\":\"left-hand\",\"frame_indices\":[12,18,21]},{\"type\":\"fullbody\",\"frame_indices\":[14,20]}]";
+            int span = KimodoPlayableClipGenerationExecutionService.ResolveConstraintFrameSpan(
+                json, out int firstFrame, out int lastFrame);
+
+            Assert.That(firstFrame, Is.EqualTo(12));
+            Assert.That(lastFrame, Is.EqualTo(21));
+            Assert.That(span, Is.EqualTo(10));
         }
 
         [Test]

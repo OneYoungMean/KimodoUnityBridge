@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -607,6 +609,152 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That((float)heading[0], Is.EqualTo(1f).Within(0.001f));
                 Assert.That((float)heading[1], Is.EqualTo(0f).Within(0.001f));
             }
+        }
+
+        [Test]
+        public void InterpolateFullBodyRootPositionsJson_UsesStage2FrameOffsetAndPreservesPose()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            KimodoRawMotionData motion = CreateMotion(new[]
+            {
+                new Vector3(1f, 2f, 3f),
+                new Vector3(2f, 4f, 6f),
+                new Vector3(3f, 6f, 9f)
+            });
+            var original = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(10, 12),
+                    ["root_positions"] = new JArray(new JArray(90f, 91f, 92f), new JArray(93f, 94f, 95f)),
+                    ["smooth_root_2d"] = new JArray(new JArray(80f, 81f), new JArray(82f, 83f)),
+                    ["local_joints_rot"] = new JArray(new JArray(new JArray(0f, 0f, 0f)), new JArray(new JArray(1f, 2f, 3f)))
+                },
+                new JObject
+                {
+                    ["type"] = "effector",
+                    ["frame_indices"] = new JArray(11),
+                    ["root_positions"] = new JArray(new JArray(70f, 71f, 72f)),
+                    ["smooth_root_2d"] = new JArray(new JArray(60f, 61f)),
+                    ["target_positions"] = new JArray(new JArray(5f, 6f, 7f))
+                },
+                new JObject
+                {
+                    ["type"] = "root2d",
+                    ["frame_indices"] = new JArray(10),
+                    ["smooth_root_2d"] = new JArray(new JArray(4f, 5f))
+                }
+            };
+
+            JArray result = JArray.Parse(KimodoRawMotionConstraintBuilder.InterpolateFullBodyRootPositionsJson(
+                original.ToString(), motion, runtimeTrimStartFrame: 10));
+            JObject fullBody = result.Children<JObject>().Single(item => item.Value<string>("type") == "fullbody");
+            JObject effector = result.Children<JObject>().Single(item => item.Value<string>("type") == "effector");
+            JObject root2D = result.Children<JObject>().Single(item => item.Value<string>("type") == "root2d");
+
+            Assert.That(JToken.DeepEquals(fullBody["root_positions"][0], new JArray(-1f, 2f, 3f)), Is.True);
+            Assert.That(JToken.DeepEquals(fullBody["root_positions"][1], new JArray(-3f, 6f, 9f)), Is.True);
+            Assert.That(JToken.DeepEquals(fullBody["smooth_root_2d"][0], new JArray(-1f, 3f)), Is.True);
+            Assert.That(JToken.DeepEquals(effector["root_positions"][0], new JArray(-2f, 4f, 6f)), Is.True);
+            Assert.That(JToken.DeepEquals(effector["smooth_root_2d"][0], new JArray(-2f, 6f)), Is.True);
+            Assert.That(JToken.DeepEquals(fullBody["local_joints_rot"], original[0]["local_joints_rot"]), Is.True);
+            Assert.That(JToken.DeepEquals(effector["target_positions"], original[1]["target_positions"]), Is.True);
+            Assert.That(JToken.DeepEquals(root2D, original[2]), Is.True);
+        }
+
+        [Test]
+        public void OverrideEffectiveConstraintHeadingsJson_UpdatesRootYawAndPreservesBodyTilt()
+        {
+            const float targetHeading = 120f;
+            Quaternion sourceUnityRoot = Quaternion.Euler(12f, 35f, -8f);
+            JArray rootAxis = EncodeProtocolAxisAngle(sourceUnityRoot);
+            var otherJointAxis = new JArray(0.1f, -0.2f, 0.3f);
+            var original = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "root2d",
+                    ["frame_indices"] = new JArray(2, 4),
+                    ["smooth_root_2d"] = new JArray(new JArray(7f, 8f), new JArray(9f, 10f)),
+                    ["global_root_heading"] = new JArray(new JArray(0f, 1f), new JArray(0f, 1f))
+                },
+                CreateBodyRootConstraint("fullbody", rootAxis, otherJointAxis),
+                CreateBodyRootConstraint("effector", rootAxis, otherJointAxis)
+            };
+
+            JArray expectedRoot2D = JArray.Parse(KimodoRawMotionConstraintBuilder.OverrideRoot2DHeadingsJson(
+                new JArray((JObject)original[0].DeepClone()).ToString(), targetHeading));
+            JArray result = JArray.Parse(KimodoRawMotionConstraintBuilder.OverrideEffectiveConstraintHeadingsJson(
+                original.ToString(), targetHeading));
+
+            Assert.That(JToken.DeepEquals(result[0]["smooth_root_2d"], original[0]["smooth_root_2d"]), Is.True);
+            Assert.That(JToken.DeepEquals(result[0]["global_root_heading"], expectedRoot2D[0]["global_root_heading"]), Is.True);
+            for (int i = 1; i < result.Count; i++)
+            {
+                JObject before = (JObject)original[i];
+                JObject after = (JObject)result[i];
+                Assert.That(JToken.DeepEquals(after["root_positions"], before["root_positions"]), Is.True);
+                Assert.That(JToken.DeepEquals(after["local_joints_rot"][0][1], otherJointAxis), Is.True);
+                Quaternion actualRoot = DecodeProtocolAxisAngle(after["local_joints_rot"][0][0]);
+                float sourceYaw = KimodoMotionMath.ResolvePlanarYawDegrees(sourceUnityRoot);
+                Quaternion sourceTilt = Quaternion.Inverse(Quaternion.Euler(0f, sourceYaw, 0f)) * sourceUnityRoot;
+                Quaternion expectedRoot = Quaternion.Euler(0f, targetHeading, 0f) * sourceTilt;
+                Assert.That(Quaternion.Angle(actualRoot, expectedRoot), Is.LessThan(0.05f));
+            }
+        }
+
+        private static KimodoRawMotionData CreateMotion(Vector3[] roots)
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var rotations = new List<float>(roots.Length * names.Length * 4);
+            for (int i = 0; i < roots.Length * names.Length; i++)
+            {
+                rotations.Add(1f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+            }
+            return new KimodoRawMotionData(
+                roots.Length,
+                names.Length,
+                20f,
+                names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model),
+                roots,
+                rotations,
+                rootJointIndex: 0);
+        }
+
+        private static JObject CreateBodyRootConstraint(string type, JArray rootAxis, JArray otherJointAxis)
+        {
+            return new JObject
+            {
+                ["type"] = type,
+                ["frame_indices"] = new JArray(3),
+                ["root_positions"] = new JArray(new JArray(1f, 2f, 3f)),
+                ["local_joints_rot"] = new JArray
+                {
+                    new JArray(rootAxis.DeepClone(), otherJointAxis.DeepClone())
+                }
+            };
+        }
+
+        private static JArray EncodeProtocolAxisAngle(Quaternion unityRotation)
+        {
+            Quaternion protocolRotation = new Quaternion(
+                unityRotation.x, -unityRotation.y, -unityRotation.z, unityRotation.w);
+            Vector3 axisAngle = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(protocolRotation);
+            return new JArray(axisAngle.x, axisAngle.y, axisAngle.z);
+        }
+
+        private static Quaternion DecodeProtocolAxisAngle(JToken token)
+        {
+            Quaternion protocolRotation = KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(
+                new Vector3(token[0].Value<float>(), token[1].Value<float>(), token[2].Value<float>()));
+            return new Quaternion(
+                protocolRotation.x, -protocolRotation.y, -protocolRotation.z, protocolRotation.w);
         }
 
         private static Quaternion Planar(Quaternion rotation)

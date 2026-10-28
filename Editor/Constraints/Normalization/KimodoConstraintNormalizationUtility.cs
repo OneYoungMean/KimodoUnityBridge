@@ -36,6 +36,7 @@ namespace KimodoBridge.Editor
         private static bool IsAnchorConstraintType(string constraintType)
         {
             return string.Equals(constraintType, "fullbody", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(constraintType, "effector", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(constraintType, "root2d", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(constraintType, "left-foot", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(constraintType, "right-foot", StringComparison.OrdinalIgnoreCase) ||

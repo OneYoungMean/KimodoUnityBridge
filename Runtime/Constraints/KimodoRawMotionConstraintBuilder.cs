@@ -644,6 +644,14 @@ namespace KimodoBridge
 
         internal static int ResolveLoopAnchorFrameForGeneration(KimodoRawMotionData motion)
         {
+            // Temporary policy: Stage 3 always anchors from the first frame.
+            // Keep the contact-exchange selector below so the later policy can
+            // be restored without losing the validated detection logic.
+            return 0;
+        }
+
+        internal static int ResolveLoopAnchorFrameFromFootContactExchange(KimodoRawMotionData motion)
+        {
             if (motion == null || !motion.HasFootContacts || motion.FrameCount < 2)
             {
                 return 0;
@@ -882,6 +890,62 @@ namespace KimodoBridge
             return constraints.ToString(Formatting.None);
         }
 
+        internal static string OverrideEffectiveConstraintHeadingsJson(
+            string constraintsJson,
+            float headingDegrees)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson) ||
+                float.IsNaN(headingDegrees) || float.IsInfinity(headingDegrees))
+                throw new InvalidOperationException("Constraint heading override is invalid.");
+
+            JArray constraints = JArray.Parse(constraintsJson);
+            JArray protocolHeading = BuildProtocolHeading(Quaternion.Euler(0f, headingDegrees, 0f));
+            foreach (JObject constraint in constraints.Children<JObject>())
+            {
+                string type = constraint.Value<string>("type")?.Trim().ToLowerInvariant();
+                if (type == "root2d" && constraint["frame_indices"] is JArray rootFrames)
+                {
+                    var headings = new JArray();
+                    for (int i = 0; i < rootFrames.Count; i++)
+                        headings.Add(protocolHeading.DeepClone());
+                    constraint["global_root_heading"] = headings;
+                }
+
+                bool hasBodyRoot = type == "fullbody" || type == "effector" ||
+                    type == "end-effector" || type == "left-hand" ||
+                    type == "right-hand" || type == "left-foot" || type == "right-foot";
+                if (!hasBodyRoot ||
+                    constraint["local_joints_rot"] is not JArray localJoints)
+                    continue;
+
+                for (int frame = 0; frame < localJoints.Count; frame++)
+                {
+                    if (localJoints[frame] is not JArray joints ||
+                        joints.Count == 0 || joints[0] is not JArray rootAxisAngle ||
+                        rootAxisAngle.Count < 3)
+                        continue;
+                    Vector3 protocolAxisAngle = new Vector3(
+                        rootAxisAngle[0].Value<float>(),
+                        rootAxisAngle[1].Value<float>(),
+                        rootAxisAngle[2].Value<float>());
+                    Quaternion protocolRotation =
+                        KimodoConstraintRotationUtility.AxisAngleVectorToQuaternion(protocolAxisAngle);
+                    Quaternion unityRotation = new Quaternion(
+                        protocolRotation.x, -protocolRotation.y, -protocolRotation.z, protocolRotation.w);
+                    float currentYaw = KimodoMotionMath.ResolvePlanarYawDegrees(unityRotation);
+                    Quaternion tilt = Quaternion.Inverse(Quaternion.Euler(0f, currentYaw, 0f)) * unityRotation;
+                    Quaternion overriddenUnity = Quaternion.Euler(0f, headingDegrees, 0f) * tilt;
+                    Quaternion overriddenProtocol = new Quaternion(
+                        overriddenUnity.x, -overriddenUnity.y, -overriddenUnity.z, overriddenUnity.w);
+                    Vector3 overriddenAxisAngle =
+                        KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(overriddenProtocol);
+                    joints[0] = new JArray(
+                        overriddenAxisAngle.x, overriddenAxisAngle.y, overriddenAxisAngle.z);
+                }
+            }
+            return constraints.ToString(Formatting.None);
+        }
+
         internal static string BuildHeadingOverrideConstraintJson(
             KimodoRawMotionData motion,
             float headingDegrees,
@@ -924,6 +988,56 @@ namespace KimodoBridge
             }
             return new JArray(BuildRoot2DConstraint(orderedFrames, positions, headings))
                 .ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// Re-samples root values on FullBody and end-effector records from the
+        /// motion produced by Stage 2.  The body pose and effector targets stay
+        /// untouched; only the root channels follow the resolved trajectory.
+        /// </summary>
+        internal static string InterpolateFullBodyRootPositionsJson(
+            string constraintsJson,
+            KimodoRawMotionData motion,
+            int runtimeTrimStartFrame)
+        {
+            if (string.IsNullOrWhiteSpace(constraintsJson) || motion == null || motion.FrameCount <= 0)
+                return constraintsJson ?? string.Empty;
+
+            JArray constraints = JArray.Parse(constraintsJson);
+            foreach (JObject constraint in constraints.Children<JObject>())
+            {
+                string type = constraint.Value<string>("type")?.Trim().ToLowerInvariant();
+                bool isFullBody = string.Equals(type, "fullbody", StringComparison.OrdinalIgnoreCase);
+                bool isEffector = type == "effector" ||
+                                  string.Equals(type, "end-effector", StringComparison.OrdinalIgnoreCase) ||
+                                  type == "left-hand" || type == "right-hand" ||
+                                  type == "left-foot" || type == "right-foot";
+                if ((!isFullBody && !isEffector) ||
+                    constraint["frame_indices"] is not JArray frames ||
+                    constraint["root_positions"] is not JArray roots)
+                {
+                    continue;
+                }
+
+                JArray smoothRoots = constraint["smooth_root_2d"] as JArray;
+                for (int i = 0; i < frames.Count && i < roots.Count; i++)
+                {
+                    if (frames[i].Type != JTokenType.Integer)
+                        continue;
+                    int sourceFrame = Mathf.Clamp(
+                        frames[i].Value<int>() - Mathf.Max(0, runtimeTrimStartFrame),
+                        0,
+                        motion.FrameCount - 1);
+                    if (!motion.TryReadUnityRootPosition(sourceFrame, out Vector3 root))
+                        continue;
+
+                    Vector3 protocolRoot = ToProtocolPosition(root);
+                    roots[i] = new JArray(protocolRoot.x, protocolRoot.y, protocolRoot.z);
+                    if (smoothRoots != null && i < smoothRoots.Count)
+                        smoothRoots[i] = new JArray(protocolRoot.x, protocolRoot.z);
+                }
+            }
+            return constraints.ToString(Formatting.None);
         }
 
         private static void AddRegularFrames(ISet<int> frames, int runtimeFrameCount, int interval)
