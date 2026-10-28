@@ -80,6 +80,10 @@ namespace KimodoBridge
         public bool loopLockRotationY;
         [Tooltip("When looping, copy the first frame's Z root rotation to the loop tail.")]
         public bool loopLockRotationZ = true;
+        [Min(1), Tooltip("Number of model-rate frames retained from the loop anchor window when constructing Stage 3 loop constraints.")]
+        public int loopWindowFrames = 30;
+        [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in the Stage 3 loop window, including its endpoints.")]
+        public int loopWindowSampleCount = 2;
         [Tooltip("Regenerate with the same seed and override the Root2D path using absolute begin/end Unity yaw angles.")]
         public bool overridePathAngle;
         [Tooltip("Absolute Unity yaw for the PathAngle Bezier start tangent.")]
@@ -127,6 +131,10 @@ namespace KimodoBridge
         public int outConstraintWindowFrames = 1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples in the Out window, including its endpoints.")]
         public int outConstraintSampleCount = 1;
+        [Min(1), Tooltip("Number of model-rate overlap frames retained when a long animation is split into multiple generation windows.")]
+        public int longClipWindowFrames = 30;
+        [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in each long-animation overlap window, including its endpoints.")]
+        public int longClipWindowSampleCount = 2;
         [SerializeField, HideInInspector]
         public TrackAsset inConstraintSourceTrack;
         [SerializeField, HideInInspector]

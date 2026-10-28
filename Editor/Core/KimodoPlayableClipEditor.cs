@@ -26,6 +26,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty loopLockRotationXProp;
         private SerializedProperty loopLockRotationYProp;
         private SerializedProperty loopLockRotationZProp;
+        private SerializedProperty loopWindowFramesProp;
+        private SerializedProperty loopWindowSampleCountProp;
         private SerializedProperty overridePathAngleProp;
         private SerializedProperty pathBeginAngleDegreesProp;
         private SerializedProperty pathEndAngleDegreesProp;
@@ -46,6 +48,8 @@ namespace KimodoBridge.Editor
         private SerializedProperty inConstraintSampleCount;
         private SerializedProperty outConstraintWindowFrames;
         private SerializedProperty outConstraintSampleCount;
+        private SerializedProperty longClipWindowFramesProp;
+        private SerializedProperty longClipWindowSampleCountProp;
         private SerializedProperty ardyAutoHistory;
         private SerializedProperty ardyHistoryWeight;
         private SerializedProperty showConstraint;
@@ -139,6 +143,8 @@ namespace KimodoBridge.Editor
             loopLockRotationXProp = serializedObject.FindProperty("loopLockRotationX");
             loopLockRotationYProp = serializedObject.FindProperty("loopLockRotationY");
             loopLockRotationZProp = serializedObject.FindProperty("loopLockRotationZ");
+            loopWindowFramesProp = serializedObject.FindProperty("loopWindowFrames");
+            loopWindowSampleCountProp = serializedObject.FindProperty("loopWindowSampleCount");
             overridePathAngleProp = serializedObject.FindProperty("overridePathAngle");
             pathBeginAngleDegreesProp = serializedObject.FindProperty("pathBeginAngleDegrees");
             pathEndAngleDegreesProp = serializedObject.FindProperty("pathEndAngleDegrees");
@@ -159,6 +165,8 @@ namespace KimodoBridge.Editor
             inConstraintSampleCount = serializedObject.FindProperty("inConstraintSampleCount");
             outConstraintWindowFrames = serializedObject.FindProperty("outConstraintWindowFrames");
             outConstraintSampleCount = serializedObject.FindProperty("outConstraintSampleCount");
+            longClipWindowFramesProp = serializedObject.FindProperty("longClipWindowFrames");
+            longClipWindowSampleCountProp = serializedObject.FindProperty("longClipWindowSampleCount");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
             showConstraint = serializedObject.FindProperty("showConstraint");
@@ -511,6 +519,18 @@ namespace KimodoBridge.Editor
                 if (!generateLoopProp.hasMultipleDifferentValues && generateLoopProp.boolValue)
                 {
                     EditorGUI.indentLevel++;
+                    if (loopWindowFramesProp != null)
+                    {
+                        EditorGUILayout.PropertyField(
+                            loopWindowFramesProp,
+                            new GUIContent("Loop Window Frames", "Number of model-rate frames retained from the loop anchor window for Stage 3."));
+                    }
+                    if (loopWindowSampleCountProp != null)
+                    {
+                        EditorGUILayout.PropertyField(
+                            loopWindowSampleCountProp,
+                            new GUIContent("Loop Window Samples", "Evenly spaced FullBody samples retained in the Stage 3 loop window, including endpoints."));
+                    }
                     DrawLoopAxisRow("Lock Pos", loopLockPositionXProp, loopLockPositionYProp, loopLockPositionZProp);
                     DrawLoopAxisRow("Lock Rot", loopLockRotationXProp, loopLockRotationYProp, loopLockRotationZProp);
                     EditorGUI.indentLevel--;
@@ -875,6 +895,26 @@ namespace KimodoBridge.Editor
 
             EditorGUI.indentLevel++;
             EditorGUILayout.LabelField("Constraint Options", EditorStyles.boldLabel);
+
+            if (longClipWindowFramesProp != null || longClipWindowSampleCountProp != null)
+            {
+                EditorGUILayout.LabelField("Long Clip Window", EditorStyles.miniBoldLabel);
+                if (longClipWindowFramesProp != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        longClipWindowFramesProp,
+                        new GUIContent("Window Frames", "Overlap range retained when a long animation is split into multiple generation windows. Default: 30 model-rate frames."));
+                }
+                if (longClipWindowSampleCountProp != null)
+                {
+                    EditorGUILayout.PropertyField(
+                        longClipWindowSampleCountProp,
+                        new GUIContent("Sample Count", "Number of evenly spaced FullBody samples retained in each long-animation overlap. Default: 2."));
+                }
+                EditorGUILayout.HelpBox(
+                    "The overlap is shared by adjacent generation windows. Window frames are normalized to an even value for symmetric padding; sample count includes both overlap endpoints.",
+                    MessageType.Info);
+            }
 
             if (autoBeginAnchor != null)
             {

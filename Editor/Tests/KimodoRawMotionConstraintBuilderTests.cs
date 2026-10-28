@@ -51,10 +51,10 @@ namespace KimodoBridge.Editor.Tests
                 }
             }
             var footContacts = new byte[frameCount * 4];
-            footContacts[0] = 1; // Left heel support.
-            footContacts[4 + 1] = 1; // Left toe support.
-            footContacts[8 + 2] = 1; // Right heel support: left-to-right switch.
-            footContacts[12 + 2] = 1; // Right heel support.
+            footContacts[0] = 1; // Left foot fully planted before lift.
+            footContacts[1] = 1;
+            footContacts[12 + 2] = 1; // Right foot fully planted after left lifts.
+            footContacts[12 + 3] = 1;
 
             var motion = new KimodoRawMotionData(
                 frameCount,
@@ -105,6 +105,249 @@ namespace KimodoBridge.Editor.Tests
             JArray root2D = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildRoot2DConstraintsJson(
                 motion, model, new[] { 0, 2 }));
             Assert.That((float)root2D[0]["smooth_root_2d"][1][0], Is.EqualTo(-6f));
+        }
+
+        [Test]
+        public void BuildLoopConstraintJson_FallsBackToFrameZeroWithoutCompleteContactExchange()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[] { new Vector3(0f, 1f, 2f), new Vector3(0f, 1f, 3f) };
+            var rotations = new List<float>(2 * names.Length * 4);
+            for (int frame = 0; frame < 2; frame++)
+            {
+                for (int joint = 0; joint < names.Length; joint++)
+                {
+                    rotations.Add(1f);
+                    rotations.Add(0f);
+                    rotations.Add(0f);
+                    rotations.Add(0f);
+                }
+            }
+            var motion = new KimodoRawMotionData(
+                2,
+                names.Length,
+                20f,
+                names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model),
+                roots,
+                rotations,
+                rootJointIndex: 0,
+                footContacts: new byte[8]);
+
+            JArray constraints = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopConstraintJson(
+                motion,
+                model,
+                runtimeTrimStartFrame: 0,
+                targetFrameCount: 2,
+                runtimeFrameCount: 4,
+                frameRate: 20f));
+
+            Assert.That((float)constraints[1]["root_positions"][0][2], Is.EqualTo(2f).Within(0.001f));
+        }
+
+        [Test]
+        public void ResolveLoopAnchorFrame_IgnoresLiftAlreadyPresentAtFrameZero()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            const int frameCount = 3;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[] { Vector3.zero, Vector3.one, Vector3.one * 2f };
+            var rotations = new List<float>(frameCount * names.Length * 4);
+            for (int i = 0; i < frameCount * names.Length; i++)
+            {
+                rotations.Add(1f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+            }
+            var footContacts = new byte[frameCount * 4];
+            footContacts[2] = 1; // Right heel contact; the left foot starts lifted.
+            footContacts[4 + 2] = 1;
+            footContacts[8 + 2] = 1;
+            footContacts[8 + 3] = 1; // Right foot lands later, without a left lift event.
+            var motion = new KimodoRawMotionData(
+                frameCount,
+                names.Length,
+                20f,
+                names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model),
+                roots,
+                rotations,
+                rootJointIndex: 0,
+                footContacts: footContacts);
+
+            Assert.That(
+                KimodoRawMotionConstraintBuilder.ResolveLoopAnchorFrameForGeneration(motion),
+                Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BuildLoopWindowConstraintJson_CopiesWindowSamplesToDisjointTailFrames()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            const int frameCount = 4;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[]
+            {
+                new Vector3(0f, 1f, 0f),
+                new Vector3(1f, 1f, 1f),
+                new Vector3(2f, 1f, 2f),
+                new Vector3(3f, 1f, 3f)
+            };
+            var rotations = new List<float>(frameCount * names.Length * 4);
+            for (int i = 0; i < frameCount * names.Length; i++)
+            {
+                rotations.Add(1f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+            }
+            var motion = new KimodoRawMotionData(
+                frameCount,
+                names.Length,
+                20f,
+                names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model),
+                roots,
+                rotations,
+                rootJointIndex: 0);
+
+            JArray constraints = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                motion,
+                model,
+                sourceStartFrame: 1,
+                windowFrameCount: 3,
+                sampleCount: 2,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 4,
+                runtimeFrameCount: 7,
+                frameRate: 20f));
+
+            Assert.That(constraints, Has.Count.EqualTo(1));
+            JArray frameIndices = (JArray)constraints[0]["frame_indices"];
+            CollectionAssert.AreEqual(new[] { 0, 2, 4, 6 }, frameIndices.ToObject<int[]>());
+            JArray rootsInConstraint = (JArray)constraints[0]["root_positions"];
+            Assert.That(JToken.DeepEquals(rootsInConstraint[0], rootsInConstraint[2]), Is.True);
+            Assert.That(JToken.DeepEquals(rootsInConstraint[1], rootsInConstraint[3]), Is.True);
+
+            JArray locked = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                motion,
+                model,
+                sourceStartFrame: 1,
+                windowFrameCount: 3,
+                sampleCount: 2,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 4,
+                runtimeFrameCount: 7,
+                frameRate: 20f,
+                lockPositionX: true,
+                lockPositionY: true));
+            Assert.That((float)locked[0]["root_positions"][3][0], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)locked[0]["root_positions"][3][1], Is.EqualTo(1f).Within(0.001f));
+            Assert.That((float)locked[0]["root_positions"][3][2], Is.EqualTo(3f).Within(0.001f));
+            Assert.Throws<System.InvalidOperationException>(() =>
+                KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                    motion,
+                    model,
+                    sourceStartFrame: 1,
+                    windowFrameCount: 3,
+                    sampleCount: 2,
+                    sourceOutputStartFrame: 0,
+                    tailStartFrame: 2,
+                    runtimeFrameCount: 7,
+                    frameRate: 20f));
+        }
+
+        [Test]
+        public void ApplyLoopRoot2DHeadingOverridesJson_PreservesPositionsAndSamplesMissingEndpoint()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            const int frameCount = 4;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[]
+            {
+                new Vector3(0f, 1f, 0f),
+                new Vector3(1f, 1f, 1f),
+                new Vector3(2f, 1f, 2f),
+                new Vector3(3f, 1f, 3f)
+            };
+            var rotations = new List<float>(frameCount * names.Length * 4);
+            for (int frame = 0; frame < frameCount; frame++)
+            {
+                for (int joint = 0; joint < names.Length; joint++)
+                {
+                    Quaternion rotation = joint == 0 ? Quaternion.Euler(0f, frame * 20f, 0f) : Quaternion.identity;
+                    rotations.Add(rotation.w);
+                    rotations.Add(rotation.x);
+                    rotations.Add(-rotation.y);
+                    rotations.Add(-rotation.z);
+                }
+            }
+            var motion = new KimodoRawMotionData(
+                frameCount,
+                names.Length,
+                20f,
+                names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model),
+                roots,
+                rotations,
+                rootJointIndex: 0);
+            var existingConstraint = new JObject
+            {
+                ["type"] = "root2d",
+                ["frame_indices"] = new JArray(0),
+                ["smooth_root_2d"] = new JArray { new JArray(9f, 10f) },
+                ["global_root_heading"] = new JArray { new JArray(0f, 1f) }
+            };
+            string existing = new JArray { existingConstraint }.ToString();
+
+            JArray result = JArray.Parse(KimodoRawMotionConstraintBuilder.ApplyLoopRoot2DHeadingOverridesJson(
+                motion,
+                model,
+                existing,
+                sourceStartFrame: 1,
+                windowFrameCount: 3,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 4,
+                runtimeFrameCount: 7));
+            JArray sampledStart = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildRoot2DConstraintsJson(
+                motion, model, new[] { 1 }));
+            JArray sampledTail = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildRoot2DConstraintsJson(
+                motion, model, new[] { 3 }));
+
+            Assert.That(result, Has.Count.EqualTo(2));
+            Assert.That((float)result[0]["smooth_root_2d"][0][0], Is.EqualTo(9f).Within(0.001f));
+            Assert.That((float)result[0]["smooth_root_2d"][0][1], Is.EqualTo(10f).Within(0.001f));
+            Assert.That(
+                JToken.DeepEquals(result[0]["global_root_heading"][0], sampledStart[0]["global_root_heading"][0]),
+                Is.True);
+            Assert.That((int)result[1]["frame_indices"][0], Is.EqualTo(6));
+            Assert.That(
+                JToken.DeepEquals(result[1]["smooth_root_2d"][0], sampledTail[0]["smooth_root_2d"][0]),
+                Is.True);
+            Assert.That(
+                JToken.DeepEquals(result[1]["global_root_heading"][0], sampledTail[0]["global_root_heading"][0]),
+                Is.True);
+
+            JArray locked = JArray.Parse(KimodoRawMotionConstraintBuilder.ApplyLoopRoot2DHeadingOverridesJson(
+                motion,
+                model,
+                string.Empty,
+                sourceStartFrame: 1,
+                windowFrameCount: 3,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 4,
+                runtimeFrameCount: 7,
+                lockPositionX: true,
+                lockPositionY: true,
+                lockRotationY: true));
+            Assert.That((int)locked[0]["frame_indices"][1], Is.EqualTo(6));
+            Assert.That((float)locked[0]["smooth_root_2d"][1][0], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)locked[0]["smooth_root_2d"][1][1], Is.EqualTo(3f).Within(0.001f));
+            Assert.That(
+                JToken.DeepEquals(locked[0]["global_root_heading"][0], locked[0]["global_root_heading"][1]),
+                Is.True);
         }
 
         [Test]
@@ -198,8 +441,8 @@ namespace KimodoBridge.Editor.Tests
             float radius = 4f / (Mathf.PI * 0.5f);
             Assert.That((float)constraints[0]["smooth_root_2d"][4][0], Is.EqualTo(-radius).Within(0.001f));
             Assert.That((float)constraints[0]["smooth_root_2d"][4][1], Is.EqualTo(radius).Within(0.001f));
-            Assert.That((float)constraints[0]["global_root_heading"][4][0], Is.EqualTo(0f).Within(0.001f));
-            Assert.That((float)constraints[0]["global_root_heading"][4][1], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][4][0], Is.EqualTo(1f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][4][1], Is.EqualTo(0f).Within(0.001f));
 
             JArray shaped = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildPathAngleConstraintJson(
                 motion,
@@ -212,10 +455,13 @@ namespace KimodoBridge.Editor.Tests
                 frameRate: frameRate,
                 existingConstraintsJson: existing,
                 regularFrameInterval: 3));
-            Assert.That((float)shaped[0]["global_root_heading"][1][0], Is.EqualTo(0f).Within(0.001f));
-            Assert.That((float)shaped[0]["global_root_heading"][1][1], Is.EqualTo(-1f).Within(0.001f));
-            Assert.That((float)shaped[0]["global_root_heading"][4][0], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)shaped[0]["global_root_heading"][1][0], Is.EqualTo(1f).Within(0.001f));
+            Assert.That((float)shaped[0]["global_root_heading"][1][1], Is.EqualTo(0f).Within(0.001f));
+            Assert.That((float)shaped[0]["global_root_heading"][4][0], Is.EqualTo(1f).Within(0.001f));
             Assert.That((float)shaped[0]["global_root_heading"][4][1], Is.EqualTo(0f).Within(0.001f));
+            Assert.That(
+                JToken.DeepEquals(shaped[0]["global_root_heading"], constraints[0]["global_root_heading"]),
+                Is.True);
             Assert.That(
                 JToken.DeepEquals(shaped[0]["smooth_root_2d"], constraints[0]["smooth_root_2d"]),
                 Is.False);
@@ -237,6 +483,63 @@ namespace KimodoBridge.Editor.Tests
             float fixedRadius = 10f / (Mathf.PI * 0.5f);
             Assert.That((float)fixedDistance[0]["smooth_root_2d"][4][0], Is.EqualTo(-fixedRadius).Within(0.001f));
             Assert.That((float)fixedDistance[0]["smooth_root_2d"][4][1], Is.EqualTo(fixedRadius).Within(0.001f));
+        }
+
+        [Test]
+        public void BuildPathAngleConstraintJson_InterpolatesStageOneRootHeading()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[] { Vector3.zero, Vector3.forward, Vector3.forward * 2f };
+            var rotations = new List<float>(3 * names.Length * 4);
+            for (int frame = 0; frame < 3; frame++)
+            {
+                for (int joint = 0; joint < names.Length; joint++)
+                {
+                    Quaternion rotation = joint == 0 ? Quaternion.Euler(0f, frame * 90f, 0f) : Quaternion.identity;
+                    rotations.Add(rotation.w);
+                    rotations.Add(rotation.x);
+                    rotations.Add(-rotation.y);
+                    rotations.Add(-rotation.z);
+                }
+            }
+            var motion = new KimodoRawMotionData(
+                3, names.Length, 20f, names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model), roots, rotations, rootJointIndex: 0);
+
+            JArray constraints = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildPathAngleConstraintJson(
+                motion, model, 0f, 90f, 0, 3, 3, 20f, "[]", regularFrameInterval: 1));
+
+            Assert.That((float)constraints[0]["global_root_heading"][0][0], Is.EqualTo(1f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][1][0], Is.EqualTo(0f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][1][1], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][2][0], Is.EqualTo(-1f).Within(0.001f));
+            Assert.That((float)constraints[0]["global_root_heading"][2][1], Is.EqualTo(0f).Within(0.001f));
+        }
+
+        [Test]
+        public void BuildPathAngleConstraintJson_UsesRelativeOffsetAsSplineOrigin()
+        {
+            const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
+            string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+            var roots = new[] { Vector3.zero, Vector3.forward };
+            var rotations = new List<float>(2 * names.Length * 4);
+            for (int i = 0; i < 2 * names.Length; i++)
+            {
+                rotations.Add(1f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+                rotations.Add(0f);
+            }
+            var motion = new KimodoRawMotionData(
+                2, names.Length, 20f, names,
+                KimodoRigProfileDatabase.GetParentIndicesForModel(model), roots, rotations, rootJointIndex: 0);
+
+            JArray constraints = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildPathAngleConstraintJson(
+                motion, model, 0f, 0f, 0, 2, 2, 20f, "[]", rootOriginOverride: new Vector3(4f, 2f, 6f)));
+
+            Assert.That((float)constraints[0]["smooth_root_2d"][0][0], Is.EqualTo(-4f).Within(0.001f));
+            Assert.That((float)constraints[0]["smooth_root_2d"][0][1], Is.EqualTo(6f).Within(0.001f));
         }
 
         [Test]

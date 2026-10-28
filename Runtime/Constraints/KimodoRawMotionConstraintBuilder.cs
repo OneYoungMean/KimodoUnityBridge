@@ -237,7 +237,7 @@ namespace KimodoBridge
                 throw new InvalidOperationException("Loop constraint frame range is invalid.");
             }
 
-            int anchorSourceFrame = ResolveLoopAnchorFrame(motion);
+            int anchorSourceFrame = ResolveLoopAnchorFrameForGeneration(motion);
             if (!TryBuildFullBodyFrame(
                     motion, modelName, anchorSourceFrame,
                     out KimodoConstraintInternalData first, out string anchorError))
@@ -323,6 +323,281 @@ namespace KimodoBridge
             return constraints.ToString(Formatting.None);
         }
 
+        internal static string BuildLoopWindowConstraintJson(
+            KimodoRawMotionData motion,
+            string modelName,
+            int sourceStartFrame,
+            int windowFrameCount,
+            int sampleCount,
+            int sourceOutputStartFrame,
+            int tailStartFrame,
+            int runtimeFrameCount,
+            float frameRate,
+            bool lockPositionX = false,
+            bool lockPositionY = false,
+            bool lockPositionZ = false,
+            bool lockRotationX = false,
+            bool lockRotationY = false,
+            bool lockRotationZ = false)
+        {
+            if (motion == null || motion.FrameCount <= 0 || motion.FrameRate <= 0f ||
+                sourceStartFrame < 0 || sourceStartFrame >= motion.FrameCount ||
+                windowFrameCount <= 0 || sampleCount <= 0 || sampleCount > windowFrameCount ||
+                sourceOutputStartFrame < 0 || tailStartFrame < 0 || runtimeFrameCount <= 0 || frameRate <= 0f ||
+                tailStartFrame < sourceOutputStartFrame + windowFrameCount ||
+                sourceOutputStartFrame + windowFrameCount > runtimeFrameCount ||
+                tailStartFrame + windowFrameCount > runtimeFrameCount)
+            {
+                throw new InvalidOperationException("Loop window constraint frame range is invalid.");
+            }
+            if (sourceStartFrame + windowFrameCount > motion.FrameCount)
+            {
+                throw new InvalidOperationException("Loop window exceeds the source motion range.");
+            }
+
+            var sourceSamples = new List<KimodoConstraintInternalData>(sampleCount);
+            var tailSamples = new List<KimodoConstraintInternalData>(sampleCount);
+            for (int i = 0; i < sampleCount; i++)
+            {
+                int offset = sampleCount == 1
+                    ? 0
+                    : Mathf.RoundToInt(i * (windowFrameCount - 1f) / (sampleCount - 1f));
+                int sourceFrame = sourceStartFrame + offset;
+                if (!TryBuildFullBodyFrame(
+                        motion,
+                        modelName,
+                        sourceFrame,
+                        out KimodoConstraintInternalData source,
+                        out string sourceError))
+                {
+                    throw new InvalidOperationException(
+                        $"Loop window source sampling failed at frame {sourceFrame}: {sourceError}");
+                }
+                source.sampleTime = (sourceOutputStartFrame + offset) / (double)frameRate;
+                sourceSamples.Add(source);
+
+                KimodoConstraintInternalData tail = source.Clone();
+                tail.sampleTime = (tailStartFrame + offset) / (double)frameRate;
+                tailSamples.Add(tail);
+            }
+            ApplyLoopAxisLocks(
+                sourceSamples[0],
+                tailSamples[tailSamples.Count - 1],
+                lockPositionX,
+                lockPositionY,
+                lockPositionZ,
+                lockRotationX,
+                lockRotationY,
+                lockRotationZ);
+            var samples = new List<KimodoConstraintInternalData>(sampleCount * 2);
+            samples.AddRange(sourceSamples);
+            samples.AddRange(tailSamples);
+
+            return BuildFullBodyConstraints(
+                samples,
+                frameRate,
+                runtimeFrameCount / (double)frameRate,
+                includeSmoothRoot: true).ToString(Formatting.None);
+        }
+
+        internal static string ApplyLoopRoot2DHeadingOverridesJson(
+            KimodoRawMotionData motion,
+            string modelName,
+            string constraintsJson,
+            int sourceStartFrame,
+            int windowFrameCount,
+            int sourceOutputStartFrame,
+            int tailStartFrame,
+            int runtimeFrameCount,
+            bool lockPositionX = false,
+            bool lockPositionY = false,
+            bool lockPositionZ = false,
+            bool lockRotationX = false,
+            bool lockRotationY = false,
+            bool lockRotationZ = false)
+        {
+            int sourceTailFrame = sourceStartFrame + windowFrameCount - 1;
+            int tailOutputFrame = tailStartFrame + windowFrameCount - 1;
+            if (motion == null || motion.FrameCount <= 0 || motion.FrameRate <= 0f ||
+                sourceStartFrame < 0 || windowFrameCount <= 0 || sourceTailFrame >= motion.FrameCount ||
+                sourceOutputStartFrame < 0 || tailStartFrame < 0 ||
+                sourceOutputStartFrame >= runtimeFrameCount || tailOutputFrame >= runtimeFrameCount)
+            {
+                throw new InvalidOperationException("Loop Root2D heading frame range is invalid.");
+            }
+
+            if (!TryBuildFullBodyFrame(
+                    motion,
+                    modelName,
+                    sourceStartFrame,
+                    out KimodoConstraintInternalData sourceStart,
+                    out string startError))
+            {
+                throw new InvalidOperationException($"Loop start heading sampling failed: {startError}");
+            }
+            if (!TryBuildFullBodyFrame(
+                    motion,
+                    modelName,
+                    sourceTailFrame,
+                    out KimodoConstraintInternalData sourceTail,
+                    out string tailError))
+            {
+                throw new InvalidOperationException($"Loop tail heading sampling failed: {tailError}");
+            }
+            ApplyLoopAxisLocks(
+                sourceStart,
+                sourceTail,
+                lockPositionX,
+                lockPositionY,
+                lockPositionZ,
+                lockRotationX,
+                lockRotationY,
+                lockRotationZ);
+
+            int[] endpointFrames = { sourceOutputStartFrame, tailOutputFrame };
+            KimodoConstraintInternalData[] endpointSamples = { sourceStart, sourceTail };
+            Quaternion[] endpointHeadings =
+            {
+                ResolveRootRotation(sourceStart),
+                ResolveRootRotation(sourceTail)
+            };
+            var constraints = string.IsNullOrWhiteSpace(constraintsJson)
+                ? new JArray()
+                : JArray.Parse(constraintsJson);
+            var missingFrames = new List<int>(2);
+            var missingPositions = new List<Vector3>(2);
+            var missingHeadings = new List<Quaternion>(2);
+
+            for (int endpointIndex = 0; endpointIndex < endpointFrames.Length; endpointIndex++)
+            {
+                int endpointFrame = endpointFrames[endpointIndex];
+                JArray protocolHeading = BuildProtocolHeading(endpointHeadings[endpointIndex]);
+                bool found = false;
+                foreach (JObject constraint in constraints.Children<JObject>())
+                {
+                    if (!string.Equals(constraint.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase) ||
+                        constraint["frame_indices"] is not JArray frameIndices)
+                    {
+                        continue;
+                    }
+
+                    JArray headings = constraint["global_root_heading"] as JArray;
+                    JArray roots = constraint["smooth_root_2d"] as JArray;
+                    if (headings == null || headings.Count != frameIndices.Count)
+                    {
+                        headings = BuildSampledRoot2DHeadings(
+                            motion,
+                            modelName,
+                            frameIndices,
+                            sourceOutputStartFrame,
+                            tailStartFrame,
+                            sourceStartFrame);
+                    }
+                    for (int i = 0; i < frameIndices.Count; i++)
+                    {
+                        if (frameIndices[i].Type != JTokenType.Integer ||
+                            frameIndices[i].Value<int>() != endpointFrame)
+                        {
+                            continue;
+                        }
+                        headings[i] = protocolHeading.DeepClone();
+                        if (endpointIndex == 1 && roots != null && i < roots.Count &&
+                            (lockPositionX || lockPositionY || lockPositionZ))
+                        {
+                            Vector3 protocolRoot = ToProtocolPosition(endpointSamples[endpointIndex].rootPosition);
+                            roots[i] = new JArray(protocolRoot.x, protocolRoot.z);
+                        }
+                        found = true;
+                    }
+                    constraint["global_root_heading"] = headings;
+                }
+
+                if (!found)
+                {
+                    missingFrames.Add(endpointFrame);
+                    missingPositions.Add(endpointSamples[endpointIndex].rootPosition);
+                    missingHeadings.Add(endpointHeadings[endpointIndex]);
+                }
+            }
+
+            if (missingFrames.Count > 0)
+            {
+                constraints.Add(BuildRoot2DConstraint(missingFrames, missingPositions, missingHeadings));
+            }
+            return constraints.ToString(Formatting.None);
+        }
+
+        private static void ApplyLoopAxisLocks(
+            KimodoConstraintInternalData start,
+            KimodoConstraintInternalData tail,
+            bool lockPositionX,
+            bool lockPositionY,
+            bool lockPositionZ,
+            bool lockRotationX,
+            bool lockRotationY,
+            bool lockRotationZ)
+        {
+            if (start == null || tail == null) return;
+            if (lockPositionX) tail.rootPosition.x = start.rootPosition.x;
+            if (lockPositionY) tail.rootPosition.y = start.rootPosition.y;
+            if (lockPositionZ) tail.rootPosition.z = start.rootPosition.z;
+            if ((!lockRotationX && !lockRotationY && !lockRotationZ) ||
+                tail.localJointAxisAngles == null || tail.localJointAxisAngles.Count == 0 ||
+                start.localJointAxisAngles == null || start.localJointAxisAngles.Count == 0)
+            {
+                return;
+            }
+
+            Quaternion startRotation = ResolveRootRotation(start);
+            Quaternion tailRotation = ResolveRootRotation(tail);
+            float startYaw = KimodoMotionMath.ResolvePlanarYawDegrees(startRotation);
+            float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(tailRotation);
+            Quaternion startTilt = Quaternion.Inverse(Quaternion.Euler(0f, startYaw, 0f)) * startRotation;
+            Quaternion tailTilt = Quaternion.Inverse(Quaternion.Euler(0f, tailYaw, 0f)) * tailRotation;
+            Vector3 startTiltEuler = ToSignedEuler(startTilt);
+            Vector3 tailTiltEuler = ToSignedEuler(tailTilt);
+            Quaternion terminalTilt = Quaternion.Euler(
+                lockRotationX ? startTiltEuler.x : tailTiltEuler.x,
+                0f,
+                lockRotationZ ? startTiltEuler.z : tailTiltEuler.z);
+            Quaternion terminalYaw = Quaternion.Euler(0f, lockRotationY ? startYaw : tailYaw, 0f);
+            tail.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
+                terminalYaw * terminalTilt);
+        }
+
+        private static JArray BuildSampledRoot2DHeadings(
+            KimodoRawMotionData motion,
+            string modelName,
+            JArray outputFrames,
+            int sourceOutputStartFrame,
+            int tailStartFrame,
+            int sourceStartFrame)
+        {
+            var headings = new JArray();
+            for (int i = 0; i < outputFrames.Count; i++)
+            {
+                int outputFrame = outputFrames[i].Type == JTokenType.Integer
+                    ? outputFrames[i].Value<int>()
+                    : sourceOutputStartFrame;
+                int sourceFrame = outputFrame >= tailStartFrame
+                    ? sourceStartFrame + outputFrame - tailStartFrame
+                    : outputFrame - sourceOutputStartFrame;
+                sourceFrame = Mathf.Clamp(sourceFrame, 0, motion.FrameCount - 1);
+                if (!TryBuildFullBodyFrame(
+                        motion,
+                        modelName,
+                        sourceFrame,
+                        out KimodoConstraintInternalData sample,
+                        out string error))
+                {
+                    throw new InvalidOperationException(
+                        $"Loop Root2D heading sampling failed at source frame {sourceFrame}: {error}");
+                }
+                headings.Add(BuildProtocolHeading(ResolveRootRotation(sample)));
+            }
+            return headings;
+        }
+
         private static bool TryEstimatePlanarVelocity(
             KimodoRawMotionData motion,
             out Vector3 velocity,
@@ -367,43 +642,116 @@ namespace KimodoBridge
             return true;
         }
 
-        private static int ResolveLoopAnchorFrame(KimodoRawMotionData motion)
+        internal static int ResolveLoopAnchorFrameForGeneration(KimodoRawMotionData motion)
         {
-            if (motion == null || !motion.HasFootContacts || motion.FrameCount < 2 ||
-                !TryReadFootSupport(motion, 0, out bool previousLeft, out bool previousRight))
+            if (motion == null || !motion.HasFootContacts || motion.FrameCount < 2)
             {
                 return 0;
             }
 
-            for (int frame = 1; frame < motion.FrameCount; frame++)
+            for (int liftFrame = 1; liftFrame < motion.FrameCount - 1; liftFrame++)
             {
-                if (!TryReadFootSupport(motion, frame, out bool left, out bool right))
+                if (!TryReadFootState(
+                        motion,
+                        liftFrame,
+                        out bool leftFullyLifted,
+                        out _,
+                        out bool rightFullyLifted,
+                        out _))
                 {
                     return 0;
                 }
 
-                bool leftToRight = previousLeft && !previousRight && !left && right;
-                bool rightToLeft = previousRight && !previousLeft && left && !right;
-                if (leftToRight || rightToLeft)
+                if (!TryReadFootState(
+                        motion,
+                        liftFrame - 1,
+                        out bool previousLeftFullyLifted,
+                        out _,
+                        out bool previousRightFullyLifted,
+                        out _))
                 {
-                    return frame;
+                    return 0;
                 }
 
-                previousLeft = left;
-                previousRight = right;
+                bool leftLiftedThisFrame = leftFullyLifted && !previousLeftFullyLifted;
+                bool rightLiftedThisFrame = rightFullyLifted && !previousRightFullyLifted;
+                if (leftLiftedThisFrame && TryFindFollowingLandingFrame(
+                        motion,
+                        liftFrame,
+                        isLeftFoot: false,
+                        out int rightLandingFrame))
+                {
+                    return liftFrame + (rightLandingFrame - liftFrame) / 2;
+                }
+
+                if (rightLiftedThisFrame && TryFindFollowingLandingFrame(
+                        motion,
+                        liftFrame,
+                        isLeftFoot: true,
+                        out int leftLandingFrame))
+                {
+                    return liftFrame + (leftLandingFrame - liftFrame) / 2;
+                }
             }
 
             return 0;
         }
 
-        private static bool TryReadFootSupport(
+        private static bool TryFindFollowingLandingFrame(
+            KimodoRawMotionData motion,
+            int liftFrame,
+            bool isLeftFoot,
+            out int landingFrame)
+        {
+            landingFrame = -1;
+            if (!TryReadFootState(
+                    motion,
+                    liftFrame,
+                    out _,
+                    out bool initialLeftFullyLanded,
+                    out _,
+                    out bool initialRightFullyLanded))
+            {
+                return false;
+            }
+            bool wasFullyLanded = isLeftFoot
+                ? initialLeftFullyLanded
+                : initialRightFullyLanded;
+
+            for (int frame = liftFrame + 1; frame < motion.FrameCount; frame++)
+            {
+                if (!TryReadFootState(
+                        motion,
+                        frame,
+                        out _,
+                        out bool leftFullyLanded,
+                        out _,
+                        out bool rightFullyLanded))
+                {
+                    return false;
+                }
+
+                bool oppositeFootLanded = isLeftFoot ? leftFullyLanded : rightFullyLanded;
+                if (oppositeFootLanded && !wasFullyLanded)
+                {
+                    landingFrame = frame;
+                    return true;
+                }
+                wasFullyLanded = oppositeFootLanded;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadFootState(
             KimodoRawMotionData motion,
             int frame,
-            out bool left,
-            out bool right)
+            out bool leftFullyLifted,
+            out bool leftFullyLanded,
+            out bool rightFullyLifted,
+            out bool rightFullyLanded)
         {
-            left = false;
-            right = false;
+            leftFullyLifted = leftFullyLanded = rightFullyLifted = rightFullyLanded = false;
             if (motion == null || !motion.HasFootContacts || frame < 0 || frame >= motion.FrameCount ||
                 !motion.TryReadFootContact(frame, 0, out float leftHeel) ||
                 !motion.TryReadFootContact(frame, 1, out float leftToe) ||
@@ -413,8 +761,10 @@ namespace KimodoBridge
                 return false;
             }
 
-            left = leftHeel > 0.5f || leftToe > 0.5f;
-            right = rightHeel > 0.5f || rightToe > 0.5f;
+            leftFullyLifted = leftHeel == 0f && leftToe == 0f;
+            leftFullyLanded = leftHeel == 1f && leftToe == 1f;
+            rightFullyLifted = rightHeel == 0f && rightToe == 0f;
+            rightFullyLanded = rightHeel == 1f && rightToe == 1f;
             return true;
         }
 
@@ -434,7 +784,8 @@ namespace KimodoBridge
             float frameRate,
             string existingConstraintsJson,
             int regularFrameInterval = 0,
-            float distanceOverride = -1f)
+            float distanceOverride = -1f,
+            Vector3? rootOriginOverride = null)
         {
             if (motion == null || motion.FrameCount != targetFrameCount ||
                 runtimeTrimStartFrame < 0 || targetFrameCount <= 1 || runtimeFrameCount <= 0 || frameRate <= 0f ||
@@ -474,6 +825,7 @@ namespace KimodoBridge
             CollectRootChannelState(existingConstraintsJson, runtimeFrameCount, frames, null);
 
             Quaternion startHeading = Quaternion.Euler(0f, pathBeginAngleDegrees, 0f);
+            Vector3 pathOrigin = rootOriginOverride ?? first.rootPosition;
             float totalAngleRadians = Mathf.DeltaAngle(
                 pathBeginAngleDegrees,
                 pathEndAngleDegrees) * Mathf.Deg2Rad;
@@ -486,10 +838,10 @@ namespace KimodoBridge
                 float t = (orderedFrames[i] - runtimeTrimStartFrame) / (float)(targetFrameCount - 1);
                 EvaluatePathAngleBezier(pathLength, totalAngleRadians, t, out Vector2 localPosition);
                 Vector3 profileOffset = startHeading * new Vector3(localPosition.x, 0f, localPosition.y);
-                Vector3 profilePosition = first.rootPosition + profileOffset;
-                profilePosition.y = first.rootPosition.y;
+                Vector3 profilePosition = pathOrigin + profileOffset;
+                profilePosition.y = pathOrigin.y;
                 positions.Add(profilePosition);
-                headings.Add(startHeading * Quaternion.Euler(0f, totalAngleRadians * Mathf.Rad2Deg * t, 0f));
+                headings.Add(EvaluateRawRootRotation(motion, modelName, t));
             }
 
             return new JArray(BuildRoot2DConstraint(orderedFrames, positions, headings))
@@ -641,6 +993,43 @@ namespace KimodoBridge
                 throw new InvalidOperationException("Heading override could not sample the baseline Root position.");
             }
             return Vector3.LerpUnclamped(first, second, frame - firstFrame);
+        }
+
+        private static Quaternion EvaluateRawRootRotation(
+            KimodoRawMotionData motion,
+            string modelName,
+            float t)
+        {
+            float frame = Mathf.Clamp01(t) * (motion.FrameCount - 1);
+            int firstFrame = Mathf.Clamp(Mathf.FloorToInt(frame), 0, motion.FrameCount - 1);
+            int secondFrame = Mathf.Min(firstFrame + 1, motion.FrameCount - 1);
+            if (!TryBuildFullBodyFrame(
+                    motion,
+                    modelName,
+                    firstFrame,
+                    out KimodoConstraintInternalData first,
+                    out string firstError))
+            {
+                throw new InvalidOperationException(
+                    $"Path angle pass could not sample the baseline root heading at frame {firstFrame}: {firstError}");
+            }
+            if (firstFrame == secondFrame) return ResolveRootRotation(first);
+            if (!TryBuildFullBodyFrame(
+                    motion,
+                    modelName,
+                    secondFrame,
+                    out KimodoConstraintInternalData second,
+                    out string secondError))
+            {
+                throw new InvalidOperationException(
+                    $"Path angle pass could not sample the baseline root heading at frame {secondFrame}: {secondError}");
+            }
+            float blend = frame - firstFrame;
+            Vector2 heading = KimodoMotionMath.InterpolatePlanarHeading(
+                KimodoMotionMath.ToPlanarHeadingVector(ResolveRootRotation(first)),
+                KimodoMotionMath.ToPlanarHeadingVector(ResolveRootRotation(second)),
+                blend);
+            return Quaternion.LookRotation(new Vector3(heading.x, 0f, heading.y), Vector3.up);
         }
 
         private static void EvaluatePathAngleBezier(

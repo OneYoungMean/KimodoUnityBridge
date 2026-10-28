@@ -239,6 +239,30 @@ namespace KimodoBridge
             return ResolveGenerationDurationSeconds();
         }
 
+        /// <summary>Compatibility API; runtime end-effector constraints are currently unsupported.</summary>
+        public void SetLeftHandConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
+        {
+            NotifyRuntimeEndEffectorConstraintUnavailable();
+        }
+
+        /// <summary>Compatibility API; runtime end-effector constraints are currently unsupported.</summary>
+        public void SetRightHandConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
+        {
+            NotifyRuntimeEndEffectorConstraintUnavailable();
+        }
+
+        /// <summary>Compatibility API; runtime end-effector constraints are currently unsupported.</summary>
+        public void SetLeftFootConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
+        {
+            NotifyRuntimeEndEffectorConstraintUnavailable();
+        }
+
+        /// <summary>Compatibility API; runtime end-effector constraints are currently unsupported.</summary>
+        public void SetRightFootConstraint(float worldX, float worldY, float worldZ, float duration = 1f)
+        {
+            NotifyRuntimeEndEffectorConstraintUnavailable();
+        }
+
         /// <summary>Stages an absolute Unity world-space Root2D target.</summary>
         public void SetRoot2D(float worldX, float worldZ, float duration = 1f)
         {
@@ -1075,6 +1099,11 @@ namespace KimodoBridge
             string result = $"Root2D world target staged at ({worldX:0.###}, {worldZ:0.###}).";
             UpdateStatus(result);
             return result;
+        }
+
+        private void NotifyRuntimeEndEffectorConstraintUnavailable()
+        {
+            UpdateStatus("Runtime hand/feet effectors are disabled; use KMB FullBody sampling.");
         }
 
         private void ApplyStagedConstraintsInternal(

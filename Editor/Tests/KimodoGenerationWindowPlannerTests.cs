@@ -159,6 +159,20 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(constraints[0]["root_positions"][0][0].Value<float>(), Is.EqualTo(-30f));
             Assert.That(constraints[0]["root_positions"][1][0].Value<float>(), Is.EqualTo(-59f));
             Assert.That(constraints[0]["local_joints_rot"], Has.Count.EqualTo(2));
+
+            string fourSampleJson = KimodoPlayableClipGenerationExecutionService.BuildPreviousWindowOverlapFullBodyConstraintsJson(
+                previousMotion,
+                model,
+                previousWindow,
+                currentWindow,
+                overlapStart,
+                overlapEnd,
+                frameRate,
+                sampleCount: 4);
+            JObject fourSampleConstraint = JArray.Parse(fourSampleJson)[0] as JObject;
+            CollectionAssert.AreEqual(new[] { 0, 10, 19, 29 }, fourSampleConstraint["frame_indices"].Values<int>());
+            Assert.That(fourSampleConstraint["root_positions"], Has.Count.EqualTo(4));
+            Assert.That(fourSampleConstraint["local_joints_rot"], Has.Count.EqualTo(4));
         }
 
         [Test]

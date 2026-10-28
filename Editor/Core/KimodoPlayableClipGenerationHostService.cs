@@ -233,6 +233,8 @@ namespace KimodoBridge.Editor
                 TargetFrameRate = targetFrameRate,
                 RuntimeFrameCount = runtimeFrameCount,
                 RuntimeTrimStartFrame = runtimeTrimStartFrame,
+                LongClipWindowFrames = Mathf.Max(1, clip.longClipWindowFrames),
+                LongClipWindowSampleCount = Mathf.Max(1, clip.longClipWindowSampleCount),
                 DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(
                     resolvedModelName,
                     clip.diffusionSteps),
