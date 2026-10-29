@@ -149,7 +149,8 @@ Use only relevant tasks from this set:
 ```text
 visual: trajectory_shape, action_semantics, visual_motion_quality, contact_pattern
 structured: loop_endpoint, keyframe_heading, trajectory_turn,
-            trajectory_length, phase_track, endpoint_pose, motion_profile
+            trajectory_length, phase_track, endpoint_pose, motion_profile,
+            force_line
 ```
 
 Allowed visual values remain deliberately small:
@@ -161,6 +162,8 @@ contact_pattern: alternating | left_dominant | right_dominant | unclear
 ```
 
 For every task, return a value, confidence, and evidence. Use structured fields, readable images, and playback or temporal measurements according to the criterion. Mark a result `unknown` or `unclear` when the available evidence is absent, unreadable, or conflicting. Use `smooth_appearance` for the static image and temporal evidence for playback smoothness. Read structured trajectory values from named returned fields.
+
+For `force_line`, read `clip.motion_profile.force_line`. Compare the left and right shoulder-to-hand sagittal-angle delta sums over the full Clip and matching `phase_track` intervals. `imbalance_ratio` is `abs(left-right) / max(left,right)`; treat `balanced` as true only when the result status is `ok` and the ratio is at most `0.15`. Mark the criterion unknown when status is `insufficient_evidence`. This is a sampled arm-swing symmetry measure, not a physical force estimate.
 
 When comparing action semantics, use the stated or prompt-derived alternatives and phase/pose/contact evidence. Check phase coverage across relevant frames so a single contact or anchor frame is interpreted in context. If the available evidence cannot distinguish alternatives, report `unknown`.
 

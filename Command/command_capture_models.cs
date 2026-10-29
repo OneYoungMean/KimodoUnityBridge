@@ -98,6 +98,8 @@ namespace KimodoUnityBridge.Command
                 Vector3[] leftElbow,
                 Vector3[] rightElbow,
                 Vector3[] head,
+                float[] leftArmSwingAngles,
+                float[] rightArmSwingAngles,
                 bool[] leftContacts,
                 bool[] rightContacts,
                 Bounds[] poseBounds,
@@ -113,6 +115,8 @@ namespace KimodoUnityBridge.Command
                 LeftElbow = leftElbow;
                 RightElbow = rightElbow;
                 Head = head;
+                LeftArmSwingAngles = leftArmSwingAngles;
+                RightArmSwingAngles = rightArmSwingAngles;
                 LeftContacts = leftContacts;
                 RightContacts = rightContacts;
                 PoseBounds = poseBounds;
@@ -134,6 +138,8 @@ namespace KimodoUnityBridge.Command
             public Vector3[] LeftElbow { get; }
             public Vector3[] RightElbow { get; }
             public Vector3[] Head { get; }
+            public float[] LeftArmSwingAngles { get; }
+            public float[] RightArmSwingAngles { get; }
             public bool[] LeftContacts { get; }
             public bool[] RightContacts { get; }
             public Bounds[] PoseBounds { get; }

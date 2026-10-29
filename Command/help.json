@@ -892,7 +892,155 @@
                 "type": "object"
               },
               "motion_profile": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "force_line": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok",
+                          "insufficient_evidence"
+                        ]
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "method": {
+                        "type": "string"
+                      },
+                      "coordinate_space": {
+                        "type": "string"
+                      },
+                      "angle_unit": {
+                        "type": "string"
+                      },
+                      "balance_threshold_ratio": {
+                        "type": "number"
+                      },
+                      "start_timeline_frame_60": {
+                        "type": "integer"
+                      },
+                      "end_timeline_frame_60_exclusive": {
+                        "type": "integer"
+                      },
+                      "left_delta_angle_sum_degrees": {
+                        "type": "number"
+                      },
+                      "right_delta_angle_sum_degrees": {
+                        "type": "number"
+                      },
+                      "absolute_difference_degrees": {
+                        "type": "number"
+                      },
+                      "imbalance_ratio": {
+                        "oneOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "symmetry_score": {
+                        "oneOf": [
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "balanced": {
+                        "oneOf": [
+                          {
+                            "type": "boolean"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "delta_sample_count": {
+                        "type": "integer"
+                      },
+                      "phases": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "phase_index": {
+                              "type": "integer"
+                            },
+                            "kind": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "type": "string"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "start_timeline_frame_60": {
+                              "type": "integer"
+                            },
+                            "end_timeline_frame_60_exclusive": {
+                              "type": "integer"
+                            },
+                            "left_delta_angle_sum_degrees": {
+                              "type": "number"
+                            },
+                            "right_delta_angle_sum_degrees": {
+                              "type": "number"
+                            },
+                            "absolute_difference_degrees": {
+                              "type": "number"
+                            },
+                            "imbalance_ratio": {
+                              "oneOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "symmetry_score": {
+                              "oneOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "balanced": {
+                              "oneOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "delta_sample_count": {
+                              "type": "integer"
+                            }
+                          },
+                          "additionalProperties": true
+                        }
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
               }
             },
             "additionalProperties": true

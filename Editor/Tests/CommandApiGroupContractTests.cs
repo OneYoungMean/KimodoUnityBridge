@@ -147,6 +147,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(poseAnalysis["outputSchema"]?["properties"]?["constraints"]?.Value<string>("type"), Is.EqualTo("array"));
             Assert.That(analyze["outputSchema"]?["properties"]?["pictures"]?["properties"]?["image_path"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["outputSchema"]?["properties"]?["pictures"]?["properties"]?["tile_count"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["motion_profile"]?["properties"]?["force_line"]?["properties"]?["phases"]?.Value<string>("type"), Is.EqualTo("array"));
         }
 
         [Test]

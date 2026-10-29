@@ -396,6 +396,8 @@ namespace KimodoUnityBridge.Command
             var leftElbow = new Vector3[frameCount];
             var rightElbow = new Vector3[frameCount];
             var head = new Vector3[frameCount];
+            var leftArmSwingAngles = Enumerable.Repeat(float.NaN, frameCount).ToArray();
+            var rightArmSwingAngles = Enumerable.Repeat(float.NaN, frameCount).ToArray();
             var poseBounds = new Bounds[frameCount];
             Bounds firstBounds = default;
             Bounds lastBounds = default;
@@ -426,6 +428,18 @@ namespace KimodoUnityBridge.Command
                     leftElbow[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.LeftLowerArm, subject.Character.Name);
                     rightElbow[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.RightLowerArm, subject.Character.Name);
                     head[localFrame] = ReadHumanoidBonePosition(poseAnimator, HumanBodyBones.Head, subject.Character.Name);
+                    TryReadArmSwingAngle(
+                        poseAnimator,
+                        HumanBodyBones.LeftShoulder,
+                        HumanBodyBones.LeftUpperArm,
+                        HumanBodyBones.LeftHand,
+                        out leftArmSwingAngles[localFrame]);
+                    TryReadArmSwingAngle(
+                        poseAnimator,
+                        HumanBodyBones.RightShoulder,
+                        HumanBodyBones.RightUpperArm,
+                        HumanBodyBones.RightHand,
+                        out rightArmSwingAngles[localFrame]);
                     Bounds currentBounds = CalculateSkinnedBounds(posePreview.Root);
                     poseBounds[localFrame] = currentBounds;
                     if (localFrame == 0) firstBounds = currentBounds;
@@ -473,6 +487,8 @@ namespace KimodoUnityBridge.Command
                 leftElbow,
                 rightElbow,
                 head,
+                leftArmSwingAngles,
+                rightArmSwingAngles,
                 leftContacts,
                 rightContacts,
                 poseBounds,
@@ -523,6 +539,8 @@ namespace KimodoUnityBridge.Command
                 positions,
                 positions,
                 positions,
+                null,
+                null,
                 new bool[frameCount],
                 new bool[frameCount],
                 poseBounds,
@@ -541,6 +559,25 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException($"Character '{characterName}' has no Humanoid {bone} transform.");
             }
             return transform.position;
+        }
+
+        private static bool TryReadArmSwingAngle(
+            Animator animator,
+            HumanBodyBones shoulderBone,
+            HumanBodyBones upperArmBone,
+            HumanBodyBones handBone,
+            out float angleDegrees)
+        {
+            angleDegrees = 0f;
+            if (animator == null) return false;
+            Transform shoulder = animator.GetBoneTransform(shoulderBone) ?? animator.GetBoneTransform(upperArmBone);
+            Transform hand = animator.GetBoneTransform(handBone);
+            if (shoulder == null || hand == null) return false;
+
+            return KimodoForceLineAnalysis.TryCalculateBodyLocalSwingAngle(
+                hand.position - shoulder.position,
+                animator.transform.rotation,
+                out angleDegrees);
         }
 
         private static Bounds CalculateSkinnedBounds(GameObject root)
@@ -582,8 +619,17 @@ namespace KimodoUnityBridge.Command
             JObject analysis = subject.Subject.Record.Analysis ?? new JObject();
             analysis["phase_track_version"] = PhaseTrackVersion;
             analysis["phase_track"] = phases;
-            if (analysis["motion_profile"] is JObject profile &&
-                subject.Subject.Record.RootTrajectory?["samples"] is JArray trajectorySamples)
+            if (analysis["motion_profile"] is not JObject profile)
+            {
+                profile = new JObject();
+                analysis["motion_profile"] = profile;
+            }
+            profile["force_line"] = KimodoForceLineAnalysis.Build(
+                subject.LeftArmSwingAngles,
+                subject.RightArmSwingAngles,
+                phases,
+                subject.Subject.StartFrame);
+            if (subject.Subject.Record.RootTrajectory?["samples"] is JArray trajectorySamples)
             {
                 var headings = phases.OfType<JObject>()
                     .Select(phase => phase.Value<int?>("anchor_frame") ?? 0)
@@ -784,5 +830,107 @@ namespace KimodoUnityBridge.Command
             return ordered.Length % 2 == 0 ? (ordered[middle - 1] + ordered[middle]) * .5f : ordered[middle];
         }
 
+    }
+
+    internal static class KimodoForceLineAnalysis
+    {
+        internal const float BalanceThresholdRatio = 0.15f;
+        private const float MinimumMeasuredSwingDegrees = 0.01f;
+
+        internal static bool TryCalculateBodyLocalSwingAngle(
+            Vector3 shoulderToHandWorld,
+            Quaternion characterRootRotation,
+            out float angleDegrees)
+        {
+            Vector3 local = Quaternion.Inverse(characterRootRotation) * shoulderToHandWorld;
+            if (float.IsNaN(local.y) || float.IsInfinity(local.y) ||
+                float.IsNaN(local.z) || float.IsInfinity(local.z) ||
+                local.y * local.y + local.z * local.z <= 1e-8f)
+            {
+                angleDegrees = 0f;
+                return false;
+            }
+
+            angleDegrees = Mathf.Atan2(local.z, -local.y) * Mathf.Rad2Deg;
+            return !float.IsNaN(angleDegrees) && !float.IsInfinity(angleDegrees);
+        }
+
+        internal static JObject Build(
+            float[] leftAngles,
+            float[] rightAngles,
+            JArray phases,
+            int startTimelineFrame)
+        {
+            int frameCount = Math.Max(leftAngles?.Length ?? 0, rightAngles?.Length ?? 0);
+            foreach (JObject phase in (phases ?? new JArray()).OfType<JObject>())
+            {
+                frameCount = Math.Max(frameCount, (phase.Value<int?>("end_frame") ?? -1) + 1);
+            }
+            JObject result = BuildInterval(leftAngles, rightAngles, 0, frameCount - 1);
+            result["method"] = "body_local_shoulder_to_hand_sagittal_angle_delta_sum_v1";
+            result["coordinate_space"] = "character_root_local";
+            result["angle_unit"] = "degrees";
+            result["balance_threshold_ratio"] = BalanceThresholdRatio;
+            result["start_timeline_frame_60"] = startTimelineFrame;
+            result["end_timeline_frame_60_exclusive"] = startTimelineFrame + frameCount;
+            result["phases"] = new JArray((phases ?? new JArray()).OfType<JObject>().Select(phase =>
+            {
+                int startFrame = Mathf.Clamp(phase.Value<int?>("start_frame") ?? 0, 0, Math.Max(0, frameCount - 1));
+                int endFrame = Mathf.Clamp(phase.Value<int?>("end_frame") ?? startFrame, startFrame, Math.Max(startFrame, frameCount - 1));
+                JObject metric = BuildInterval(leftAngles, rightAngles, startFrame, endFrame);
+                metric["phase_index"] = phase.Value<int?>("phase_index") ?? 0;
+                metric["kind"] = phase.Value<string>("kind") ?? "phase";
+                metric["start_timeline_frame_60"] = startTimelineFrame + startFrame;
+                metric["end_timeline_frame_60_exclusive"] = startTimelineFrame + endFrame + 1;
+                return metric;
+            }));
+            return result;
+        }
+
+        private static JObject BuildInterval(float[] leftAngles, float[] rightAngles, int startFrame, int endFrame)
+        {
+            float leftDeltaSum = 0f;
+            float rightDeltaSum = 0f;
+            int deltaSampleCount = 0;
+            int expectedDeltaSampleCount = Math.Max(0, endFrame - startFrame);
+            if (leftAngles != null && rightAngles != null && leftAngles.Length == rightAngles.Length &&
+                startFrame >= 0 && endFrame < leftAngles.Length)
+            {
+                for (int frame = Math.Max(startFrame + 1, 1); frame <= endFrame; frame++)
+                {
+                    if (!IsFinite(leftAngles[frame - 1]) || !IsFinite(leftAngles[frame]) ||
+                        !IsFinite(rightAngles[frame - 1]) || !IsFinite(rightAngles[frame]))
+                    {
+                        continue;
+                    }
+
+                    leftDeltaSum += Mathf.Abs(Mathf.DeltaAngle(leftAngles[frame - 1], leftAngles[frame]));
+                    rightDeltaSum += Mathf.Abs(Mathf.DeltaAngle(rightAngles[frame - 1], rightAngles[frame]));
+                    deltaSampleCount++;
+                }
+            }
+
+            float maximumDeltaSum = Mathf.Max(leftDeltaSum, rightDeltaSum);
+            bool completeSamples = deltaSampleCount == expectedDeltaSampleCount && deltaSampleCount > 0;
+            bool hasEvidence = completeSamples && maximumDeltaSum >= MinimumMeasuredSwingDegrees;
+            float difference = Mathf.Abs(leftDeltaSum - rightDeltaSum);
+            float imbalanceRatio = hasEvidence ? difference / maximumDeltaSum : 0f;
+            return new JObject
+            {
+                ["status"] = hasEvidence ? "ok" : "insufficient_evidence",
+                ["reason"] = hasEvidence ? string.Empty : !completeSamples
+                    ? deltaSampleCount == 0 ? "no_shared_valid_angle_pairs" : "incomplete_angle_samples"
+                    : "no_measurable_arm_swing",
+                ["left_delta_angle_sum_degrees"] = leftDeltaSum,
+                ["right_delta_angle_sum_degrees"] = rightDeltaSum,
+                ["absolute_difference_degrees"] = difference,
+                ["imbalance_ratio"] = hasEvidence ? new JValue(imbalanceRatio) : JValue.CreateNull(),
+                ["symmetry_score"] = hasEvidence ? new JValue(1f - imbalanceRatio) : JValue.CreateNull(),
+                ["balanced"] = hasEvidence ? new JValue(imbalanceRatio <= BalanceThresholdRatio) : JValue.CreateNull(),
+                ["delta_sample_count"] = deltaSampleCount
+            };
+        }
+
+        private static bool IsFinite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     }
 }

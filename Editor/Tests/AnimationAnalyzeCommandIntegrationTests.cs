@@ -23,6 +23,65 @@ namespace KimodoUnityBridge.Command.Tests
         private const int TestAnalysisResolution = 1920;
 
         [Test]
+        public void ForceLineAnalysis_UsesRootLocalAnglesAndReportsPerPhaseBalance()
+        {
+            Vector3 localArmVector = new Vector3(0f, -1f, 1f);
+            Vector3 worldArmVector = Quaternion.Euler(0f, 90f, 0f) * localArmVector;
+            Assert.That(KimodoForceLineAnalysis.TryCalculateBodyLocalSwingAngle(
+                worldArmVector,
+                Quaternion.Euler(0f, 90f, 0f),
+                out float bodyLocalAngle), Is.True);
+            Assert.That(bodyLocalAngle, Is.EqualTo(45f).Within(0.001f));
+
+            JArray phases = new JArray
+            {
+                new JObject { ["phase_index"] = 0, ["kind"] = "phase", ["start_frame"] = 0, ["end_frame"] = 2 },
+                new JObject { ["phase_index"] = 1, ["kind"] = "transition", ["start_frame"] = 2, ["end_frame"] = 4 }
+            };
+            JObject metric = KimodoForceLineAnalysis.Build(
+                new[] { 0f, 10f, 0f, 10f, 0f },
+                new[] { 0f, -10f, 0f, 0f, 0f },
+                phases,
+                startTimelineFrame: 120);
+
+            Assert.That(metric.Value<string>("status"), Is.EqualTo("ok"));
+            Assert.That(metric.Value<float>("left_delta_angle_sum_degrees"), Is.EqualTo(40f).Within(0.001f));
+            Assert.That(metric.Value<float>("right_delta_angle_sum_degrees"), Is.EqualTo(20f).Within(0.001f));
+            Assert.That(metric.Value<float>("imbalance_ratio"), Is.EqualTo(0.5f).Within(0.001f));
+            Assert.That(metric.Value<bool>("balanced"), Is.False);
+            Assert.That(metric["phases"]?[0]?.Value<bool?>("balanced"), Is.True);
+            Assert.That(metric["phases"]?[1]?.Value<bool?>("balanced"), Is.False);
+            Assert.That(metric["phases"]?[1]?.Value<int>("start_timeline_frame_60"), Is.EqualTo(122));
+        }
+
+        [Test]
+        public void ForceLineAnalysis_MarksMissingOrStationarySwingAsInsufficient()
+        {
+            JObject stationary = KimodoForceLineAnalysis.Build(
+                new[] { 0f, 0f, 0f },
+                new[] { 0f, 0f, 0f },
+                new JArray(),
+                startTimelineFrame: 0);
+            Assert.That(stationary.Value<string>("status"), Is.EqualTo("insufficient_evidence"));
+            Assert.That(stationary.Value<bool?>("balanced"), Is.Null);
+
+            JObject missingAngles = KimodoForceLineAnalysis.Build(
+                null,
+                null,
+                new JArray { new JObject { ["phase_index"] = 0, ["kind"] = "phase", ["start_frame"] = 2, ["end_frame"] = 4 } },
+                startTimelineFrame: 300);
+            Assert.That(missingAngles.Value<string>("status"), Is.EqualTo("insufficient_evidence"));
+            Assert.That(missingAngles.Value<int>("end_timeline_frame_60_exclusive"), Is.EqualTo(305));
+            Assert.That(missingAngles["phases"]?[0]?.Value<int>("start_timeline_frame_60"), Is.EqualTo(302));
+            Assert.That(missingAngles["phases"]?[0]?.Value<int>("end_timeline_frame_60_exclusive"), Is.EqualTo(305));
+
+            Assert.That(KimodoForceLineAnalysis.TryCalculateBodyLocalSwingAngle(
+                Vector3.right,
+                Quaternion.identity,
+                out _), Is.False);
+        }
+
+        [Test]
         public void AnalysisKeyframes_UseOnlyAbsoluteTimelineFrameAndNormalizeIdempotently()
         {
             Type contextType = typeof(command_dispatcher).Assembly
@@ -80,7 +139,7 @@ namespace KimodoUnityBridge.Command.Tests
                 });
 
                 Assert.That(analysis["request_id"], Is.Null);
-                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("5-command-60-single-clip-v1"));
+                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("6-command-60-force-line-v1"));
                 Assert.That(analysis["picture"], Is.Null);
                 Assert.That(analysis["clips"], Is.Null);
                 Assert.That(analysis["pictures"]?.Value<string>("aspect"), Is.EqualTo("16:9"));
@@ -139,6 +198,10 @@ namespace KimodoUnityBridge.Command.Tests
                 AssertGhostTileSpacing(analysis, clipAnalysis, "1.3");
                 AssertGhostTileSpacing(analysis, clipAnalysis, "1.4");
                 Assert.That(clipAnalysis["motion_profile"]?.Value<float>("path_length_xz"), Is.GreaterThan(0.5f));
+                JObject forceLine = clipAnalysis["motion_profile"]?["force_line"] as JObject;
+                Assert.That(forceLine, Is.Not.Null);
+                Assert.That(forceLine.Value<string>("method"), Is.EqualTo("body_local_shoulder_to_hand_sagittal_angle_delta_sum_v1"));
+                Assert.That(forceLine["phases"]?.Count(), Is.EqualTo(phases.Count));
                 Assert.That(Math.Abs(clipAnalysis["motion_profile"]?.Value<float>("heading_change_degrees") ?? 0f),
                     Is.GreaterThan(45f));
 

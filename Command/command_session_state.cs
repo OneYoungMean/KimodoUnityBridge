@@ -20,7 +20,7 @@ namespace KimodoUnityBridge.Command
     internal static partial class command_context
     {
         private const string CreateTimelineSessionUndoName = "Create Kimodo Timeline Session";
-        private const string AnalysisContractVersion = "5-command-60-single-clip-v1";
+        private const string AnalysisContractVersion = "6-command-60-force-line-v1";
         private const string MissingSceneContextWarning =
             "No live scene context was available; a new automatic context was created in the active scene.";
         internal const int SessionCaptureLayer = 17;

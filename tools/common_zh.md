@@ -149,7 +149,8 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 ```text
 visual: trajectory_shape, action_semantics, visual_motion_quality, contact_pattern
 structured: loop_endpoint, keyframe_heading, trajectory_turn,
-            trajectory_length, phase_track, endpoint_pose, motion_profile
+            trajectory_length, phase_track, endpoint_pose, motion_profile,
+            force_line
 ```
 
 视觉结果刻意限制为较小的取值集合：
@@ -161,6 +162,8 @@ contact_pattern: alternating | left_dominant | right_dominant | unclear
 ```
 
 每个识别项都返回取值、置信度和证据。按标准需要检查结构化字段、可读图像，以及播放或时序测量；现有证据缺失、不可读或冲突时，标记 `unknown` 或 `unclear`。`smooth_appearance` 描述静态图形，播放流畅度使用时序证据。结构化轨迹值读取命令返回的具名字段。
+
+对于 `force_line`，读取 `clip.motion_profile.force_line`。比较整段 Clip 以及各 `phase_track` 区间内左右肩到手矢量的矢状面角度变化总和。`imbalance_ratio` 定义为 `abs(left-right) / max(left,right)`；只有结果状态为 `ok` 且比例不超过 `0.15` 时，才将 `balanced` 视为通过。状态为 `insufficient_evidence` 时将该项标记为 `unknown`。这是对手臂摆动对称性的采样指标，不是物理力的估算。
 
 比较动作语义时，使用用户给出或从 Prompt 推导的备选项，以及阶段／姿态／接触证据。检查多个相关帧中的阶段覆盖，并结合上下文理解单个接触或锚点帧。证据无法区分备选项时，报告 `unknown`。
 

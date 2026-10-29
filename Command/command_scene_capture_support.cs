@@ -271,7 +271,7 @@ namespace KimodoUnityBridge.Command
                 // v5 aligns native KMB analysis frames to the fixed 60 FPS command
                 // time base before keyframe/contact extraction. Do not reuse
                 // v3 caches, whose markers are in the model's native FPS.
-                ["contract"] = "animation_analysis_picture_v6_ghost_spacing_05m_command_60",
+                ["contract"] = "animation_analysis_picture_v7_force_line_command_60",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
                 ["rig_type"] = IsHumanoidCharacter(character) ? "humanoid" : "mesh",
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,

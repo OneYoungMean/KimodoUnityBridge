@@ -321,9 +321,24 @@ namespace KimodoUnityBridge.Command
                 case "animation":
                     return ObjectSchema("animation_id", "name", "character", "source", "kind", "start_timeline_frame_60", "duration_frames", "segments", "transition");
                 case "clip":
-                    return command == AnimationAnalysisCommand
+                {
+                    JObject schema = command == AnimationAnalysisCommand
                         ? ObjectSchema("analysis_id", "session_id", "character", "name", "start_timeline_frame_60", "end_timeline_frame_60_exclusive", "analysis_mode", "phase_track_version", "phase_track", "keyframes", "foot_contacts", "root_trajectory", "endpoint_pose_comparison", "motion_profile")
                         : ObjectSchema("name", "character", "asset_path", "start_timeline_frame_60", "end_timeline_frame_60_exclusive");
+                    if (command == AnimationAnalysisCommand)
+                    {
+                        JObject motionProfile = schema["properties"]?["motion_profile"] as JObject;
+                        if (motionProfile != null)
+                        {
+                            motionProfile["properties"] = new JObject
+                            {
+                                ["force_line"] = ForceLineSchema()
+                            };
+                            motionProfile["additionalProperties"] = true;
+                        }
+                    }
+                    return schema;
+                }
                 case "pictures":
                 {
                     JObject schema = ObjectSchema(
@@ -501,6 +516,63 @@ namespace KimodoUnityBridge.Command
                 ["properties"] = properties,
                 ["additionalProperties"] = true
             };
+        }
+
+        private static JObject ForceLineSchema()
+        {
+            JObject phase = ObjectSchema(
+                "phase_index", "kind", "status", "reason", "start_timeline_frame_60",
+                "end_timeline_frame_60_exclusive", "left_delta_angle_sum_degrees",
+                "right_delta_angle_sum_degrees", "absolute_difference_degrees",
+                "imbalance_ratio", "symmetry_score", "balanced", "delta_sample_count");
+            JObject phaseProperties = phase["properties"] as JObject;
+            phaseProperties["phase_index"] = new JObject { ["type"] = "integer" };
+            phaseProperties["kind"] = new JObject { ["type"] = "string" };
+            phaseProperties["status"] = new JObject { ["type"] = "string" };
+            phaseProperties["reason"] = new JObject { ["type"] = "string" };
+            phaseProperties["left_delta_angle_sum_degrees"] = new JObject { ["type"] = "number" };
+            phaseProperties["right_delta_angle_sum_degrees"] = new JObject { ["type"] = "number" };
+            phaseProperties["absolute_difference_degrees"] = new JObject { ["type"] = "number" };
+            phaseProperties["imbalance_ratio"] = NullableSchema(new JObject { ["type"] = "number" });
+            phaseProperties["symmetry_score"] = NullableSchema(new JObject { ["type"] = "number" });
+            phaseProperties["balanced"] = NullableSchema(new JObject { ["type"] = "boolean" });
+            phaseProperties["delta_sample_count"] = new JObject { ["type"] = "integer" };
+            phase["additionalProperties"] = true;
+
+            JObject result = ObjectSchema(
+                "status", "reason", "method", "coordinate_space", "angle_unit",
+                "balance_threshold_ratio", "start_timeline_frame_60",
+                "end_timeline_frame_60_exclusive", "left_delta_angle_sum_degrees",
+                "right_delta_angle_sum_degrees", "absolute_difference_degrees",
+                "imbalance_ratio", "symmetry_score", "balanced", "delta_sample_count",
+                "phases");
+            JObject resultProperties = result["properties"] as JObject;
+            resultProperties["status"] = new JObject
+            {
+                ["type"] = "string",
+                ["enum"] = new JArray("ok", "insufficient_evidence")
+            };
+            resultProperties["reason"] = new JObject { ["type"] = "string" };
+            resultProperties["method"] = new JObject { ["type"] = "string" };
+            resultProperties["coordinate_space"] = new JObject { ["type"] = "string" };
+            resultProperties["angle_unit"] = new JObject { ["type"] = "string" };
+            resultProperties["balance_threshold_ratio"] = new JObject { ["type"] = "number" };
+            resultProperties["left_delta_angle_sum_degrees"] = new JObject { ["type"] = "number" };
+            resultProperties["right_delta_angle_sum_degrees"] = new JObject { ["type"] = "number" };
+            resultProperties["absolute_difference_degrees"] = new JObject { ["type"] = "number" };
+            resultProperties["imbalance_ratio"] = NullableSchema(new JObject { ["type"] = "number" });
+            resultProperties["symmetry_score"] = NullableSchema(new JObject { ["type"] = "number" });
+            resultProperties["balanced"] = NullableSchema(new JObject { ["type"] = "boolean" });
+            resultProperties["delta_sample_count"] = new JObject { ["type"] = "integer" };
+            resultProperties["start_timeline_frame_60"] = new JObject { ["type"] = "integer" };
+            resultProperties["end_timeline_frame_60_exclusive"] = new JObject { ["type"] = "integer" };
+            resultProperties["phases"] = new JObject
+            {
+                ["type"] = "array",
+                ["items"] = phase
+            };
+            result["additionalProperties"] = true;
+            return result;
         }
 
         private static JObject CommandDocumentationSchema()
