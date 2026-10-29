@@ -26,6 +26,7 @@ namespace KimodoBridge.Editor
         private SerializedProperty loopLockRotationXProp;
         private SerializedProperty loopLockRotationYProp;
         private SerializedProperty loopLockRotationZProp;
+        private SerializedProperty loopLockTargetFieldsEditorProxyProp;
         private SerializedProperty loopWindowFramesProp;
         private SerializedProperty loopWindowSampleCountProp;
         private SerializedProperty overridePathAngleProp;
@@ -143,7 +144,8 @@ namespace KimodoBridge.Editor
             loopLockRotationXProp = serializedObject.FindProperty("loopLockRotationX");
             loopLockRotationYProp = serializedObject.FindProperty("loopLockRotationY");
             loopLockRotationZProp = serializedObject.FindProperty("loopLockRotationZ");
-            loopWindowFramesProp = serializedObject.FindProperty("loopWindowFrames");
+            loopLockTargetFieldsEditorProxyProp = serializedObject.FindProperty("loopLockTargetFieldsEditorProxy");
+            loopWindowFramesProp = serializedObject.FindProperty("loopWindowFrames60");
             loopWindowSampleCountProp = serializedObject.FindProperty("loopWindowSampleCount");
             overridePathAngleProp = serializedObject.FindProperty("overridePathAngle");
             pathBeginAngleDegreesProp = serializedObject.FindProperty("pathBeginAngleDegrees");
@@ -161,11 +163,11 @@ namespace KimodoBridge.Editor
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
             postApplyOutConstraint = serializedObject.FindProperty("postApplyOutConstraint");
             postApplyInConstraint = serializedObject.FindProperty("postApplyInConstraint");
-            inConstraintWindowFrames = serializedObject.FindProperty("inConstraintWindowFrames");
+            inConstraintWindowFrames = serializedObject.FindProperty("inConstraintWindowFrames60");
             inConstraintSampleCount = serializedObject.FindProperty("inConstraintSampleCount");
-            outConstraintWindowFrames = serializedObject.FindProperty("outConstraintWindowFrames");
+            outConstraintWindowFrames = serializedObject.FindProperty("outConstraintWindowFrames60");
             outConstraintSampleCount = serializedObject.FindProperty("outConstraintSampleCount");
-            longClipWindowFramesProp = serializedObject.FindProperty("longClipWindowFrames");
+            longClipWindowFramesProp = serializedObject.FindProperty("longClipWindowFrames60");
             longClipWindowSampleCountProp = serializedObject.FindProperty("longClipWindowSampleCount");
             ardyAutoHistory = serializedObject.FindProperty("ardyAutoHistory");
             ardyHistoryWeight = serializedObject.FindProperty("ardyHistoryWeight");
@@ -498,7 +500,7 @@ namespace KimodoBridge.Editor
                 if (enableOutConstraint.boolValue)
                     DrawBoundarySampling("Out", outConstraintWindowFrames, outConstraintSampleCount);
                 EditorGUILayout.HelpBox(
-                    $"Window frames use {KimodoMotionModelProfiles.ResolveGenerationFrameRate(bridgeModelName.stringValue):0.##} FPS. " +
+                    "Window frames use 60 FPS command time and are converted to model frames. " +
                     "Outside windows extend generation with neighboring motion, then are trimmed from the output. " +
                     "Short source clips limit the available window. Show Constraint displays the sampled poses.", MessageType.Info);
             }
@@ -531,8 +533,14 @@ namespace KimodoBridge.Editor
                             loopWindowSampleCountProp,
                             new GUIContent("Loop Window Samples", "Evenly spaced FullBody samples retained in the Stage 3 loop window, including endpoints."));
                     }
-                    DrawLoopAxisRow("Lock Pos", loopLockPositionXProp, loopLockPositionYProp, loopLockPositionZProp);
-                    DrawLoopAxisRow("Lock Rot", loopLockRotationXProp, loopLockRotationYProp, loopLockRotationZProp);
+                    KimodoTimelinePreviewRefreshUtility.DrawLoopLockFields(
+                        loopLockTargetFieldsEditorProxyProp,
+                        loopLockPositionXProp,
+                        loopLockPositionYProp,
+                        loopLockPositionZProp,
+                        loopLockRotationXProp,
+                        loopLockRotationYProp,
+                        loopLockRotationZProp);
                     EditorGUI.indentLevel--;
                 }
             }
@@ -597,7 +605,9 @@ namespace KimodoBridge.Editor
         private static void DrawBoundarySampling(string label, SerializedProperty frames, SerializedProperty samples)
         {
             EditorGUI.BeginChangeCheck();
-            EditorGUILayout.PropertyField(frames, new GUIContent(label + " Window Frames"));
+            EditorGUILayout.PropertyField(frames, new GUIContent(
+                label + " Window Frames (60 FPS)",
+                "Total window duration in 60 FPS command frames. The pipeline converts this duration to model frames before sampling."));
             if (EditorGUI.EndChangeCheck())
                 frames.intValue = Mathf.Clamp(frames.intValue, 1, KimodoMotionModelProfiles.MaxGenerationFrames);
             EditorGUI.BeginChangeCheck();
@@ -605,23 +615,6 @@ namespace KimodoBridge.Editor
                 "Evenly spaced samples including both endpoints. One sample keeps only the seam pose."));
             if (EditorGUI.EndChangeCheck())
                 samples.intValue = Mathf.Clamp(samples.intValue, 1, KimodoMotionModelProfiles.MaxGenerationFrames);
-        }
-
-        private static void DrawLoopAxisRow(string label, SerializedProperty x, SerializedProperty y, SerializedProperty z)
-        {
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUILayout.PrefixLabel(label);
-                DrawLoopAxisToggle("X", x);
-                DrawLoopAxisToggle("Y", y);
-                DrawLoopAxisToggle("Z", z);
-            }
-        }
-
-        private static void DrawLoopAxisToggle(string axis, SerializedProperty property)
-        {
-            if (property != null)
-                property.boolValue = EditorGUILayout.ToggleLeft(axis, property.boolValue, GUILayout.Width(42f));
         }
 
         private void DrawSplinePathSection(TimelineClip timelineClip)
@@ -903,7 +896,7 @@ namespace KimodoBridge.Editor
                 {
                     EditorGUILayout.PropertyField(
                         longClipWindowFramesProp,
-                        new GUIContent("Window Frames", "Overlap range retained when a long animation is split into multiple generation windows. Default: 30 model-rate frames."));
+                        new GUIContent("Window Frames (60 FPS)", "Overlap duration in 60 FPS command frames; converted to model frames before splitting. Default: 60 command frames."));
                 }
                 if (longClipWindowSampleCountProp != null)
                 {
@@ -912,7 +905,7 @@ namespace KimodoBridge.Editor
                         new GUIContent("Sample Count", "Number of evenly spaced FullBody samples retained in each long-animation overlap. Default: 2."));
                 }
                 EditorGUILayout.HelpBox(
-                    "The overlap is shared by adjacent generation windows. Window frames are normalized to an even value for symmetric padding; sample count includes both overlap endpoints.",
+                    "The overlap is shared by adjacent generation windows. Window duration is measured at 60 FPS and converted to model frames before splitting; sample count includes both overlap endpoints.",
                     MessageType.Info);
             }
 

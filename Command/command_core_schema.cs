@@ -686,13 +686,27 @@ namespace KimodoUnityBridge.Command
                         ["type"] = "boolean",
                         ["description"] = "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
                     },
+                    ["window_frames"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["minimum"] = 1,
+                        ["default"] = 30,
+                        ["description"] = "Loop window duration in 60 FPS command frames; converted to model frames when building the loop window."
+                    },
+                    ["sample_count"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["minimum"] = 1,
+                        ["default"] = 2,
+                        ["description"] = "Number of FullBody samples in the loop window, including its endpoints when more than one sample is requested."
+                    },
                     ["lock_pos"] = axis.DeepClone(),
                     ["lock_rot"] = axis.DeepClone()
                 }
             };
             return new PropertyDefinition("loop", new JObject
             {
-                ["description"] = "Enable loop preprocessing, or provide per-axis endpoint locks with {enabled, lock_pos:{x,y,z}, lock_rot:{x,y,z}}.",
+                ["description"] = "Enable loop preprocessing and configure its window, or provide per-axis endpoint locks with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}.",
                 ["oneOf"] = new JArray(
                     new JObject { ["type"] = "boolean" },
                     structured)

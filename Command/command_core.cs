@@ -664,6 +664,16 @@ namespace KimodoUnityBridge.Command
                 bool loopRequested = loopObject != null
                     ? loopObject.Value<bool?>("enabled") ?? true
                     : arguments.Value<bool?>("loop") ?? false;
+                int loopWindowFrames60 = loopObject?.Value<int?>("window_frames") ?? 30;
+                int loopWindowSampleCount = loopObject?.Value<int?>("sample_count") ?? 2;
+                if (loopWindowFrames60 <= 0)
+                {
+                    throw new InvalidOperationException("loop.window_frames must be a positive integer at 60 FPS.");
+                }
+                if (loopWindowSampleCount <= 0)
+                {
+                    throw new InvalidOperationException("loop.sample_count must be a positive integer.");
+                }
                 JObject lockPosition = loopObject?["lock_pos"] as JObject;
                 JObject lockRotation = loopObject?["lock_rot"] as JObject;
                 bool loopLockPositionX = lockPosition?.Value<bool?>("x") ?? false;
@@ -786,6 +796,8 @@ namespace KimodoUnityBridge.Command
                 playableClip.randomSeed = false;
                 playableClip.seed = seed;
                 playableClip.generateLoop = loopRequested;
+                playableClip.loopWindowFrames60 = loopWindowFrames60;
+                playableClip.loopWindowSampleCount = loopWindowSampleCount;
                 playableClip.loopLockPositionX = loopLockPositionX;
                 playableClip.loopLockPositionY = loopLockPositionY;
                 playableClip.loopLockPositionZ = loopLockPositionZ;

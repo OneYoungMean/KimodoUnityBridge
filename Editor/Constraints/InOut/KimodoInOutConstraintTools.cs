@@ -137,7 +137,7 @@ namespace KimodoBridge.Editor
         {
             if (request == null || request.Mode == KimodoInOutConstraintMode.None ||
                 !(isBegin ? request.EnableBegin : request.EnableEnd)) return 0;
-            int requested = Mathf.Clamp(isBegin ? request.BeginWindowFrames : request.EndWindowFrames,
+            int requested = Mathf.Clamp(isBegin ? request.BeginWindowModelFrameCount : request.EndWindowModelFrameCount,
                 1, KimodoMotionModelProfiles.MaxGenerationFrames);
             KimodoTimelineInOutConstraintContext explicitContext = isBegin
                 ? request.BeginTimelineContext
@@ -513,7 +513,7 @@ namespace KimodoBridge.Editor
             }
             int frames = ResolveWindowFrameCount(request, isBegin);
             int requested = Mathf.Clamp(
-                isBegin ? request.BeginWindowFrames : request.EndWindowFrames,
+                isBegin ? request.BeginWindowModelFrameCount : request.EndWindowModelFrameCount,
                 1,
                 KimodoMotionModelProfiles.MaxGenerationFrames);
             int samples = isBegin ? request.BeginSampleCount : request.EndSampleCount;

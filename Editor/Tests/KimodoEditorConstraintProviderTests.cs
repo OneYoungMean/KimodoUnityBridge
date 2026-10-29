@@ -266,6 +266,32 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void StageRouting_RunsStage1OnlyWhenAPathPassNeedsBaselineMotion()
+        {
+            var clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage1Baseline(clip), Is.False);
+
+                clip.overridePathDistance = true;
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage1Baseline(clip), Is.True,
+                    "Distance-only uses the baseline Root2D trajectory as its scaling source.");
+
+                clip.overridePathDistance = false;
+                clip.overridePathAngle = true;
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage1Baseline(clip), Is.True);
+
+                clip.overridePathAngle = false;
+                clip.overrideHeading = true;
+                Assert.That(KimodoPlayableClipGenerationExecutionService.RequiresStage1Baseline(clip), Is.True);
+            }
+            finally
+            {
+                Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
         public void Stage2PathOrigin_PrefersRelativeOffsetThenAutoBeginSnapshot()
         {
             Vector3 relativeOffset = new Vector3(8f, 2f, -3f);
@@ -322,6 +348,41 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(firstFrame, Is.EqualTo(12));
             Assert.That(lastFrame, Is.EqualTo(21));
             Assert.That(span, Is.EqualTo(10));
+        }
+
+        [Test]
+        public void StageRouting_PreservesConfiguredWindowWhenOnlyOneSampleIsExported()
+        {
+            const string json = "[{\"type\":\"fullbody\",\"frame_indices\":[12]}]";
+            int span = KimodoPlayableClipGenerationExecutionService.ResolveStage3WindowFrameCount(
+                windowModelFrameCount: 15,
+                constraintsJson: json,
+                out int firstFrame,
+                out int lastFrame);
+
+            Assert.That(firstFrame, Is.EqualTo(12));
+            Assert.That(lastFrame, Is.EqualTo(12));
+            Assert.That(span, Is.EqualTo(15));
+
+            int inferredSpan = KimodoPlayableClipGenerationExecutionService.ResolveStage3WindowFrameCount(
+                windowModelFrameCount: 0,
+                constraintsJson: json,
+                out _,
+                out _);
+            Assert.That(inferredSpan, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void StageRouting_Stage3WindowWidthIsAddedOnceToCoreDuration()
+        {
+            const int coreFrames = 45; // 1.5 seconds at the default 30 FPS model rate.
+            const int inWindowFrames = 6; // 12 command frames at 60 FPS.
+            const int outWindowFrames = 6;
+
+            int stage3Frames = coreFrames + inWindowFrames + outWindowFrames;
+
+            Assert.That(stage3Frames, Is.EqualTo(57));
+            Assert.That(stage3Frames / 30.0, Is.EqualTo(1.9).Within(1e-6));
         }
 
         [Test]

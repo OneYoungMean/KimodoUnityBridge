@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 using TimelineInject;
@@ -80,8 +81,11 @@ namespace KimodoBridge
         public bool loopLockRotationY;
         [Tooltip("When looping, copy the first frame's Z root rotation to the loop tail.")]
         public bool loopLockRotationZ = true;
-        [Min(1), Tooltip("Number of command frames at 60 FPS retained from the loop anchor window when constructing Stage 3 loop constraints. Converted to the model frame rate before sampling.")]
-        public int loopWindowFrames = 30;
+        [SerializeField, HideInInspector]
+        private int loopLockTargetFieldsEditorProxy;
+        [Min(1), Tooltip("Total loop window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
+        [FormerlySerializedAs("loopWindowFrames")]
+        public int loopWindowFrames60 = 30;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in the Stage 3 loop window, including its endpoints.")]
         public int loopWindowSampleCount = 2;
         [Tooltip("Regenerate with the same seed and override the Root2D path using absolute begin/end Unity yaw angles.")]
@@ -123,16 +127,22 @@ namespace KimodoBridge
         public bool postApplyInConstraint;
         [Tooltip("Defer the Out constraint until after the first trajectory generation, align it in SOMA Root2D space, then use it for the second generation pass.")]
         public bool postApplyOutConstraint;
-        [Min(1), Tooltip("Number of model-rate frames covered by the In constraint window.")]
-        public int inConstraintWindowFrames = 1;
+        [Min(1), Tooltip("Total In constraint window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
+        public int inConstraintWindowFrames60 = 1;
+        [SerializeField, HideInInspector, FormerlySerializedAs("inConstraintWindowFrames")]
+        private int legacyInConstraintWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples in the In window, including its endpoints.")]
         public int inConstraintSampleCount = 1;
-        [Min(1), Tooltip("Number of model-rate frames covered by the Out constraint window.")]
-        public int outConstraintWindowFrames = 1;
+        [Min(1), Tooltip("Total Out constraint window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
+        public int outConstraintWindowFrames60 = 1;
+        [SerializeField, HideInInspector, FormerlySerializedAs("outConstraintWindowFrames")]
+        private int legacyOutConstraintWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples in the Out window, including its endpoints.")]
         public int outConstraintSampleCount = 1;
-        [Min(1), Tooltip("Number of model-rate overlap frames retained when a long animation is split into multiple generation windows.")]
-        public int longClipWindowFrames = 30;
+        [Min(1), Tooltip("Total long-animation overlap duration in 60 FPS command frames. Converted to the model frame rate before splitting.")]
+        public int longClipWindowFrames60 = 60;
+        [SerializeField, HideInInspector, FormerlySerializedAs("longClipWindowFrames")]
+        private int legacyLongClipWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in each long-animation overlap window, including its endpoints.")]
         public int longClipWindowSampleCount = 2;
         [SerializeField, HideInInspector]
@@ -191,6 +201,36 @@ namespace KimodoBridge
         public int ConstraintPreviewPriority => 1;
         public string ConstraintPreviewName => "Clip";
 
+        private void OnValidate() => MigrateLegacyWindowFrameCounts();
+
+        internal bool MigrateLegacyWindowFrameCounts()
+        {
+            double modelFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(bridgeModelName);
+            bool migrated = false;
+            if (legacyInConstraintWindowModelFrames > 0)
+            {
+                inConstraintWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
+                    legacyInConstraintWindowModelFrames, modelFrameRate));
+                legacyInConstraintWindowModelFrames = -1;
+                migrated = true;
+            }
+            if (legacyOutConstraintWindowModelFrames > 0)
+            {
+                outConstraintWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
+                    legacyOutConstraintWindowModelFrames, modelFrameRate));
+                legacyOutConstraintWindowModelFrames = -1;
+                migrated = true;
+            }
+            if (legacyLongClipWindowModelFrames > 0)
+            {
+                longClipWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
+                    legacyLongClipWindowModelFrames, modelFrameRate));
+                legacyLongClipWindowModelFrames = -1;
+                migrated = true;
+            }
+
+            return migrated;
+        }
 
         public void ResetGeneration()
         {

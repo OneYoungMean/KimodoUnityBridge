@@ -132,7 +132,7 @@ namespace KimodoBridge.Editor
             int constraintGuardFrames)
         {
             if (totalFrames <= 0 || frameRate <= 0f || maxRequestFrames <= 0 ||
-                overlapFrames < 0 || overlapFrames % 2 != 0 ||
+                overlapFrames < 0 ||
                 minimumCoreFrames <= 0 || maximumCoreFrames < minimumCoreFrames ||
                 preferredCoreFrames <= 0 || constraintGuardFrames < 0)
             {
@@ -396,7 +396,7 @@ namespace KimodoBridge.Editor
             int totalFrames,
             int overlapFrames)
         {
-            int leftPadding = coreStart == 0 ? 0 : overlapFrames / 2;
+            int leftPadding = coreStart == 0 ? 0 : (overlapFrames + 1) / 2;
             int rightPadding = coreEnd == totalFrames ? 0 : overlapFrames / 2;
             return new KimodoGenerationWindow
             {

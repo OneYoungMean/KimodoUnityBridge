@@ -40,7 +40,7 @@ namespace KimodoBridge.Editor
         // Per-clip overlap settings used when a long runtime is split into generation windows.
         // Keep these on the request so the windowed route remains deterministic after the
         // Timeline asset has been read and asynchronous generation begins.
-        public int LongClipWindowFrames = 30;
+        public int LongClipWindowFrames60 = 60;
         public int LongClipWindowSampleCount = 2;
         public int DiffusionSteps;
         public int EffectiveSeed;
@@ -63,6 +63,10 @@ namespace KimodoBridge.Editor
         public string DeferredOutConstraintJson = string.Empty;
         public string InConstraintWindowJson = string.Empty;
         public string OutConstraintWindowJson = string.Empty;
+        // Full window widths in model frames; constraint JSON may contain fewer
+        // sample frames and cannot be used to recover this duration.
+        public int InConstraintWindowModelFrameCount;
+        public int OutConstraintWindowModelFrameCount;
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;
         public bool UseRelativeOffset;

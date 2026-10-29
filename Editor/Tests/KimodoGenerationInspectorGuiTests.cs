@@ -255,8 +255,8 @@ namespace KimodoBridge.Editor.Tests
                 playable.clip = animation;
                 playable.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
                 playable.enableInConstraint = enableIn; playable.enableOutConstraint = enableOut;
-                playable.inConstraintWindowFrames = 7; playable.inConstraintSampleCount = 3;
-                playable.outConstraintWindowFrames = 4; playable.outConstraintSampleCount = 3;
+                playable.inConstraintWindowFrames60 = 14; playable.inConstraintSampleCount = 3;
+                playable.outConstraintWindowFrames60 = 8; playable.outConstraintSampleCount = 3;
                 playable.autoBeginAnchor = false;
                 director.time = 1.25;
                 // Newly authored transient clips initialize root-curve flags on first evaluation.
@@ -274,6 +274,18 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(request.TargetFrameCount, Is.EqualTo(60));
                 Assert.That(request.RuntimeFrameCount, Is.EqualTo(60 + prefix + suffix));
                 Assert.That(request.RuntimeTrimStartFrame, Is.EqualTo(prefix));
+                var stage3Request = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    playable,
+                    "walk",
+                    null,
+                    default,
+                    timelineClipOverride: current,
+                    generateLoopOverride: false,
+                    targetDurationSecondsOverride: 1.9,
+                    disableOutsideContextExpansion: true);
+                Assert.That(stage3Request.TargetFrameCount, Is.EqualTo(57));
+                Assert.That(stage3Request.RuntimeFrameCount, Is.EqualTo(stage3Request.TargetFrameCount),
+                    "Stage 3 already includes its In/Out windows in the target duration and must not expand them again as outside context.");
                 Assert.That(request.Constraints.clips, Is.Empty, "Kimodo boundaries must use native FullBody constraints.");
                 Assert.That(request.ConstraintSamples.Count, Is.EqualTo((enableIn ? 3 : 0) + (enableOut ? 3 : 0)));
                 var json = Newtonsoft.Json.Linq.JArray.Parse(request.Constraints.Serialize(playable.bridgeModelName,
@@ -318,7 +330,7 @@ namespace KimodoBridge.Editor.Tests
                 {
                     var nextPlayable = (KimodoPlayableClip)next.asset;
                     nextPlayable.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
-                    nextPlayable.inConstraintWindowFrames = 7;
+                    nextPlayable.inConstraintWindowFrames60 = 14;
                     nextPlayable.inConstraintSampleCount = 3;
                     nextPlayable.autoBeginAnchor = false;
                     const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;

@@ -24,9 +24,9 @@ namespace KimodoBridge.Editor
         public int GenerationFrames = 1;
         public int OutputStartFrame;
         public int OutputFrameCount;
-        public int BeginWindowFrames = 1;
+        public int BeginWindowModelFrameCount = 1;
         public int BeginSampleCount = 1;
-        public int EndWindowFrames = 1;
+        public int EndWindowModelFrameCount = 1;
         public int EndSampleCount = 1;
         public bool AutoBeginAnchor;
         public bool DeferNormalization;
@@ -52,6 +52,8 @@ namespace KimodoBridge.Editor
         public string OutConstraintWindowJson = string.Empty;
         public bool HasSyntheticAutoBeginConstraint;
         public bool DenseRootPath;
+        public int BeginBoundaryWindowModelFrameCount;
+        public int EndBoundaryWindowModelFrameCount;
         public KimodoMarkerSampleResult BeginBoundarySample;
         public List<KimodoMarkerSampleResult> BeginBoundarySamples = new List<KimodoMarkerSampleResult>();
         public List<KimodoMarkerSampleResult> EndBoundarySamples = new List<KimodoMarkerSampleResult>();

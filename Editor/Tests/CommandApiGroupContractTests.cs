@@ -184,6 +184,19 @@ namespace KimodoUnityBridge.Command.Tests
             JObject duration = (JObject)generate["inputSchema"]?["properties"]?["duration_frames"];
             Assert.That(duration?.Value<int>("minimum"), Is.EqualTo(1));
             Assert.That(duration?.Value<int>("default"), Is.EqualTo(300));
+            JObject loop = (JObject)generate["inputSchema"]?["properties"]?["loop"];
+            JObject loopObjectSchema = loop?["oneOf"]?.Values<JObject>()
+                .SingleOrDefault(branch => branch.Value<string>("type") == "object");
+            Assert.That(loopObjectSchema?["properties"]?["window_frames"]?.Value<int>("default"), Is.EqualTo(30));
+            Assert.That(loopObjectSchema?["properties"]?["window_frames"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(loopObjectSchema?["properties"]?["sample_count"]?.Value<int>("default"), Is.EqualTo(2));
+            Assert.That(loopObjectSchema?["properties"]?["sample_count"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(CommandInputSchemaValidator.TryValidate(loop, JObject.Parse(
+                "{'enabled':true,'window_frames':12,'sample_count':3,'lock_pos':{'y':true}}"), out _), Is.True);
+            Assert.That(CommandInputSchemaValidator.TryValidate(loop, new JValue(true), out _), Is.True,
+                "The legacy boolean loop form remains supported.");
+            Assert.That(CommandInputSchemaValidator.TryValidate(loop, JObject.Parse(
+                "{'enabled':true,'window_frames':0}"), out _), Is.False);
             Assert.That(generate["inputSchema"]?["properties"]?["analyze"]?.Value<string>("type"), Is.EqualTo("boolean"));
             Assert.That(generate["inputSchema"]?["properties"]?["analyze"]?.Value<bool>("default"), Is.True);
             Assert.That(generate["inputSchema"]?["properties"]?["analysis_option"]?.Value<string>("type"), Is.EqualTo("object"));

@@ -805,7 +805,7 @@ namespace KimodoBridge.Editor
                 if (request.Mode == KimodoInOutConstraintMode.Outside)
                 {
                     request.EnableBegin &= before > 0;
-                    request.BeginWindowFrames = before;
+                    request.BeginWindowModelFrameCount = before;
                     request.OutputStartFrame = before;
                     request.OutputFrameCount = entry.FrameCount;
                 }
@@ -1038,6 +1038,10 @@ namespace KimodoBridge.Editor
                 hasDeferredTimelineBoundary || hasDeferredExternalBoundary;
         }
 
+        internal static bool RequiresStage1Baseline(KimodoPlayableClip clip) =>
+            clip != null &&
+            (clip.overridePathAngle || clip.overridePathDistance || clip.overrideHeading);
+
         internal static Vector3? ResolveStage1PathRootOrigin(KimodoEditorGenerateRequest stage1Request)
         {
             if (stage1Request == null)
@@ -1124,6 +1128,21 @@ namespace KimodoBridge.Editor
                 }
             }
             return lastFrame < firstFrame ? 0 : lastFrame - firstFrame + 1;
+        }
+
+        internal static int ResolveStage3WindowFrameCount(
+            int windowModelFrameCount,
+            string constraintsJson,
+            out int firstFrame,
+            out int lastFrame)
+        {
+            int sampledConstraintSpan = ResolveConstraintFrameSpan(
+                constraintsJson,
+                out firstFrame,
+                out lastFrame);
+            return windowModelFrameCount > 0
+                ? windowModelFrameCount
+                : sampledConstraintSpan;
         }
 
         private static async Task<KimodoBridgeCommandResult> GenerateWindowedRuntimeAsync(
@@ -1547,48 +1566,60 @@ namespace KimodoBridge.Editor
                 externalConstraint.DeferredOutConstraintSamples?.Count > 0;
             bool hasOutPriority = timelineOutEnabled || externalOutEnabled;
             bool generateLoop = loopRequested && !hasOutPriority;
+            bool needsStage1Baseline = RequiresStage1Baseline(clip);
             if (loopRequested && hasOutPriority)
                 Debug.LogWarning("[Kimodo][Stage 3] Loop window skipped because the Out constraint has priority.", clip);
             try
             {
-                firstRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
-                    clip,
-                    prompt,
-                    externalConstraint,
-                    token,
-                    timelineClipOverride: timelineClipOverride,
-                    generateLoopOverride: false,
-                    enableAutoBeginAnchor: !generateLoop,
-                    deferOutConstraint: clip.postApplyOutConstraint,
-                    deferInConstraint: clip.postApplyInConstraint);
-                Vector3? stage1PathRootOrigin = clip.overridePathAngle
-                    ? ResolveStage1PathRootOrigin(firstRequest)
-                    : (Vector3?)null;
-                firstRequest.AnalysisOptionsJson = string.Empty;
-                firstRequest.Progress = (stage, message) =>
-                    progress?.Invoke(stage, $"Stage 1 baseline: {message}");
-                KimodoDebugTimelineWriter.TryPrepare(clip, firstRequest, "Stage 1 Baseline");
-                string firstPassPrompt = firstRequest.Prompt?.Trim() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(firstPassPrompt))
+                int? effectiveSeed = null;
+                Vector3? stage1PathRootOrigin = null;
+                KimodoRawMotionData motion = null;
+                List<KimodoDebugConstraintPass> debugConstraintPasses =
+                    KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
+                        ? new List<KimodoDebugConstraintPass>()
+                        : null;
+                if (needsStage1Baseline)
                 {
-                    throw new InvalidOperationException("Prompt is empty.");
-                }
-                token.ThrowIfCancellationRequested();
-                KimodoBridgeCommandResult firstResult = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
-                    firstRequest,
-                    firstPassPrompt,
-                    modelName);
-                if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
-                    firstRequest.RuntimeTrimStartFrame > 0)
-                {
-                    firstResult = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+                    firstRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                        clip,
+                        prompt,
+                        externalConstraint,
+                        token,
+                        timelineClipOverride: timelineClipOverride,
+                        generateLoopOverride: false,
+                        enableAutoBeginAnchor: !generateLoop,
+                        deferOutConstraint: clip.postApplyOutConstraint,
+                        deferInConstraint: clip.postApplyInConstraint);
+                    stage1PathRootOrigin = clip.overridePathAngle
+                        ? ResolveStage1PathRootOrigin(firstRequest)
+                        : (Vector3?)null;
+                    firstRequest.AnalysisOptionsJson = string.Empty;
+                    firstRequest.Progress = (stage, message) =>
+                        progress?.Invoke(stage, $"Stage 1 baseline: {message}");
+                    KimodoDebugTimelineWriter.TryPrepare(clip, firstRequest, "Stage 1 Baseline");
+                    string firstPassPrompt = firstRequest.Prompt?.Trim() ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(firstPassPrompt))
+                    {
+                        throw new InvalidOperationException("Prompt is empty.");
+                    }
+                    token.ThrowIfCancellationRequested();
+                    KimodoBridgeCommandResult firstResult = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
                         firstRequest,
-                        firstResult,
+                        firstPassPrompt,
                         modelName);
+                    if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
+                        firstRequest.RuntimeTrimStartFrame > 0)
+                    {
+                        firstResult = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+                            firstRequest,
+                            firstResult,
+                            modelName);
+                    }
+                    token.ThrowIfCancellationRequested();
+                    effectiveSeed = firstRequest.EffectiveSeed;
+                    motion = ParseFirstPassMotion(firstRequest, firstResult, "Trajectory");
                 }
-                token.ThrowIfCancellationRequested();
 
-                int effectiveSeed = firstRequest.EffectiveSeed;
                 finalRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
                     clip,
                     prompt,
@@ -1596,50 +1627,49 @@ namespace KimodoBridge.Editor
                     token,
                     effectiveSeedOverride: effectiveSeed,
                     timelineClipOverride: timelineClipOverride,
-                    enableAutoBeginAnchor: false,
+                    enableAutoBeginAnchor: !needsStage1Baseline && !generateLoop,
                     generateLoopOverride: false,
                     deferOutConstraint: clip.postApplyOutConstraint,
                     deferInConstraint: clip.postApplyInConstraint);
                 stage2Request = finalRequest;
-                finalRequest.DebugTimelineGroup = firstRequest.DebugTimelineGroup;
-                KimodoRawMotionData motion = ParseFirstPassMotion(firstRequest, firstResult, "Trajectory");
-                var stage1 = new KimodoEditorGenerationStage(1, "Baseline", firstRequest)
+                var stage2 = new KimodoEditorGenerationStage(2, "Path and heading", finalRequest, motion);
+                if (firstRequest != null)
                 {
-                    ResultMotion = motion
-                };
-                var stage2 = new KimodoEditorGenerationStage(2, "Path and heading", finalRequest, stage1.ResultMotion);
-                KimodoPlayableClip firstDebugClip = firstRequest.DebugTimelineReservation?.TimelineClip?.asset as KimodoPlayableClip;
-                KimodoDebugTimelineWriter.TryWriteRawMotion(
-                    clip,
-                    firstRequest,
-                    firstRequest.DebugTimelineReservation,
-                    firstRequest.DebugRuntimeMotion ?? motion);
-                firstRequest.DebugTimelineReservation = null;
-                finalRequest.DebugTimelineReservation = null;
-                List<KimodoDebugConstraintPass> debugConstraintPasses =
-                    KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
-                        ? new List<KimodoDebugConstraintPass>()
-                        : null;
-                if (KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
-                {
-                    debugConstraintPasses.Add(new KimodoDebugConstraintPass
+                    finalRequest.DebugTimelineGroup = firstRequest.DebugTimelineGroup;
+                    KimodoPlayableClip firstDebugClip = firstRequest.DebugTimelineReservation?.TimelineClip?.asset as KimodoPlayableClip;
+                    KimodoDebugTimelineWriter.TryWriteRawMotion(
+                        clip,
+                        firstRequest,
+                        firstRequest.DebugTimelineReservation,
+                        firstRequest.DebugRuntimeMotion ?? motion);
+                    firstRequest.DebugTimelineReservation = null;
+                    if (KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
                     {
-                        Name = "Stage 1 Initial Constraints",
-                        AddedConstraintsJson = firstRequest.Constraints?.json ?? string.Empty,
-                        CombinedConstraintsJson = firstRequest.Constraints?.json ?? string.Empty,
-                        ModelName = modelName,
-                        FrameRate = Mathf.RoundToInt(firstRequest.TargetFrameRate),
-                        FrameCount = firstRequest.EffectiveRuntimeFrameCount,
-                    DebugClipTarget = firstDebugClip
-                    });
+                        debugConstraintPasses = new List<KimodoDebugConstraintPass>
+                        {
+                            new KimodoDebugConstraintPass
+                            {
+                                Name = "Stage 1 Initial Constraints",
+                                AddedConstraintsJson = firstRequest.Constraints?.json ?? string.Empty,
+                                CombinedConstraintsJson = firstRequest.Constraints?.json ?? string.Empty,
+                                ModelName = modelName,
+                                FrameRate = Mathf.RoundToInt(firstRequest.TargetFrameRate),
+                                FrameCount = firstRequest.EffectiveRuntimeFrameCount,
+                                DebugClipTarget = firstDebugClip
+                            }
+                        };
+                    }
+                    stage2.AddPass(new KimodoEditorGenerationPass(
+                        "Stage 1 constraint inheritance",
+                        _ => ShiftConstraintFrames(
+                            firstRequest.Constraints.json,
+                            finalRequest.RuntimeTrimStartFrame - firstRequest.RuntimeTrimStartFrame,
+                            finalRequest.EffectiveRuntimeFrameCount)));
                 }
-                string inheritedStage1Constraints = ShiftConstraintFrames(
-                    firstRequest.Constraints.json,
-                    finalRequest.RuntimeTrimStartFrame - firstRequest.RuntimeTrimStartFrame,
-                    finalRequest.EffectiveRuntimeFrameCount);
-                stage2.AddPass(new KimodoEditorGenerationPass(
-                    "Stage 1 constraint inheritance",
-                    _ => inheritedStage1Constraints));
+                finalRequest.DebugTimelineReservation = null;
+                debugConstraintPasses ??= KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips
+                    ? new List<KimodoDebugConstraintPass>()
+                    : null;
                 if (clip.overridePathAngle)
                 {
                     stage2.AddPass(new KimodoEditorGenerationPass("Path Angle", currentConstraints =>
@@ -1818,10 +1848,16 @@ namespace KimodoBridge.Editor
                 }
                 string stage2InWindowJson = stage2Request.InConstraintWindowJson;
                 string stage2OutWindowJson = stage2Request.OutConstraintWindowJson;
-                int inWindowFrames = ResolveConstraintFrameSpan(
-                    stage2InWindowJson, out int firstInFrame, out _);
-                int outWindowFrames = ResolveConstraintFrameSpan(
-                    stage2OutWindowJson, out int firstOutFrame, out _);
+                int inWindowFrames = ResolveStage3WindowFrameCount(
+                    stage2Request.InConstraintWindowModelFrameCount,
+                    stage2InWindowJson,
+                    out int firstInFrame,
+                    out _);
+                int outWindowFrames = ResolveStage3WindowFrameCount(
+                    stage2Request.OutConstraintWindowModelFrameCount,
+                    stage2OutWindowJson,
+                    out int firstOutFrame,
+                    out _);
                 int stage3TargetFrameCount = stage2Request.TargetFrameCount +
                     inWindowFrames + outWindowFrames + loopWindowFrames;
                 double stage3DurationSeconds =
@@ -1838,7 +1874,10 @@ namespace KimodoBridge.Editor
                     enableAutoBeginAnchor: false,
                     generateLoopOverride: false,
                     deferOutConstraint: clip.postApplyOutConstraint,
-                    deferInConstraint: clip.postApplyInConstraint);
+                    deferInConstraint: clip.postApplyInConstraint,
+                    // Stage 3 already includes the windows in its target duration;
+                    // keep their constraints, but do not add the same windows again as context.
+                    disableOutsideContextExpansion: true);
                 finalRequest.DebugTimelineGroup = stage2Request.DebugTimelineGroup;
                 int stage2BaseStartFrame = finalRequest.RuntimeTrimStartFrame + inWindowFrames;
                 finalRequest.InConstraintWindowJson = inWindowFrames > 0
@@ -2131,18 +2170,17 @@ namespace KimodoBridge.Editor
             out int windowFrameCount,
             out int sampleCount)
         {
-            int requestedCommandWindow = Mathf.Max(1, clip?.loopWindowFrames ?? 30);
+            int requestedCommandWindow = Mathf.Max(1, clip?.loopWindowFrames60 ?? 30);
             double modelFrameRate = sourceRequest != null && sourceRequest.TargetFrameRate > 0f
                 ? sourceRequest.TargetFrameRate
                 : sourceMotion != null && sourceMotion.FrameRate > 0f
                     ? sourceMotion.FrameRate
                     : KimodoMotionModelProfiles.DefaultFrameRate;
-            int requestedWindow = Mathf.Max(
-                1,
-                KimodoFrameTimeUtility.CommandFramesToModelFrameCount(
-                    requestedCommandWindow,
-                    modelFrameRate));
-            int requestedSamples = Mathf.Max(1, clip?.loopWindowSampleCount ?? 2);
+            var windowSpec = new KimodoFrameWindow(
+                requestedCommandWindow,
+                Mathf.Max(1, clip?.loopWindowSampleCount ?? 2));
+            int requestedWindow = Mathf.Max(1, windowSpec.ResolveModelFrameCount(modelFrameRate));
+            int requestedSamples = windowSpec.SampleCount;
             sourceStartFrame = KimodoRawMotionConstraintBuilder.ResolveLoopAnchorFrameForGeneration(sourceMotion);
             int animationFrameCount = Mathf.Max(1, sourceMotion?.FrameCount ?? sourceRequest?.TargetFrameCount ?? 1);
             int usableWindowFrames = Mathf.Max(1, Mathf.FloorToInt(
@@ -2177,29 +2215,25 @@ namespace KimodoBridge.Editor
             out int overlapFrames,
             out int sampleCount)
         {
-            int requestedFrames = Mathf.Max(2, request?.LongClipWindowFrames ?? 30);
-            int maximumOverlap = Mathf.Max(2, maxRequestFrames - Mathf.Max(1, minimumCoreFrames));
-            if (maximumOverlap % 2 != 0)
-                maximumOverlap--;
+            int requestedCommandFrames60 = Mathf.Max(1, request?.LongClipWindowFrames60 ?? 60);
+            var windowSpec = new KimodoFrameWindow(
+                requestedCommandFrames60,
+                Mathf.Max(1, request?.LongClipWindowSampleCount ?? 2));
+            int requestedFrames = Mathf.Max(1, windowSpec.ResolveModelFrameCount(
+                request?.TargetFrameRate > 0f ? request.TargetFrameRate : KimodoMotionModelProfiles.DefaultFrameRate));
+            int maximumOverlap = Mathf.Max(1, maxRequestFrames - Mathf.Max(1, minimumCoreFrames));
 
-            if ((requestedFrames & 1) != 0)
-            {
-                int normalized = Mathf.Max(2, requestedFrames - 1);
-                Debug.LogWarning(
-                    $"[Kimodo][Long Clip] Window frames={requestedFrames} must be even for symmetric overlap; using {normalized}.",
-                    request?.TimelineClipSnapshot?.asset);
-                requestedFrames = normalized;
-            }
-
-            overlapFrames = Mathf.Clamp(requestedFrames, 2, maximumOverlap);
+            overlapFrames = Mathf.Clamp(requestedFrames, 1, maximumOverlap);
             if (overlapFrames != requestedFrames)
             {
                 Debug.LogWarning(
-                    $"[Kimodo][Long Clip] Window frames={requestedFrames} exceed the available request range; clamped to {overlapFrames}.",
+                    $"[Kimodo][Long Clip] Window of {requestedCommandFrames60} command frames " +
+                    $"({requestedFrames} model frames) exceeds the available request range; " +
+                    $"clamped to {overlapFrames} model frames.",
                     request?.TimelineClipSnapshot?.asset);
             }
 
-            int requestedSamples = Mathf.Max(1, request?.LongClipWindowSampleCount ?? 2);
+            int requestedSamples = windowSpec.SampleCount;
             sampleCount = Mathf.Clamp(requestedSamples, 1, overlapFrames);
             if (sampleCount != requestedSamples)
             {

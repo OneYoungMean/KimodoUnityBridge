@@ -619,4 +619,33 @@ namespace KimodoBridge
             return merged;
         }
     }
+
+    /// <summary>A window duration entered at command 60 FPS and resolved at a model frame rate.</summary>
+    public struct KimodoFrameWindow
+    {
+        public int FrameCount60 { get; }
+        public int SampleCount { get; }
+        public double DurationSeconds => Math.Max(0, FrameCount60) / KimodoFrameTimeUtility.CommandFrameRate;
+
+        public KimodoFrameWindow(int frameCount60, int sampleCount)
+        {
+            FrameCount60 = Math.Max(0, frameCount60);
+            SampleCount = Math.Max(0, sampleCount);
+        }
+
+        public int ResolveModelFrameCount(double modelFrameRate) =>
+            KimodoFrameTimeUtility.SecondsToFrameCount(DurationSeconds, modelFrameRate);
+
+        public static int ModelFrameCountToCommandFrameCount60(int modelFrameCount, double modelFrameRate)
+        {
+            if (modelFrameCount <= 0 || double.IsNaN(modelFrameRate) ||
+                double.IsInfinity(modelFrameRate) || modelFrameRate <= 0.0)
+                return 0;
+            // Preserve existing serialized durations during the unit migration.
+            return KimodoFrameTimeUtility.SecondsToFrameCount(
+                modelFrameCount / modelFrameRate,
+                KimodoFrameTimeUtility.CommandFrameRate);
+        }
+
+    }
 }

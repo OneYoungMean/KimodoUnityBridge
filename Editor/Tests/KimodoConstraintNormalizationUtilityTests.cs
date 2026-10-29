@@ -27,7 +27,7 @@ namespace KimodoBridge.Editor.Tests
                 var request = new KimodoInOutConstraintRequest
                 {
                     Mode = mode, EnableBegin = true, EnableEnd = true, GenerationFrames = 74,
-                    BeginWindowFrames = 7, EndWindowFrames = 7, BeginSampleCount = 4, EndSampleCount = 4,
+                    BeginWindowModelFrameCount = 7, EndWindowModelFrameCount = 7, BeginSampleCount = 4, EndSampleCount = 4,
                     TimelineContext = new KimodoTimelineInOutConstraintContext
                     { SourceClip = current, PreviousTimelineClip = previous, NextTimelineClip = next, Track = track }
                 };
@@ -58,7 +58,7 @@ namespace KimodoBridge.Editor.Tests
                 var current = track.CreateClip<KimodoPlayableClip>(); current.start = 0.1; current.duration = 1;
                 var playable = (KimodoPlayableClip)current.asset;
                 playable.inOutConstraintMode = KimodoInOutConstraintMode.Outside;
-                playable.inConstraintWindowFrames = 100;
+                playable.inConstraintWindowFrames60 = 100;
                 playable.inConstraintSampleCount = 100;
                 KimodoInOutConstraintTools.ResolveOutsideContextFrames(current, out int before, out int after);
                 Assert.That(before, Is.EqualTo(3));

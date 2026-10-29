@@ -15,7 +15,8 @@ namespace KimodoUnityBridge.Command
     {
         internal sealed class CommandInOutWindow
         {
-            public int FrameCount;
+            public int CommandFrameCount60;
+            public int ModelFrameCount;
             public double[] SourceTimes;
             public int[] OutputFrames;
             public double SourceWindowStartSeconds;
@@ -38,7 +39,7 @@ namespace KimodoUnityBridge.Command
             int count = side["sample_count"] == null ? 1 : RequiredNonNegativeFrame(side, "sample_count");
             if (requested < 1 || requested / SessionFrameRate * fps > KimodoMotionModelProfiles.MaxGenerationFrames)
                 throw new InvalidOperationException("inout.window_frames must be positive and fit the model frame limit.");
-            int frames = Math.Max(1, (int)Math.Ceiling(requested / SessionFrameRate * fps - 1e-6));
+            int frames = new KimodoFrameWindow(requested, count).ResolveModelFrameCount(fps);
             if (count < 1 || count > frames)
                 throw new InvalidOperationException($"inout.sample_count must be within [1,{frames}] after conversion to model FPS; duplicate sample frames are not allowed.");
             if (inside && frames > targetFrames)
@@ -57,11 +58,12 @@ namespace KimodoUnityBridge.Command
             int[] indices = KimodoInOutConstraintTools.BuildWindowSampleFrames(frames, count, forward);
             return new CommandInOutWindow
             {
-                FrameCount = frames,
+                CommandFrameCount60 = requested,
+                ModelFrameCount = frames,
                 SourceTimes = indices.Select(i => Math.Max(0, first) + i / (double)fps).ToArray(),
                 OutputFrames = indices.Select(i => start + i).ToArray(),
                 SourceWindowStartSeconds = first,
-                SourceWindowDurationSeconds = frames / (double)fps
+                SourceWindowDurationSeconds = requested / SessionFrameRate
             };
         }
 
@@ -181,8 +183,8 @@ namespace KimodoUnityBridge.Command
 
                 if (!inside)
                 {
-                    if (isIn) contextBefore = window.FrameCount;
-                    else contextAfter = window.FrameCount;
+                    if (isIn) contextBefore = window.ModelFrameCount;
+                    else contextAfter = window.ModelFrameCount;
                 }
 
                 if (playableClip != null)
@@ -191,7 +193,7 @@ namespace KimodoUnityBridge.Command
                     {
                         playableClip.enableInConstraint = true;
                         playableClip.postApplyInConstraint = postApply;
-                        playableClip.inConstraintWindowFrames = window.FrameCount;
+                        playableClip.inConstraintWindowFrames60 = window.CommandFrameCount60;
                         playableClip.inConstraintSampleCount = window.SourceTimes.Length;
                         playableClip.inConstraintSourceTrack = animation.TimelineClip.GetParentTrack();
                         playableClip.inConstraintSourceAsset = animation.TimelineClip.asset as PlayableAsset;
@@ -204,7 +206,7 @@ namespace KimodoUnityBridge.Command
                     {
                         playableClip.enableOutConstraint = true;
                         playableClip.postApplyOutConstraint = postApply;
-                        playableClip.outConstraintWindowFrames = window.FrameCount;
+                        playableClip.outConstraintWindowFrames60 = window.CommandFrameCount60;
                         playableClip.outConstraintSampleCount = window.SourceTimes.Length;
                         playableClip.outConstraintSourceTrack = animation.TimelineClip.GetParentTrack();
                         playableClip.outConstraintSourceAsset = animation.TimelineClip.asset as PlayableAsset;
@@ -219,7 +221,7 @@ namespace KimodoUnityBridge.Command
                 {
                     ["source"] = new JObject { ["character"] = sourceCharacter.Name, ["clip"] = animation.Name },
                     ["window_frames"] = side.Value<int?>("window_frames") ?? 1,
-                    ["model_window_frames"] = window.FrameCount,
+                    ["model_window_frames"] = window.ModelFrameCount,
                     ["sample_count"] = window.SourceTimes.Length,
                     ["post_apply"] = postApply,
                     ["source_frames_60"] = new JArray(window.SourceTimes.Select(time =>
@@ -230,7 +232,7 @@ namespace KimodoUnityBridge.Command
                 };
             }
 
-            if (inside && plans.Sum(plan => plan.Window.FrameCount) > targetFrames &&
+            if (inside && plans.Sum(plan => plan.Window.ModelFrameCount) > targetFrames &&
                 plans.Any(plan => plan.Window.SourceTimes.Length > 1))
             {
                 throw new InvalidOperationException("Inside In/Out windows overlap.");
@@ -319,14 +321,14 @@ namespace KimodoUnityBridge.Command
                 else request.DeferOutConstraint = postApply;
                 if (mode == "outside")
                 {
-                    if (key == "in") request.ContextBeforeFrames = window.FrameCount;
-                    else request.ContextAfterFrames = window.FrameCount;
+                    if (key == "in") request.ContextBeforeFrames = window.ModelFrameCount;
+                    else request.ContextAfterFrames = window.ModelFrameCount;
                 }
                 diagnostics[key] = new JObject
                 {
                     ["source"] = new JObject { ["character"] = character.Name, ["clip"] = animation.Name },
                     ["window_frames"] = side.Value<int?>("window_frames") ?? 1,
-                    ["model_window_frames"] = window.FrameCount,
+                    ["model_window_frames"] = window.ModelFrameCount,
                     ["sample_count"] = window.SourceTimes.Length,
                     ["post_apply"] = postApply,
                     ["source_frames_60"] = new JArray(window.SourceTimes.Select(t => Mathf.RoundToInt((float)(t * SessionFrameRate)))),
@@ -335,7 +337,7 @@ namespace KimodoUnityBridge.Command
                     ["output_model_frames"] = new JArray(window.OutputFrames)
                 };
             }
-            if (mode == "inside" && plans.Sum(p => p.Window.FrameCount) > targetFrames &&
+            if (mode == "inside" && plans.Sum(p => p.Window.ModelFrameCount) > targetFrames &&
                 plans.Any(p => p.Window.SourceTimes.Length > 1))
                 throw new InvalidOperationException("Inside In/Out windows overlap.");
             int runtimeFrames = targetFrames + request.ContextBeforeFrames + request.ContextAfterFrames;

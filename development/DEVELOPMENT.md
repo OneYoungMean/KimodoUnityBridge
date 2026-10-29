@@ -48,13 +48,13 @@ This is the accepted development design for the root-motion and trajectory clean
 
 ### Stage 1: baseline generation and distance source
 
-Stage 1 always runs first. It generates the baseline motion from the Clip constraints and all non-`post_apply` In/Out constraints. It also provides the root samples used to calculate the measured path distance. The measured distance is the sum of every adjacent root XZ delta across the complete Stage 1 motion.
+Stage 1 runs only when a Stage 2 PathAngle, PathDistance, or Heading pass needs baseline motion. It generates motion from the Clip constraints and all non-`post_apply` In/Out constraints. PathAngle uses its measured root-path length when no distance override is set; PathDistance scales the baseline Root2D trajectory; Heading samples baseline headings. The measured path distance is the sum of every adjacent root XZ delta across the complete Stage 1 motion.
 
-When no Stage 2 condition is enabled, this result is finalized directly. There is no standalone Stage 3 request.
+When a Stage 2 condition is enabled but no path pass needs baseline motion (Loop or deferred In/Out only), Stage 1 is skipped and Stage 2 builds its initial constraints directly. When no Stage 2 condition is enabled, the ordinary generation result is finalized directly. There is no standalone Stage 3 request.
 
 ### Stage 2: Root2D and path passes
 
-Stage 2 runs when Loop, a `post_apply` In/Out boundary, path-angle override, path-distance override, or heading override is enabled. It inherits the complete Stage 1 constraint set and motion.
+Stage 2 runs when Loop, a `post_apply` In/Out boundary, path-angle override, path-distance override, or heading override is enabled. When Stage 1 ran, Stage 2 inherits its complete constraint set and motion; otherwise Stage 2 starts from its own initial constraint set. Path passes run only when their required Stage 1 motion is available.
 
 - An explicit distance override is used even when its value is `0`; otherwise use the Stage 1 delta-sum distance.
 - A path-angle override replaces the effective Root2D channel with its two endpoint pass and the generated spline rows. Relative Offset supplies the origin when enabled; otherwise Auto Begin supplies the origin when it is the effective frame-0 anchor.
@@ -69,8 +69,9 @@ Stage 3 runs only when Stage 2 produced a loop or deferred boundary window, or w
 - FullBody and Effector root positions are interpolated from Stage 2 motion only when path-angle override is active. Their pose and target channels are preserved.
 - When heading override is active, all already-effective Root2D, FullBody, and Effector headings are updated, including constraints inherited from Stage 2.
 - Post-apply In/Out windows are anchored by the earliest constraint in each window and are placed around the core Stage 2 content. Window payloads are carried separately from ordinary deferred fields so Stage 3 can apply the requested re-anchoring policy. Loop and Out windows are mutually exclusive; Out has priority.
+- Stage 3 owns the final target duration after window placement. Its generation request disables only automatic Outside context expansion, because the resolved In/Out windows are already included in the Stage 3 target and are shifted explicitly into that request; constraint sampling and inherited Clip constraints remain enabled.
 - The loop window begins at the selected loop keyframe, is appended after the core content without overlap, and preserves its configured frame/sample mapping. The duration is extended to cover the appended window.
-- The copied tail window is planar-reanchored from the source window's first sample to the Stage 2 terminal root. Loop Lock Pos/Rot selectively overrides the corresponding position axes and root rotation components after that offset.
+- The copied tail window is uniformly re-anchored from the source window's first sample to the Stage 2 terminal root with the complete locked Transform: a three-dimensional translation plus one rigid quaternion rotation. Loop Lock Pos/Rot is resolved once on that target anchor before the transform is derived; copied constraints receive only the resulting uniform rigid transform and are never individually axis-locked.
 - When PathAngle and Loop are both active, the Loop pass computes that window anchor first, then uses the PathAngle terminal Root2D value as the target anchor and removes the terminal PathAngle Root2D sample before appending the Loop window.
 
 The contact-exchange selector remains available for later activation, but the current approved rollout anchors Stage 3 at frame `0`:
@@ -84,11 +85,12 @@ The loop In/Out window uses the configured total window frame count and sample c
 
 - The window frame count describes the complete temporal width of the window.
 - The sample count describes the number of constraints sampled inside that window.
-- The Inspector exposes these Stage 3 values as `Loop Window Frames (60 FPS)` and `Loop Window Samples`, defaulting to `30` and `2`; the frame value is always a 60-FPS command-frame count and is converted to model frames with ceiling before sampling. They are independent from the legacy In/Out boundary sampling fields.
+- Stage 3 duration and core offsets use the resolved full window width in model frames, not the span of the exported sample indices; a one-sample window still reserves its full configured duration.
+- The Inspector exposes these Stage 3 values as `Loop Window Frames (60 FPS)` and `Loop Window Samples`, defaulting to `30` and `2`; the frame value is always a 60-FPS command-frame count and is converted to model frames with ceiling before sampling. In/Out and long-clip windows use the same 60-FPS duration contract; their old serialized model-frame values are migrated once while loop values retain their existing 60-FPS meaning.
 - For example, `30` means `0.5` seconds: it becomes `15` model frames at 30 FPS, `13` at 25 FPS, and `10` at 20 FPS.
 - The usable window span is limited to `floor(animationFrameCount * (sampleCount - 1) / sampleCount)`. If the requested window exceeds that limit, clamp it and emit a warning; the minimum effective span is one frame.
 - Use the start window's first sample as the loop anchor. Copy the start window to the tail without overlap, beginning at the frame immediately after the original final frame.
-- At the start and tail endpoints, set Root2D headings from the Stage 2 motion; if an endpoint has no Root2D constraint, sample its position and heading from Stage 2. Apply the existing per-axis Loop Lock Pos/Rot options at the copied tail endpoint: locked position axes and root-rotation components match the first window sample, while unlocked components keep the sampled tail values.
+- At the start and tail endpoints, set Root2D headings from the Stage 2 motion; if an endpoint has no Root2D constraint, sample its position and heading from Stage 2. Resolve the target anchor with the existing Loop Lock Pos/Rot options, then apply the resulting uniform rigid Transform to the copied window. Do not apply lock axes directly to any copied endpoint or interior constraint.
 - Extend the target duration so the generated animation covers the original content and the appended window.
 - Preserve the window's frame spacing and sample count after the duration extension.
 
@@ -105,6 +107,6 @@ The old three-second loop trajectory sampling rule is not part of this design an
 
 ### Long-clip window controls (2026-10-28)
 
-- Advanced Inspector settings `Window Frames` and `Sample Count` configure the overlap retained when a long animation is split into multiple generation requests. Their serialized defaults are `30` model-rate frames and `2` evenly spaced FullBody samples.
-- The overlap frame count is normalized to an even value so adjacent requests keep symmetric padding. Values that cannot fit the model request limit or the overlap are clamped with a warning.
+- Advanced Inspector settings `Window Frames (60 FPS)` and `Sample Count` configure the overlap retained when a long animation is split into multiple generation requests. The serialized default is `60` command frames (one second at 60 FPS, equivalent to the former 30 frames at the default 30 FPS model rate), converted to model frames before planning, with `2` evenly spaced FullBody samples.
+- The overlap duration is converted once to model frames; values that cannot fit the model request limit or the overlap are clamped with a warning. No even-frame normalization is applied.
 - The configured sample count is used to select evenly spaced FullBody frames from the previous window and map them to the current window's overlap. Existing callers of the helper retain the two-endpoint default.

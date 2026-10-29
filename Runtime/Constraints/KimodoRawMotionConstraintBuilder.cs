@@ -424,9 +424,20 @@ namespace KimodoBridge
             projectedDelta.y = 0f;
             Vector3 projectedTerminalRoot = first.rootPosition + projectedDelta;
             Vector3 terminalRoot = new Vector3(
-                lockPositionX ? first.rootPosition.x : projectedTerminalRoot.x,
-                lockPositionY ? first.rootPosition.y : tail.rootPosition.y,
-                lockPositionZ ? first.rootPosition.z : projectedTerminalRoot.z);
+                projectedTerminalRoot.x,
+                tail.rootPosition.y,
+                projectedTerminalRoot.z);
+            Quaternion terminalHeading = tailRotation;
+            ApplyLoopAnchorAxisLocks(
+                first,
+                ref terminalRoot,
+                ref terminalHeading,
+                lockPositionX,
+                lockPositionY,
+                lockPositionZ,
+                lockRotationX,
+                lockRotationY,
+                lockRotationZ);
             Vector3 planarDelta = terminalRoot - first.rootPosition;
             planarDelta.y = 0f;
             float headRatio = runtimeTrimStartFrame / (float)targetFrameCount;
@@ -437,7 +448,7 @@ namespace KimodoBridge
             virtualTailPosition.y = terminalRoot.y;
 
             float firstYaw = KimodoMotionMath.ResolvePlanarYawDegrees(firstRotation);
-            float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(tailRotation);
+            float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(terminalHeading);
             float yawDelta = Mathf.DeltaAngle(firstYaw, tailYaw);
             Quaternion virtualHeadHeading = Quaternion.Euler(0f, firstYaw - yawDelta * headRatio, 0f);
             Quaternion virtualTailHeading = Quaternion.Euler(0f, tailYaw + yawDelta * tailRatio, 0f);
@@ -446,19 +457,8 @@ namespace KimodoBridge
             KimodoConstraintInternalData terminal = first.Clone();
             terminal.sampleTime = terminalFrame / (double)frameRate;
             terminal.rootPosition = terminalRoot;
-            Quaternion firstYawRotation = Quaternion.Euler(0f, firstYaw, 0f);
-            Quaternion tailYawRotation = Quaternion.Euler(0f, tailYaw, 0f);
-            Quaternion firstTilt = Quaternion.Inverse(firstYawRotation) * firstRotation;
-            Quaternion tailTilt = Quaternion.Inverse(tailYawRotation) * tailRotation;
-            Vector3 firstTiltEuler = ToSignedEuler(firstTilt);
-            Vector3 tailTiltEuler = ToSignedEuler(tailTilt);
-            Quaternion terminalTilt = Quaternion.Euler(
-                lockRotationX ? firstTiltEuler.x : tailTiltEuler.x,
-                0f,
-                lockRotationZ ? firstTiltEuler.z : tailTiltEuler.z);
-            Quaternion terminalYaw = Quaternion.Euler(0f, lockRotationY ? firstYaw : tailYaw, 0f);
-            terminal.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
-                terminalYaw * terminalTilt);
+            terminal.localJointAxisAngles[0] =
+                KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(terminalHeading);
 
             var constraints = new JArray
             {
@@ -540,19 +540,19 @@ namespace KimodoBridge
                 sourceSamples[0],
                 targetAnchorPositionOverride,
                 targetAnchorHeadingOverride,
+                lockPositionX,
+                lockPositionY,
+                lockPositionZ,
+                lockRotationX,
+                lockRotationY,
+                lockRotationZ,
                 out Vector3 targetAnchorPosition,
                 out Quaternion targetAnchorHeading);
             ApplyLoopAnchorOffset(
                 sourceSamples[0],
                 tailSamples,
                 targetAnchorPosition,
-                targetAnchorHeading,
-                lockPositionX,
-                lockPositionY,
-                lockPositionZ,
-                lockRotationX,
-                lockRotationY,
-                lockRotationZ);
+                targetAnchorHeading);
             var samples = new List<KimodoConstraintInternalData>(sampleCount * 2);
             samples.AddRange(sourceSamples);
             samples.AddRange(tailSamples);
@@ -616,19 +616,19 @@ namespace KimodoBridge
                 sourceStart,
                 targetAnchorPositionOverride,
                 targetAnchorHeadingOverride,
+                lockPositionX,
+                lockPositionY,
+                lockPositionZ,
+                lockRotationX,
+                lockRotationY,
+                lockRotationZ,
                 out Vector3 targetAnchorPosition,
                 out Quaternion targetAnchorHeading);
             ApplyLoopAnchorOffset(
                 sourceStart,
                 new List<KimodoConstraintInternalData> { sourceTail },
                 targetAnchorPosition,
-                targetAnchorHeading,
-                lockPositionX,
-                lockPositionY,
-                lockPositionZ,
-                lockRotationX,
-                lockRotationY,
-                lockRotationZ);
+                targetAnchorHeading);
 
             int[] endpointFrames = { sourceOutputStartFrame, tailOutputFrame };
             KimodoConstraintInternalData[] endpointSamples = { sourceStart, sourceTail };
@@ -795,6 +795,12 @@ namespace KimodoBridge
             KimodoConstraintInternalData sourceAnchor,
             Vector3? targetAnchorPositionOverride,
             Quaternion? targetAnchorHeadingOverride,
+            bool lockPositionX,
+            bool lockPositionY,
+            bool lockPositionZ,
+            bool lockRotationX,
+            bool lockRotationY,
+            bool lockRotationZ,
             out Vector3 targetPosition,
             out Quaternion targetHeading)
         {
@@ -818,51 +824,11 @@ namespace KimodoBridge
             }
             if (targetAnchorHeadingOverride.HasValue)
                 targetHeading = targetAnchorHeadingOverride.Value;
-        }
 
-        private static void ApplyLoopAnchorOffset(
-            KimodoConstraintInternalData sourceAnchor,
-            List<KimodoConstraintInternalData> tailSamples,
-            Vector3 targetAnchorPosition,
-            Quaternion targetAnchorHeading,
-            bool lockPositionX,
-            bool lockPositionY,
-            bool lockPositionZ,
-            bool lockRotationX,
-            bool lockRotationY,
-            bool lockRotationZ)
-        {
-            if (sourceAnchor == null || tailSamples == null || tailSamples.Count == 0) return;
-            Quaternion sourceHeading = ResolveRootRotation(sourceAnchor);
-            Quaternion sourceYaw = KimodoMotionMath.ResolvePlanarHeading(sourceHeading);
-            Quaternion targetYaw = lockRotationY
-                ? sourceYaw
-                : KimodoMotionMath.ResolvePlanarHeading(targetAnchorHeading);
-            Quaternion planarOffset = targetYaw * Quaternion.Inverse(sourceYaw);
-            Vector3 selectedTarget = targetAnchorPosition;
-            if (lockPositionX) selectedTarget.x = sourceAnchor.rootPosition.x;
-            if (lockPositionZ) selectedTarget.z = sourceAnchor.rootPosition.z;
-            Vector3 sourcePlanar = sourceAnchor.rootPosition;
-            sourcePlanar.y = 0f;
-            Vector3 targetPlanar = selectedTarget;
-            targetPlanar.y = 0f;
-            Vector3 translation = targetPlanar - planarOffset * sourcePlanar;
-            float verticalOffset = lockPositionY
-                ? 0f
-                : targetAnchorPosition.y - sourceAnchor.rootPosition.y;
-            foreach (KimodoConstraintInternalData tail in tailSamples)
-            {
-                if (tail == null) continue;
-                float verticalPosition = tail.rootPosition.y + verticalOffset;
-                tail.rootPosition = planarOffset * tail.rootPosition + translation;
-                tail.rootPosition.y = verticalPosition;
-                if (tail.localJointAxisAngles == null || tail.localJointAxisAngles.Count == 0) continue;
-                Quaternion rootRotation = planarOffset * ResolveRootRotation(tail);
-                tail.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rootRotation);
-            }
-            ApplyLoopAxisLocks(
+            ApplyLoopAnchorAxisLocks(
                 sourceAnchor,
-                tailSamples[tailSamples.Count - 1],
+                ref targetPosition,
+                ref targetHeading,
                 lockPositionX,
                 lockPositionY,
                 lockPositionZ,
@@ -871,9 +837,33 @@ namespace KimodoBridge
                 lockRotationZ);
         }
 
-        private static void ApplyLoopAxisLocks(
-            KimodoConstraintInternalData start,
-            KimodoConstraintInternalData tail,
+        private static void ApplyLoopAnchorOffset(
+            KimodoConstraintInternalData sourceAnchor,
+            List<KimodoConstraintInternalData> tailSamples,
+            Vector3 targetAnchorPosition,
+            Quaternion targetAnchorHeading)
+        {
+            if (sourceAnchor == null || tailSamples == null || tailSamples.Count == 0) return;
+            Quaternion sourceHeading = ResolveRootRotation(sourceAnchor);
+            // Apply one anchor-derived rigid transform to the entire copied window.
+            // Axis locks have already adjusted the target anchor above; no individual
+            // copied constraint receives a separate endpoint override.
+            Quaternion rotationOffset = targetAnchorHeading * Quaternion.Inverse(sourceHeading);
+            Vector3 translation = targetAnchorPosition - rotationOffset * sourceAnchor.rootPosition;
+            foreach (KimodoConstraintInternalData tail in tailSamples)
+            {
+                if (tail == null) continue;
+                tail.rootPosition = rotationOffset * tail.rootPosition + translation;
+                if (tail.localJointAxisAngles == null || tail.localJointAxisAngles.Count == 0) continue;
+                Quaternion rootRotation = rotationOffset * ResolveRootRotation(tail);
+                tail.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(rootRotation);
+            }
+        }
+
+        private static void ApplyLoopAnchorAxisLocks(
+            KimodoConstraintInternalData sourceAnchor,
+            ref Vector3 targetPosition,
+            ref Quaternion targetHeading,
             bool lockPositionX,
             bool lockPositionY,
             bool lockPositionZ,
@@ -881,32 +871,31 @@ namespace KimodoBridge
             bool lockRotationY,
             bool lockRotationZ)
         {
-            if (start == null || tail == null) return;
-            if (lockPositionX) tail.rootPosition.x = start.rootPosition.x;
-            if (lockPositionY) tail.rootPosition.y = start.rootPosition.y;
-            if (lockPositionZ) tail.rootPosition.z = start.rootPosition.z;
+            if (sourceAnchor == null) return;
+            if (lockPositionX) targetPosition.x = sourceAnchor.rootPosition.x;
+            if (lockPositionY) targetPosition.y = sourceAnchor.rootPosition.y;
+            if (lockPositionZ) targetPosition.z = sourceAnchor.rootPosition.z;
             if ((!lockRotationX && !lockRotationY && !lockRotationZ) ||
-                tail.localJointAxisAngles == null || tail.localJointAxisAngles.Count == 0 ||
-                start.localJointAxisAngles == null || start.localJointAxisAngles.Count == 0)
+                sourceAnchor.localJointAxisAngles == null || sourceAnchor.localJointAxisAngles.Count == 0)
             {
                 return;
             }
 
-            Quaternion startRotation = ResolveRootRotation(start);
-            Quaternion tailRotation = ResolveRootRotation(tail);
-            float startYaw = KimodoMotionMath.ResolvePlanarYawDegrees(startRotation);
-            float tailYaw = KimodoMotionMath.ResolvePlanarYawDegrees(tailRotation);
-            Quaternion startTilt = Quaternion.Inverse(Quaternion.Euler(0f, startYaw, 0f)) * startRotation;
-            Quaternion tailTilt = Quaternion.Inverse(Quaternion.Euler(0f, tailYaw, 0f)) * tailRotation;
-            Vector3 startTiltEuler = ToSignedEuler(startTilt);
-            Vector3 tailTiltEuler = ToSignedEuler(tailTilt);
-            Quaternion terminalTilt = Quaternion.Euler(
-                lockRotationX ? startTiltEuler.x : tailTiltEuler.x,
+            Quaternion sourceRotation = ResolveRootRotation(sourceAnchor);
+            float sourceYaw = KimodoMotionMath.ResolvePlanarYawDegrees(sourceRotation);
+            float targetYaw = KimodoMotionMath.ResolvePlanarYawDegrees(targetHeading);
+            Quaternion sourceTilt = Quaternion.Inverse(Quaternion.Euler(0f, sourceYaw, 0f)) * sourceRotation;
+            Quaternion targetTilt = Quaternion.Inverse(Quaternion.Euler(0f, targetYaw, 0f)) * targetHeading;
+            Vector3 sourceTiltEuler = ToSignedEuler(sourceTilt);
+            Vector3 targetTiltEuler = ToSignedEuler(targetTilt);
+            Quaternion lockedTilt = Quaternion.Euler(
+                lockRotationX ? sourceTiltEuler.x : targetTiltEuler.x,
                 0f,
-                lockRotationZ ? startTiltEuler.z : tailTiltEuler.z);
-            Quaternion terminalYaw = Quaternion.Euler(0f, lockRotationY ? startYaw : tailYaw, 0f);
-            tail.localJointAxisAngles[0] = KimodoConstraintRotationUtility.QuaternionToAxisAngleVector(
-                terminalYaw * terminalTilt);
+                lockRotationZ ? sourceTiltEuler.z : targetTiltEuler.z);
+            targetHeading = Quaternion.Euler(
+                0f,
+                lockRotationY ? sourceYaw : targetYaw,
+                0f) * lockedTilt;
         }
 
         private static JArray BuildSampledRoot2DHeadings(

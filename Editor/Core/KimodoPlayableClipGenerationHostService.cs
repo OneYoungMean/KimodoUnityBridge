@@ -29,12 +29,17 @@ namespace KimodoBridge.Editor
             bool? generateLoopOverride = null,
             bool deferOutConstraint = false,
             bool deferInConstraint = false,
-            double? targetDurationSecondsOverride = null)
+            double? targetDurationSecondsOverride = null,
+            bool disableOutsideContextExpansion = false)
         {
             if (clip == null)
             {
                 throw new InvalidOperationException("Playable clip is null.");
             }
+
+            // Ensure legacy model-rate window fields are converted before any
+            // request snapshot captures the new 60 FPS command-time values.
+            clip.MigrateLegacyWindowFrameCounts();
 
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
@@ -59,13 +64,13 @@ namespace KimodoBridge.Editor
             int sourceSessionFrameCount = Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * 60.0)));
             bool isLoopGeneration = (generateLoopOverride ?? clip.generateLoop) && sourceSessionFrameCount <= 300;
             int loopPaddingFrames = isLoopGeneration ? generationFrameCount / 2 : 0;
-            bool useOutsideGuardFrame = ShouldUseOutsideGuardFrame(
+            bool useOutsideGuardFrame = !disableOutsideContextExpansion && ShouldUseOutsideGuardFrame(
                 clip,
                 externalConstraint,
                 disableTimelineInOut);
             int contextBefore = useOutsideGuardFrame ? 1 : 0;
             int contextAfter = 0;
-            if (!isArdy && !disableTimelineInOut &&
+            if (!disableOutsideContextExpansion && !isArdy && !disableTimelineInOut &&
                 (externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints))
             {
                 KimodoInOutConstraintTools.ResolveOutsideContextFrames(timelineClip, out contextBefore, out contextAfter);
@@ -238,7 +243,7 @@ namespace KimodoBridge.Editor
                 TargetFrameRate = targetFrameRate,
                 RuntimeFrameCount = runtimeFrameCount,
                 RuntimeTrimStartFrame = runtimeTrimStartFrame,
-                LongClipWindowFrames = Mathf.Max(1, clip.longClipWindowFrames),
+                LongClipWindowFrames60 = Mathf.Max(1, clip.longClipWindowFrames60),
                 LongClipWindowSampleCount = Mathf.Max(1, clip.longClipWindowSampleCount),
                 DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(
                     resolvedModelName,
@@ -249,6 +254,8 @@ namespace KimodoBridge.Editor
                 DeferredOutConstraintJson = deferredOutConstraintJson,
                 InConstraintWindowJson = inConstraintWindowJson ?? string.Empty,
                 OutConstraintWindowJson = outConstraintWindowJson ?? string.Empty,
+                InConstraintWindowModelFrameCount = constraintResult.BeginBoundaryWindowModelFrameCount,
+                OutConstraintWindowModelFrameCount = constraintResult.EndBoundaryWindowModelFrameCount,
                 // Legacy per-clip lightweight analysis settings remain serialized
                 // for existing assets, but normal Inspector generation now uses
                 // the full animation.analysis path after baking.

@@ -28,7 +28,8 @@ namespace KimodoUnityBridge.Command.Tests
         {
             var side = JObject.Parse(@"{'source':{'clip':'Walk'},'window_frames':30,'sample_count':5}");
             var window = command_context.ResolveCommandInOutWindow(side, inside, isIn, 2, 60, 30);
-            Assert.That(window.FrameCount, Is.EqualTo(15));
+            Assert.That(window.CommandFrameCount60, Is.EqualTo(30));
+            Assert.That(window.ModelFrameCount, Is.EqualTo(15));
             Assert.That(window.OutputFrames.First(), Is.EqualTo(first));
             Assert.That(window.OutputFrames.Last(), Is.EqualTo(last));
             Assert.That(window.OutputFrames.Distinct().Count(), Is.EqualTo(5));
