@@ -43,45 +43,48 @@ This is the accepted development design for the root-motion and trajectory clean
 - A **pass** is a constraint-building channel inside a stage. A stage may contain multiple passes. A pass may add, replace, or modify constraints, but it does not start generation by itself.
 - Stage results carry the generated motion, frame rate, frame count, duration, and the composed constraint set forward to the next stage.
 - Constraint composition must use explicit channel rules. A later Root2D pass replaces or edits the relevant Root2D channel instead of silently appending conflicting Root2D rows.
+- When Root2D and a FullBody/root-context row share a frame, the Stage composition folds Root2D into that row: Root2D supplies planar position and heading, while FullBody retains Y, body pose, and other target channels. The standalone Root2D row is then removed.
 
-### Stage 1: baseline generation
+### Stage 1: baseline generation and distance source
 
-Stage 1 always runs first. Its passes are:
+Stage 1 always runs first. It generates the baseline motion from the Clip constraints and all non-`post_apply` In/Out constraints. It also provides the root samples used to calculate the measured path distance. The measured distance is the sum of every adjacent root XZ delta across the complete Stage 1 motion.
 
-- the constraints already attached to the Clip;
-- non-`post_apply` In/Out constraints from the Clip configuration.
+When no Stage 2 condition is enabled, this result is finalized directly. There is no standalone Stage 3 request.
 
-`post_apply` constraints are deferred out of Stage 1. They are materialized as a Stage 2 boundary pass before path and heading passes, so Stage 2 and Stage 3 inherit their result. Stage 1 produces the baseline motion and the root samples used by later stages.
+### Stage 2: Root2D and path passes
 
-### Stage 2: path and heading overrides
+Stage 2 runs when Loop, a `post_apply` In/Out boundary, path-angle override, path-distance override, or heading override is enabled. It inherits the complete Stage 1 constraint set and motion.
 
-Stage 2 runs when a path-angle, path-distance, or heading override requires a second generation. It inherits the Stage 1 motion as its source and uses all Stage 1 constraints as its starting constraint set.
+- An explicit distance override is used even when its value is `0`; otherwise use the Stage 1 delta-sum distance.
+- A path-angle override replaces the effective Root2D channel with its two endpoint pass and the generated spline rows. Relative Offset supplies the origin when enabled; otherwise Auto Begin supplies the origin when it is the effective frame-0 anchor.
+- A distance-only override uses the existing default Root2D pass as its starting channel and rescales its planar path to the explicit distance, including an explicit value of `0`.
+- Heading override changes Root2D headings only. Existing Root2D rows are edited in place; if no endpoint row exists, endpoint rows are sampled from the Stage 1 root motion first.
+- Stage 2 keeps all effective Root2D rows in its composed constraint set. Stage 3 receives that same set without rebuilding Root2D.
 
-- If `distance override` is present, use that explicit distance.
-- Otherwise, compute the distance as the sum of the per-frame root displacement deltas across the entire Stage 1 animation. For Root2D this is the planar XZ delta sum.
-- Build the path-angle spline from that distance; when Relative Offset is enabled, use its World-space position as the spline origin.
-- Sample Stage 1 root headings at the corresponding Stage 2 times and interpolate them across generated Root2D frames; the spline supplies positions.
-- `override heading` changes Root2D headings only; it does not rotate the Root2D positions or the spline.
-- If heading override is requested without an existing start/end Root2D constraint, sample Root2D anchors from the original animation at those endpoints, then apply the requested heading.
+### Stage 3: Root/body composition and windows
 
-Stage 2 is the source for Stage 3. Stage 3 inherits the complete Stage 2 constraint set, including all baseline, path, distance, and heading results.
+Stage 3 runs only when Stage 2 produced a loop or deferred boundary window, or when the effective Stage 2 constraint set contains FullBody/Effector records. It inherits every Stage 2 constraint.
 
-### Stage 3: loop generation
+- FullBody and Effector root positions are interpolated from Stage 2 motion only when path-angle override is active. Their pose and target channels are preserved.
+- When heading override is active, all already-effective Root2D, FullBody, and Effector headings are updated, including constraints inherited from Stage 2.
+- Post-apply In/Out windows are anchored by the earliest constraint in each window and are placed around the core Stage 2 content. Window payloads are carried separately from ordinary deferred fields so Stage 3 can apply the requested re-anchoring policy. Loop and Out windows are mutually exclusive; Out has priority.
+- The loop window begins at the selected loop keyframe, is appended after the core content without overlap, and preserves its configured frame/sample mapping. The duration is extended to cover the appended window.
+- The copied tail window is planar-reanchored from the source window's first sample to the Stage 2 terminal root. Loop Lock Pos/Rot selectively overrides the corresponding position axes and root rotation components after that offset.
+- When PathAngle and Loop are both active, the Loop pass computes that window anchor first, then uses the PathAngle terminal Root2D value as the target anchor and removes the terminal PathAngle Root2D sample before appending the Loop window.
 
-Stage 3 runs only when loop generation is enabled. It inherits every Stage 2 constraint and adds the Root2D heading and loop-window passes before one final generation.
-
-The loop keyframe is selected from the first foot-contact exchange:
+The contact-exchange selector remains available for later activation, but the current approved rollout anchors Stage 3 at frame `0`:
 
 1. Find a transition frame where one foot's contact channels change to all `0`, meaning that foot has fully lifted from the ground.
 2. Find the following transition frame where the other foot's contact channels change to all `1`, meaning that foot has fully landed.
 3. Use the midpoint frame between those two events as the loop keyframe.
-4. If the exchange cannot be identified, use frame `0` and its pose as the fallback anchor.
+4. Until the selector is enabled, use frame `0` and its pose as the anchor. The exchange midpoint remains covered by tests and can be restored without changing the window contract.
 
 The loop In/Out window uses the configured total window frame count and sample count:
 
 - The window frame count describes the complete temporal width of the window.
 - The sample count describes the number of constraints sampled inside that window.
-- The Inspector exposes these Stage 3 values as `Loop Window Frames` and `Loop Window Samples`, defaulting to `30` and `2`; they are independent from the legacy In/Out boundary sampling fields.
+- The Inspector exposes these Stage 3 values as `Loop Window Frames (60 FPS)` and `Loop Window Samples`, defaulting to `30` and `2`; the frame value is always a 60-FPS command-frame count and is converted to model frames with ceiling before sampling. They are independent from the legacy In/Out boundary sampling fields.
+- For example, `30` means `0.5` seconds: it becomes `15` model frames at 30 FPS, `13` at 25 FPS, and `10` at 20 FPS.
 - The usable window span is limited to `floor(animationFrameCount * (sampleCount - 1) / sampleCount)`. If the requested window exceeds that limit, clamp it and emit a warning; the minimum effective span is one frame.
 - Use the start window's first sample as the loop anchor. Copy the start window to the tail without overlap, beginning at the frame immediately after the original final frame.
 - At the start and tail endpoints, set Root2D headings from the Stage 2 motion; if an endpoint has no Root2D constraint, sample its position and heading from Stage 2. Apply the existing per-axis Loop Lock Pos/Rot options at the copied tail endpoint: locked position axes and root-rotation components match the first window sample, while unlocked components keep the sampled tail values.

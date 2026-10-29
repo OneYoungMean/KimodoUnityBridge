@@ -159,6 +159,40 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void Stage3ImmediateWindow_PreservesSampledPositionWithoutReanchoring()
+        {
+            string existing = CreateRootConstraint(0, 7f);
+            string window = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(0, 2),
+                    ["root_positions"] = new JArray(
+                        new JArray(1f, 2f, 3f), new JArray(1.1f, 2.1f, 3.1f))
+                }
+            }.ToString();
+
+            JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
+                existing,
+                window,
+                string.Empty,
+                null,
+                KimodoMotionModelProfiles.DefaultModelName,
+                30f,
+                runtimeTrimStartFrame: 0,
+                reanchorInWindow: false));
+
+            JObject fullBody = result.Children<JObject>().Single(item =>
+                item.Value<string>("type") == "fullbody");
+            CollectionAssert.AreEqual(new[] { 0, 2 }, fullBody["frame_indices"].Values<int>().ToArray());
+            Assert.That((float)fullBody["root_positions"][0][0], Is.EqualTo(1f));
+            Assert.That((float)fullBody["root_positions"][1][2], Is.EqualTo(3.1f).Within(0.001f));
+            Assert.That(result.Children<JObject>().Single(item =>
+                item.Value<string>("type") == "fullbody")["root_positions"].Count(), Is.EqualTo(2));
+        }
+
+        [Test]
         public void PostApplyTrajectoryPass_RequiresAnEnabledDeferredBoundary()
         {
             var clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
@@ -186,20 +220,20 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(
                 KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
                     generateLoop: false,
-                    hasDeferredPostApplyWindow: true,
-                    stage2ConstraintsJson: "[]"),
+                    hasStage3BoundaryWindow: true,
+                    hasStage3BodyComposition: false),
                 Is.True);
             Assert.That(
                 KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
                     generateLoop: false,
-                    hasDeferredPostApplyWindow: false,
-                    stage2ConstraintsJson: "[{\"type\":\"fullbody\"}]"),
+                    hasStage3BoundaryWindow: false,
+                    hasStage3BodyComposition: true),
                 Is.True);
             Assert.That(
                 KimodoPlayableClipGenerationExecutionService.RequiresStage3Generation(
                     generateLoop: false,
-                    hasDeferredPostApplyWindow: false,
-                    stage2ConstraintsJson: "[{\"type\":\"root2d\"}]"),
+                    hasStage3BoundaryWindow: false,
+                    hasStage3BodyComposition: false),
                 Is.False);
         }
 
@@ -316,6 +350,55 @@ namespace KimodoUnityBridge.Command.Tests
                 composed.Children<JObject>().Select(item => item.Value<string>("pass")));
             Assert.That(stage.Passes.Count, Is.EqualTo(2));
             Assert.That(JToken.DeepEquals(JToken.Parse(request.Constraints.json), composed), Is.True);
+        }
+
+        [Test]
+        public void GenerationStage_Root2DOverridesSameFrameFullBodyRoot()
+        {
+            var request = new KimodoEditorGenerateRequest();
+            request.Prompt = "merge root channels";
+            request.Constraints.json = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(0),
+                    ["root_positions"] = new JArray { new JArray(9f, 1f, 8f) },
+                    ["local_joints_rot"] = new JArray
+                    {
+                        new JArray
+                        {
+                            new JArray(0f, 0f, 0f),
+                            new JArray(0.1f, 0.2f, 0.3f)
+                        }
+                    }
+                },
+                new JObject
+                {
+                    ["type"] = "root2d",
+                    ["frame_indices"] = new JArray(0),
+                    ["smooth_root_2d"] = new JArray { new JArray(-2f, 3f) },
+                    ["global_root_heading"] = new JArray { new JArray(0f, -1f) }
+                }
+            }.ToString();
+
+            var stage = new KimodoEditorGenerationStage(3, "Root composition", request);
+            JArray composed = JArray.Parse(stage.ApplyPasses());
+
+            Assert.That(composed.Count, Is.EqualTo(1));
+            Assert.That(composed[0].Value<string>("type"), Is.EqualTo("fullbody"));
+            Assert.That(composed.Count(item => item.Value<string>("type") == "root2d"), Is.Zero);
+            Assert.That((float)composed[0]["root_positions"][0][0], Is.EqualTo(-2f));
+            Assert.That((float)composed[0]["root_positions"][0][1], Is.EqualTo(1f));
+            Assert.That((float)composed[0]["root_positions"][0][2], Is.EqualTo(3f));
+            Assert.That(
+                Mathf.Abs((float)composed[0]["local_joints_rot"][0][0][1]),
+                Is.EqualTo(Mathf.PI / 2f).Within(0.001f));
+            Assert.That(
+                JToken.DeepEquals(
+                    composed[0]["local_joints_rot"][0][1],
+                    new JArray(0.1f, 0.2f, 0.3f)),
+                Is.True);
         }
 
         [Test]

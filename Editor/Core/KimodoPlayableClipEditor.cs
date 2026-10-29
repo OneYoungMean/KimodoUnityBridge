@@ -523,7 +523,7 @@ namespace KimodoBridge.Editor
                     {
                         EditorGUILayout.PropertyField(
                             loopWindowFramesProp,
-                            new GUIContent("Loop Window Frames", "Number of model-rate frames retained from the loop anchor window for Stage 3."));
+                            new GUIContent("Loop Window Frames (60 FPS)", "Number of command frames at 60 FPS retained from the loop anchor window for Stage 3; converted to model frames before sampling."));
                     }
                     if (loopWindowSampleCountProp != null)
                     {

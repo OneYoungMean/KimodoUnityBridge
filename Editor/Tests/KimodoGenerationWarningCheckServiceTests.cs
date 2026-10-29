@@ -100,7 +100,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(result["constraint_overlap"]["issues"].ToObject<JArray>().Count, Is.EqualTo(0));
         }
 
-        [TestCase(89, true, "error", "duration_below_minimum")]
+        [TestCase(89, false, "warning", "duration_short_warning")]
         [TestCase(90, false, "warning", "duration_short_warning")]
         [TestCase(179, false, "warning", "duration_short_warning")]
         [TestCase(180, false, "ok", null)]

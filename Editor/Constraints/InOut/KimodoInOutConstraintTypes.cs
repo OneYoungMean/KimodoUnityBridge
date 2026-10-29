@@ -48,6 +48,8 @@ namespace KimodoBridge.Editor
         public string ConstraintsJson = string.Empty;
         public string DeferredInConstraintJson = string.Empty;
         public string DeferredOutConstraintJson = string.Empty;
+        public string InConstraintWindowJson = string.Empty;
+        public string OutConstraintWindowJson = string.Empty;
         public bool HasSyntheticAutoBeginConstraint;
         public bool DenseRootPath;
         public KimodoMarkerSampleResult BeginBoundarySample;

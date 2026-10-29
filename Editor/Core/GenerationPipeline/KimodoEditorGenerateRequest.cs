@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEngine;
@@ -59,6 +61,8 @@ namespace KimodoBridge.Editor
         internal KimodoRawMotionData DebugRuntimeMotion;
         public string DeferredInConstraintJson = string.Empty;
         public string DeferredOutConstraintJson = string.Empty;
+        public string InConstraintWindowJson = string.Empty;
+        public string OutConstraintWindowJson = string.Empty;
         public TimelineClip TimelineClipSnapshot;
         public bool ResetTimelineTimeScaleAfterGeneration;
         public bool UseRelativeOffset;
@@ -196,6 +200,21 @@ namespace KimodoBridge.Editor
             for (int i = 0; i < passes.Count; i++)
             {
                 constraintsJson = passes[i].Apply(constraintsJson);
+            }
+
+            // A Stage exposes one composed constraint set to the next stage and
+            // to the debug timeline. Fold same-frame Root2D rows into the
+            // matching root-context row here so the stage view follows the
+            // protocol rule before serialization reaches the backend.
+            if (!string.IsNullOrWhiteSpace(constraintsJson))
+            {
+                JToken parsed = JToken.Parse(constraintsJson);
+                if (parsed is JArray array)
+                {
+                    constraintsJson = KimodoConstraintProtocolNormalizer
+                        .NormalizeRoot2DIntoFullBody(array)
+                        .ToString(Formatting.None);
+                }
             }
             if (Request.Constraints == null)
                 Request.Constraints = new KimodoConstraintPayload();

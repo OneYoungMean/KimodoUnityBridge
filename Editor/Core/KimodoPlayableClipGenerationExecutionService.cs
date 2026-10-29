@@ -1092,11 +1092,10 @@ namespace KimodoBridge.Editor
 
         internal static bool RequiresStage3Generation(
             bool generateLoop,
-            bool hasDeferredPostApplyWindow,
-            string stage2ConstraintsJson)
+            bool hasStage3BoundaryWindow,
+            bool hasStage3BodyComposition)
         {
-            return generateLoop || hasDeferredPostApplyWindow ||
-                HasFullBodyOrEffectorConstraint(stage2ConstraintsJson);
+            return generateLoop || hasStage3BoundaryWindow || hasStage3BodyComposition;
         }
 
         internal static int ResolveConstraintFrameSpan(
@@ -1641,7 +1640,7 @@ namespace KimodoBridge.Editor
                 stage2.AddPass(new KimodoEditorGenerationPass(
                     "Stage 1 constraint inheritance",
                     _ => inheritedStage1Constraints));
-                if (clip.overridePathAngle || clip.overridePathDistance)
+                if (clip.overridePathAngle)
                 {
                     stage2.AddPass(new KimodoEditorGenerationPass("Path Angle", currentConstraints =>
                     {
@@ -1672,6 +1671,40 @@ namespace KimodoBridge.Editor
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
                         {
                             Name = "Stage 2 Path Angle",
+                            AddedConstraintsJson = pathConstraintJson,
+                            CombinedConstraintsJson = combined,
+                            ModelName = modelName,
+                            FrameRate = Mathf.RoundToInt(finalRequest.TargetFrameRate),
+                            FrameCount = finalRequest.EffectiveRuntimeFrameCount
+                        });
+                        return combined;
+                    }));
+                }
+                else if (clip.overridePathDistance)
+                {
+                    stage2.AddPass(new KimodoEditorGenerationPass("Path Distance", currentConstraints =>
+                    {
+                        string pathConstraintJson = KimodoRawMotionConstraintBuilder.BuildPathDistanceConstraintJson(
+                            motion,
+                            modelName,
+                            Mathf.Max(0f, clip.pathDistance),
+                            finalRequest.RuntimeTrimStartFrame,
+                            finalRequest.TargetFrameCount,
+                            finalRequest.EffectiveRuntimeFrameCount,
+                            finalRequest.TargetFrameRate,
+                            currentConstraints);
+                        if (clip.overrideHeading)
+                        {
+                            pathConstraintJson = KimodoRawMotionConstraintBuilder.OverrideRoot2DHeadingsJson(
+                                pathConstraintJson,
+                                clip.headingDegrees);
+                        }
+                        string combined = KimodoClipConstraintBakeUtility.ReplaceRoot2DConstraintsJson(
+                            currentConstraints,
+                            pathConstraintJson);
+                        debugConstraintPasses?.Add(new KimodoDebugConstraintPass
+                        {
+                            Name = "Stage 2 Path Distance",
                             AddedConstraintsJson = pathConstraintJson,
                             CombinedConstraintsJson = combined,
                             ModelName = modelName,
@@ -1750,14 +1783,14 @@ namespace KimodoBridge.Editor
                     stage2Request.DebugTimelineReservation,
                     stage2.ResultMotion);
                 stage2Request.DebugTimelineReservation = null;
-                bool hasDeferredStage3Window =
-                    (clip.postApplyInConstraint && !string.IsNullOrWhiteSpace(finalRequest.DeferredInConstraintJson)) ||
-                    (clip.postApplyOutConstraint && !string.IsNullOrWhiteSpace(finalRequest.DeferredOutConstraintJson));
+                bool hasStage3BoundaryWindow =
+                    !string.IsNullOrWhiteSpace(stage2Request.InConstraintWindowJson) ||
+                    !string.IsNullOrWhiteSpace(stage2Request.OutConstraintWindowJson);
                 bool hasStage3BodyComposition = HasFullBodyOrEffectorConstraint(stage2Request.Constraints?.json);
                 bool generateStage3 = RequiresStage3Generation(
                     generateLoop,
-                    hasDeferredStage3Window,
-                    stage2Request.Constraints?.json);
+                    hasStage3BoundaryWindow,
+                    hasStage3BodyComposition);
                 if (!generateStage3)
                 {
                     if (debugConstraintPasses != null)
@@ -1783,16 +1816,12 @@ namespace KimodoBridge.Editor
                         out loopWindowFrames,
                         out loopWindowSampleCount);
                 }
-                string stage2DeferredInJson = clip.postApplyInConstraint
-                    ? stage2Request.DeferredInConstraintJson
-                    : string.Empty;
-                string stage2DeferredOutJson = clip.postApplyOutConstraint
-                    ? stage2Request.DeferredOutConstraintJson
-                    : string.Empty;
+                string stage2InWindowJson = stage2Request.InConstraintWindowJson;
+                string stage2OutWindowJson = stage2Request.OutConstraintWindowJson;
                 int inWindowFrames = ResolveConstraintFrameSpan(
-                    stage2DeferredInJson, out int firstInFrame, out _);
+                    stage2InWindowJson, out int firstInFrame, out _);
                 int outWindowFrames = ResolveConstraintFrameSpan(
-                    stage2DeferredOutJson, out int firstOutFrame, out _);
+                    stage2OutWindowJson, out int firstOutFrame, out _);
                 int stage3TargetFrameCount = stage2Request.TargetFrameCount +
                     inWindowFrames + outWindowFrames + loopWindowFrames;
                 double stage3DurationSeconds =
@@ -1812,24 +1841,32 @@ namespace KimodoBridge.Editor
                     deferInConstraint: clip.postApplyInConstraint);
                 finalRequest.DebugTimelineGroup = stage2Request.DebugTimelineGroup;
                 int stage2BaseStartFrame = finalRequest.RuntimeTrimStartFrame + inWindowFrames;
-                finalRequest.DeferredInConstraintJson = inWindowFrames > 0
+                finalRequest.InConstraintWindowJson = inWindowFrames > 0
                     ? ShiftConstraintFrames(
-                        stage2DeferredInJson,
+                        stage2InWindowJson,
                         finalRequest.RuntimeTrimStartFrame - firstInFrame,
                         finalRequest.EffectiveRuntimeFrameCount)
                     : string.Empty;
+                finalRequest.DeferredInConstraintJson = clip.postApplyInConstraint
+                    ? finalRequest.InConstraintWindowJson
+                    : string.Empty;
                 int deferredOutStartFrame = stage2BaseStartFrame + stage2Request.TargetFrameCount + loopWindowFrames;
-                finalRequest.DeferredOutConstraintJson = outWindowFrames > 0
+                finalRequest.OutConstraintWindowJson = outWindowFrames > 0
                     ? ShiftConstraintFrames(
-                        stage2DeferredOutJson,
+                        stage2OutWindowJson,
                         deferredOutStartFrame - firstOutFrame,
                         finalRequest.EffectiveRuntimeFrameCount)
+                    : string.Empty;
+                finalRequest.DeferredOutConstraintJson = clip.postApplyOutConstraint
+                    ? finalRequest.OutConstraintWindowJson
                     : string.Empty;
                 finalRequest.Constraints.json = ShiftConstraintFrames(
                     stage2Request.Constraints.json,
                     stage2BaseStartFrame - stage2Request.RuntimeTrimStartFrame,
                     finalRequest.EffectiveRuntimeFrameCount);
                 var stage3 = new KimodoEditorGenerationStage(3, generateLoop ? "Loop window" : "Constraint composition", finalRequest, stage2Motion);
+                Vector3? loopTargetAnchorPosition = null;
+                Quaternion? loopTargetAnchorHeading = null;
                 if (clip.overridePathAngle && hasStage3BodyComposition)
                 {
                     stage3.AddPass(new KimodoEditorGenerationPass("Stage 3 trajectory roots", currentConstraints =>
@@ -1854,6 +1891,20 @@ namespace KimodoBridge.Editor
                 {
                     stage3.AddPass(new KimodoEditorGenerationPass("Loop Root2D headings", currentConstraints =>
                     {
+                        int pathAngleTerminalFrame = stage2BaseStartFrame + stage2Request.TargetFrameCount - 1;
+                        if (clip.overridePathAngle &&
+                            KimodoRawMotionConstraintBuilder.TryReadRoot2DAnchorJson(
+                                currentConstraints,
+                                pathAngleTerminalFrame,
+                                out Vector3 pathAngleAnchorPosition,
+                                out Quaternion pathAngleAnchorHeading))
+                        {
+                            loopTargetAnchorPosition = pathAngleAnchorPosition;
+                            loopTargetAnchorHeading = pathAngleAnchorHeading;
+                            currentConstraints = KimodoRawMotionConstraintBuilder.RemoveRoot2DFrameJson(
+                                currentConstraints,
+                                pathAngleTerminalFrame);
+                        }
                         string combined = KimodoRawMotionConstraintBuilder.ApplyLoopRoot2DHeadingOverridesJson(
                             stage2Motion,
                             modelName,
@@ -1868,7 +1919,9 @@ namespace KimodoBridge.Editor
                             clip.loopLockPositionZ,
                             clip.loopLockRotationX,
                             clip.loopLockRotationY,
-                            clip.loopLockRotationZ);
+                            clip.loopLockRotationZ,
+                            loopTargetAnchorPosition,
+                            loopTargetAnchorHeading);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
                         {
                             Name = "Stage 3 Loop Root2D headings",
@@ -1919,7 +1972,9 @@ namespace KimodoBridge.Editor
                             clip.loopLockPositionZ,
                             clip.loopLockRotationX,
                             clip.loopLockRotationY,
-                            clip.loopLockRotationZ);
+                            clip.loopLockRotationZ,
+                            loopTargetAnchorPosition,
+                            loopTargetAnchorHeading);
                         string combined = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
                             currentConstraints,
                             loopWindowConstraintJson);
@@ -1935,24 +1990,26 @@ namespace KimodoBridge.Editor
                         return combined;
                     }));
                 }
-                if (hasDeferredStage3Window)
+                if (hasStage3BoundaryWindow)
                 {
-                    stage3.AddPass(new KimodoEditorGenerationPass("Post-Apply In/Out", currentConstraints =>
+                    stage3.AddPass(new KimodoEditorGenerationPass("Stage 3 In/Out windows", currentConstraints =>
                     {
                         string combined = KimodoPostApplyOutConstraintUtility.ApplyInOut(
                             currentConstraints,
-                            clip.postApplyInConstraint ? finalRequest.DeferredInConstraintJson : string.Empty,
-                            clip.postApplyOutConstraint ? finalRequest.DeferredOutConstraintJson : string.Empty,
+                            finalRequest.InConstraintWindowJson,
+                            finalRequest.OutConstraintWindowJson,
                             stage2Motion,
                             modelName,
                             finalRequest.TargetFrameRate,
-                            stage2BaseStartFrame);
+                            stage2BaseStartFrame,
+                            clip.postApplyInConstraint,
+                            clip.postApplyOutConstraint);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
                         {
-                            Name = "Stage 3 Post-Apply In/Out",
+                            Name = "Stage 3 In/Out windows",
                             AddedConstraintsJson = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
-                                clip.postApplyInConstraint ? finalRequest.DeferredInConstraintJson : string.Empty,
-                                clip.postApplyOutConstraint ? finalRequest.DeferredOutConstraintJson : string.Empty),
+                                finalRequest.InConstraintWindowJson,
+                                finalRequest.OutConstraintWindowJson),
                             CombinedConstraintsJson = combined,
                             ModelName = modelName,
                             FrameRate = Mathf.RoundToInt(finalRequest.TargetFrameRate),
@@ -2074,7 +2131,17 @@ namespace KimodoBridge.Editor
             out int windowFrameCount,
             out int sampleCount)
         {
-            int requestedWindow = Mathf.Max(1, clip?.loopWindowFrames ?? 30);
+            int requestedCommandWindow = Mathf.Max(1, clip?.loopWindowFrames ?? 30);
+            double modelFrameRate = sourceRequest != null && sourceRequest.TargetFrameRate > 0f
+                ? sourceRequest.TargetFrameRate
+                : sourceMotion != null && sourceMotion.FrameRate > 0f
+                    ? sourceMotion.FrameRate
+                    : KimodoMotionModelProfiles.DefaultFrameRate;
+            int requestedWindow = Mathf.Max(
+                1,
+                KimodoFrameTimeUtility.CommandFramesToModelFrameCount(
+                    requestedCommandWindow,
+                    modelFrameRate));
             int requestedSamples = Mathf.Max(1, clip?.loopWindowSampleCount ?? 2);
             sourceStartFrame = KimodoRawMotionConstraintBuilder.ResolveLoopAnchorFrameForGeneration(sourceMotion);
             int animationFrameCount = Mathf.Max(1, sourceMotion?.FrameCount ?? sourceRequest?.TargetFrameCount ?? 1);
@@ -2086,7 +2153,8 @@ namespace KimodoBridge.Editor
             if (windowFrameCount > usableWindowFrames)
             {
                 Debug.LogWarning(
-                    $"[Kimodo][Loop] Window of {windowFrameCount} frames exceeds the usable " +
+                    $"[Kimodo][Loop] Window of {requestedCommandWindow} command frames " +
+                    $"({windowFrameCount} model frames) exceeds the usable " +
                     $"animation span from loop anchor {sourceStartFrame} for sampleCount={requestedSamples}; " +
                     $"clamped to {usableWindowFrames}.",
                     clip);

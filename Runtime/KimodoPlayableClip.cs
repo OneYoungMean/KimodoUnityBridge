@@ -80,7 +80,7 @@ namespace KimodoBridge
         public bool loopLockRotationY;
         [Tooltip("When looping, copy the first frame's Z root rotation to the loop tail.")]
         public bool loopLockRotationZ = true;
-        [Min(1), Tooltip("Number of model-rate frames retained from the loop anchor window when constructing Stage 3 loop constraints.")]
+        [Min(1), Tooltip("Number of command frames at 60 FPS retained from the loop anchor window when constructing Stage 3 loop constraints. Converted to the model frame rate before sampling.")]
         public int loopWindowFrames = 30;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in the Stage 3 loop window, including its endpoints.")]
         public int loopWindowSampleCount = 2;

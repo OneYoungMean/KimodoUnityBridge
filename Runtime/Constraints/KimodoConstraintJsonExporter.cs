@@ -13,6 +13,19 @@ namespace KimodoBridge
         public const double CommandFrameRate = 60.0;
         public const double FrameTolerance = 1e-4;
 
+        /// <summary>Converts a command/UI frame count (always based on 60 FPS) to model frames.</summary>
+        public static int CommandFramesToModelFrameCount(int commandFrameCount, double modelFrameRate)
+        {
+            if (commandFrameCount <= 0 ||
+                double.IsNaN(modelFrameRate) || double.IsInfinity(modelFrameRate) ||
+                modelFrameRate <= 0.0)
+            {
+                return 0;
+            }
+
+            return SecondsToFrameCount(commandFrameCount / CommandFrameRate, modelFrameRate);
+        }
+
         public static int SecondsToFrameCount(double seconds, double frameRate)
         {
             if (double.IsNaN(seconds) || double.IsInfinity(seconds) ||

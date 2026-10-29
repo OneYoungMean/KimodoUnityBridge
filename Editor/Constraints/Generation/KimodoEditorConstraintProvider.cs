@@ -174,6 +174,26 @@ namespace KimodoBridge.Editor
                 }
                 throw new InvalidOperationException($"Generation boundary constraints violate root motion limits: {rootMotionError}");
             }
+
+            // Keep the deferred payload and its window payload in one request
+            // contract.  The window is the exact authored frame/sample set; the
+            // stage-3 route may reposition it without rebuilding the samples.
+            result.InConstraintWindowJson = result.BeginBoundarySamples.Count > 0
+                ? KimodoConstraintJsonExporter.ToConstraintsJson(
+                    result.BeginBoundarySamples,
+                    ResolveExportContext(timelineClip, generationContext),
+                    0.0,
+                    runtimeLengthSeconds,
+                    frameRate)
+                : string.Empty;
+            result.OutConstraintWindowJson = result.EndBoundarySamples.Count > 0
+                ? KimodoConstraintJsonExporter.ToConstraintsJson(
+                    result.EndBoundarySamples,
+                    ResolveExportContext(timelineClip, generationContext),
+                    0.0,
+                    runtimeLengthSeconds,
+                    frameRate)
+                : string.Empty;
             return result;
         }
 

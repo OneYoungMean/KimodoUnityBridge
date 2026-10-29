@@ -52,11 +52,10 @@ namespace KimodoBridge.Editor
             int targetFrameCount = Mathf.Max(
                 KimodoMotionModelProfiles.MinGenerationFrames,
                 KimodoFrameTimeUtility.SecondsToFrameCount(targetDurationSeconds, targetFrameRate));
-            int generationFrameCount = Mathf.Max(
-                targetFrameCount,
-                KimodoFrameTimeUtility.SecondsToFrameCount(
-                    KimodoGenerationWarningCheckService.MinimumGenerationDurationSeconds,
-                    targetFrameRate));
+            // Keep the backend request at the requested length. Short clips may
+            // still receive context frames below, but are no longer expanded to
+            // a separate minimum generation duration.
+            int generationFrameCount = targetFrameCount;
             int sourceSessionFrameCount = Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * 60.0)));
             bool isLoopGeneration = (generateLoopOverride ?? clip.generateLoop) && sourceSessionFrameCount <= 300;
             int loopPaddingFrames = isLoopGeneration ? generationFrameCount / 2 : 0;
@@ -154,6 +153,12 @@ namespace KimodoBridge.Editor
                         deferredOut.ConstraintsJson);
                 }
             }
+            string inConstraintWindowJson = !string.IsNullOrWhiteSpace(deferredInConstraintJson)
+                ? deferredInConstraintJson
+                : constraintResult.InConstraintWindowJson;
+            string outConstraintWindowJson = !string.IsNullOrWhiteSpace(deferredOutConstraintJson)
+                ? deferredOutConstraintJson
+                : constraintResult.OutConstraintWindowJson;
             List<KimodoMarkerSampleResult> constraintSamples = constraintResult.CombinedSamples;
             if ((deferInConstraint || deferOutConstraint) && externalConstraint?.Enabled == true &&
                 ((deferInConstraint && externalConstraint.DeferredInConstraintSamples?.Count > 0) ||
@@ -242,6 +247,8 @@ namespace KimodoBridge.Editor
                 Constraints = new KimodoConstraintPayload { json = constraintsJson, clips = clipConstraints },
                 DeferredInConstraintJson = deferredInConstraintJson,
                 DeferredOutConstraintJson = deferredOutConstraintJson,
+                InConstraintWindowJson = inConstraintWindowJson ?? string.Empty,
+                OutConstraintWindowJson = outConstraintWindowJson ?? string.Empty,
                 // Legacy per-clip lightweight analysis settings remain serialized
                 // for existing assets, but normal Inspector generation now uses
                 // the full animation.analysis path after baking.

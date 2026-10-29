@@ -32,7 +32,9 @@ namespace KimodoBridge.Editor
             KimodoRawMotionData firstPassMotion,
             string modelName,
             float frameRate,
-            int runtimeTrimStartFrame)
+            int runtimeTrimStartFrame,
+            bool reanchorInWindow = true,
+            bool reanchorOutWindow = true)
         {
             JArray existing = ParseArray(existingJson);
             JArray deferredIn = ParseArray(deferredInJson);
@@ -42,8 +44,12 @@ namespace KimodoBridge.Editor
             if (inRows.Count == 0 && outRows.Count == 0)
                 return existing.ToString(Formatting.None);
 
-            PlanarTransform inTransform = ResolveTransform(inRows, firstPassMotion, modelName, runtimeTrimStartFrame);
-            PlanarTransform outTransform = ResolveTransform(outRows, firstPassMotion, modelName, runtimeTrimStartFrame);
+            PlanarTransform inTransform = reanchorInWindow
+                ? ResolveTransform(inRows, firstPassMotion, modelName, runtimeTrimStartFrame)
+                : PlanarTransform.Identity;
+            PlanarTransform outTransform = reanchorOutWindow
+                ? ResolveTransform(outRows, firstPassMotion, modelName, runtimeTrimStartFrame)
+                : PlanarTransform.Identity;
             JArray filtered = new JArray();
             var deferredFrames = new HashSet<int>(inRows.Concat(outRows).Select(row => row.Frame));
             foreach (JObject record in existing.OfType<JObject>())

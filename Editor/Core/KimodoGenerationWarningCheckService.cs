@@ -19,7 +19,9 @@ namespace KimodoBridge.Editor
         public const float MaxAccelerationMetersPerSecondSquared = 10f;
         public const float MaxBlockingAccelerationMetersPerSecondSquared = 15f;
         public const float GenerationDurationWarningSeconds = 3f;
-        public const float MinimumGenerationDurationSeconds = 1.5f;
+        // Temporarily disabled: generation must preserve the requested clip
+        // duration. Short clips still receive the quality warning below.
+        public const float MinimumGenerationDurationSeconds = 0f;
         private const float PositionToleranceMeters = 0.05f;
         private const float HeadingToleranceDegrees = 5f;
         private const float HeadingJumpWarningDegrees = 45f;
@@ -42,8 +44,8 @@ namespace KimodoBridge.Editor
                 JObject effectors = BuildEffectorChecks(
                     arguments, characterName, modelName, frameRate, generatedSamples);
                 // Raw exported constraints are the single enforcement point for
-                // root speed and acceleration. This preflight still blocks an
-                // invalid requested duration and reports trajectory diagnostics.
+                // root speed and acceleration. This preflight reports duration
+                // and trajectory diagnostics without extending short requests.
                 bool blocking = duration.Value<bool>("blocking");
                 bool warning = HasWarning(duration) || HasWarning(rootTrajectory) || HasWarning(overlap) || HasWarning(effectors);
                 return new JObject
