@@ -572,7 +572,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void GenerationRequest_ForwardsExplicitLightweightAnalysisOptions()
+        public void GenerationRequest_DoesNotForwardDisconnectedAnalysisOptions()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoGenerationRequestOptionsTest");
@@ -588,23 +588,17 @@ namespace KimodoBridge.Editor.Tests
                 var clip = (KimodoPlayableClip)timelineClip.asset;
                 clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
                 clip.autoBeginAnchor = false;
-                const string analysisOptionsJson = "{\"keyframes\":{\"enabled\":true}}";
-
                 KimodoEditorGenerateRequest request = KimodoPlayableClipGenerationHostService.BuildRequest(
                     clip,
                     "walk",
-                    externalConstraint: new KimodoExternalConstraintRequest
-                    {
-                        AnalysisOptionsJson = analysisOptionsJson
-                    },
+                    externalConstraint: null,
                     default);
                 KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                     request,
                     "walk",
                     clip.bridgeModelName);
 
-                Assert.That(request.AnalysisOptionsJson, Is.EqualTo(analysisOptionsJson));
-                Assert.That(generation.analysis_option_json, Is.EqualTo(analysisOptionsJson));
+                Assert.That(string.IsNullOrEmpty(generation.analysis_option_json), Is.True);
 
                 clip.generationOutputMode = KimodoGenerationOutputMode.ModelBone;
                 Assert.That(

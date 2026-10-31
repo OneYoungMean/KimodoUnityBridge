@@ -19,7 +19,7 @@ This record is the running design summary for the VISTA-inspired version/history
 - Analysis files contain `analysis_id`, `session_id`, `input_signature`, `created_at_utc`, animation references, and picture references; Session JSON indexes them without duplicating dense motion.
 - The persisted analysis records and generation job records remain. `session.json` also contains a navigation index; its analysis entries currently repeat sparse keyframes, foot contacts, and picture metadata, but not the dense KMB motion or image bytes.
 - `scene.context` is already a public command; the active phase documents use it as the scene and Session entry point.
-- Generation's `analysis_option` is lightweight generation-time analysis. It does not replace the full `animation.analyze` command.
+- `animation.generate.analysis_option` was removed because its command result had no consumer. Internal analysis-only requests still use protocol-level `analysis_option` plus KMB ClipConstraints; they do not replace the public `animation.analysis` command, whose input remains `clips: [{ character, clip }]`.
 - Full `animation.analyze` is not automatic inside generation; the previous Skill described it as an AI follow-up step. `PersistPictureSummary` already stores picture metadata/paths with the analysis record.
 
 ## Implementation notes

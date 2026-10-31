@@ -705,20 +705,6 @@ namespace KimodoUnityBridge.Command
             }
         }
 
-        private static string ParseAnalysisOptionsJson(JObject arguments)
-        {
-            JToken token = arguments?["analysis_option"];
-            if (token == null)
-            {
-                return string.Empty;
-            }
-            if (token is not JObject options)
-            {
-                throw new InvalidOperationException("analysis_option must be an object.");
-            }
-            return options.ToString(Formatting.None);
-        }
-
         private static TimelineSessionRecord RequireCurrentTimelineSession()
         {
             return RequireCurrentTimelineSession(recreating: false);
@@ -981,9 +967,7 @@ namespace KimodoUnityBridge.Command
 
             JObject cameraOptions = arguments["camera"] as JObject ?? new JObject();
             int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
-            // animation.analysis has no public analysis_option field. Keep the
-            // analysis request shape explicit; generation carries its own
-            // lightweight analysis_option independently.
+            // Keep command-level analysis settings explicit and stable.
             JObject analysisOptions = new JObject();
             string inputSignature = BuildAnimationAnalysisSignature(character, animation, analysisOptions);
             AnalysisCacheRecord record;

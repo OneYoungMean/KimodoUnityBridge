@@ -254,9 +254,6 @@ namespace KimodoBridge.Editor
                 OutConstraintWindowJson = outConstraintWindowJson ?? string.Empty,
                 InConstraintWindowModelFrameCount = constraintResult.BeginBoundaryWindowModelFrameCount,
                 OutConstraintWindowModelFrameCount = constraintResult.EndBoundaryWindowModelFrameCount,
-                // Lightweight analysis options are supplied by command requests;
-                // Inspector generation uses the separate full analysis path.
-                AnalysisOptionsJson = externalConstraint?.AnalysisOptionsJson ?? string.Empty,
                 ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
                 Token = token,
                 HasSyntheticAutoBeginConstraint = hasSyntheticAutoBeginConstraint,

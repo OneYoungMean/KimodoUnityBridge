@@ -285,8 +285,7 @@ namespace KimodoBridge.Editor
             return Task.FromResult(result);
         }
 
-        // Shared entry for Inspector and command generation. Command-only
-        // lightweight analysis options flow through the existing request path.
+        // Shared entry for Inspector and command generation.
         internal static bool TryStartConfiguredGenerate(
             KimodoPlayableClip clip,
             UnityEngine.Object jobTarget,
@@ -297,8 +296,7 @@ namespace KimodoBridge.Editor
             Action<KimodoEditorGenerationJobSession> finallyGenerate,
             Action<KimodoEditorGenerationJobSession> statusChanged,
             out KimodoEditorGenerationJobSession session,
-            out string error,
-            string analysisOptionsJson = null)
+            out string error)
         {
             session = null;
             error = string.Empty;
@@ -308,9 +306,6 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            KimodoExternalConstraintRequest commandOptions = string.IsNullOrWhiteSpace(analysisOptionsJson)
-                ? null
-                : new KimodoExternalConstraintRequest { AnalysisOptionsJson = analysisOptionsJson };
             UnityEngine.Object resolvedTarget = jobTarget != null ? jobTarget : clip;
             return KimodoEditorGenerationJobService.Start(
                 resolvedTarget,
@@ -321,7 +316,7 @@ namespace KimodoBridge.Editor
                         beforeGenerate?.Invoke(handle);
                         KimodoEditorGenerationResult result = await GenerateAndFinalizeAsync(
                             clip,
-                            externalConstraint: commandOptions,
+                            externalConstraint: null,
                             (stage, message) => KimodoEditorGenerationJobService.UpdateProgress(
                                 resolvedTarget,
                                 handle.RequestId,
@@ -1202,7 +1197,6 @@ namespace KimodoBridge.Editor
             int originalRuntimeTrimStartFrame = request.RuntimeTrimStartFrame;
             bool originalRequestEndpointSample = request.RequestEndpointSample;
             string originalConstraintsJson = request.Constraints?.json ?? string.Empty;
-            string originalAnalysisOptionsJson = request.AnalysisOptionsJson ?? string.Empty;
             var coreMotions = new List<KimodoRawMotionData>(windows.Count);
             var generatedWindows = new List<KimodoRawMotionData>(windows.Count);
             bool captureDebugPasses =
@@ -1222,7 +1216,6 @@ namespace KimodoBridge.Editor
                     request.TargetFrameCount = window.RequestFrameCount;
                     request.RuntimeFrameCount = window.RequestFrameCount;
                     request.RuntimeTrimStartFrame = 0;
-                    request.AnalysisOptionsJson = string.Empty;
                     string windowConstraintsJson = KimodoGenerationWindowPlanner.BuildWindowConstraintsJson(
                         window,
                         originalConstraintsJson);
@@ -1388,7 +1381,6 @@ namespace KimodoBridge.Editor
                 request.RuntimeTrimStartFrame = originalRuntimeTrimStartFrame;
                 request.RequestEndpointSample = originalRequestEndpointSample;
                 request.Constraints.json = originalConstraintsJson;
-                request.AnalysisOptionsJson = originalAnalysisOptionsJson;
                 var combinedResult = new KimodoGenerationResultDto
                 {
                     motionData = combined,
@@ -1400,17 +1392,6 @@ namespace KimodoBridge.Editor
                     request,
                     combinedResult,
                     modelName);
-                if (!string.IsNullOrWhiteSpace(originalAnalysisOptionsJson))
-                {
-                    JObject analysis = await AnalyzeMergedMotionAsync(
-                        request,
-                        modelName,
-                        combinedResult.motionData,
-                        originalAnalysisOptionsJson,
-                        request.Progress,
-                        request.Token);
-                    combinedResult.analysisJson = analysis.ToString(Formatting.None);
-                }
                 return combinedResult;
             }
             finally
@@ -1419,7 +1400,6 @@ namespace KimodoBridge.Editor
                 request.RuntimeFrameCount = originalRuntimeFrameCount;
                 request.RuntimeTrimStartFrame = originalRuntimeTrimStartFrame;
                 request.RequestEndpointSample = originalRequestEndpointSample;
-                request.AnalysisOptionsJson = originalAnalysisOptionsJson;
                 if (request.Constraints != null)
                     request.Constraints.json = originalConstraintsJson;
             }
@@ -1620,7 +1600,6 @@ namespace KimodoBridge.Editor
                     stage1PathRootOrigin = clip.overridePathAngle
                         ? ResolveStage1PathRootOrigin(firstRequest)
                         : (Vector3?)null;
-                    firstRequest.AnalysisOptionsJson = string.Empty;
                     firstRequest.Progress = (stage, message) =>
                         progress?.Invoke(stage, $"Stage 1 baseline: {message}");
                     KimodoDebugTimelineWriter.TryPrepare(clip, firstRequest, "Stage 1 Baseline");
@@ -2323,8 +2302,6 @@ namespace KimodoBridge.Editor
                     token,
                     timelineClipOverride: timelineClipOverride);
                 baselineRequest.Progress = progress;
-                string bakeAnalysisOptionsJson = baselineRequest.AnalysisOptionsJson;
-                baselineRequest.AnalysisOptionsJson = string.Empty;
 
                 progress?.Invoke(KimodoBridgeCommandStage.Constraint, "ClipConstraint bake: generating baseline motion...");
                 KimodoGenerationResultDto baseline = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
@@ -2409,7 +2386,6 @@ namespace KimodoBridge.Editor
                     baselineRequest,
                     modelName,
                     merged,
-                    bakeAnalysisOptionsJson,
                     progress,
                     token);
                 List<int> keyframes = ExtractAnalysisKeyframes(
@@ -2464,17 +2440,14 @@ namespace KimodoBridge.Editor
             KimodoEditorGenerateRequest request,
             string modelName,
             KimodoRawMotionData motion,
-            string analysisOptionsJson,
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
         {
-            JObject options = string.IsNullOrWhiteSpace(analysisOptionsJson)
-                ? new JObject()
-                : JObject.Parse(analysisOptionsJson);
-            options["analysis_only"] = true;
-            JObject keyframeOptions = options["keyframes"] as JObject ?? new JObject();
-            keyframeOptions["enabled"] = true;
-            options["keyframes"] = keyframeOptions;
+            JObject options = new JObject
+            {
+                ["analysis_only"] = true,
+                ["keyframes"] = new JObject { ["enabled"] = true }
+            };
 
             var analysisRequest = new KimodoGenerationRequestDto
             {

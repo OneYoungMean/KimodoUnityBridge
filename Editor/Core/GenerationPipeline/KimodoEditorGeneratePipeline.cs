@@ -735,7 +735,6 @@ namespace KimodoBridge.Editor
                         ? new List<KimodoClipConstraint>(request.Constraints.clips)
                         : new List<KimodoClipConstraint>()
                 },
-                analysis_option_json = request.AnalysisOptionsJson ?? string.Empty,
                 model = KimodoMotionModelProfiles.NormalizeName(modelName),
                 text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(request.TextEncoderMode),
                 simulate_free_vram_gb = KimodoPlayableClipGenerationSettings.instance.KeepCpuForceExperimental ? 0 : (int?)null,

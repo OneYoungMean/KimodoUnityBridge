@@ -199,7 +199,7 @@ namespace KimodoUnityBridge.Command.Tests
                 "{'enabled':true,'window_frames':0}"), out _), Is.False);
             Assert.That(generate["inputSchema"]?["properties"]?["analyze"]?.Value<string>("type"), Is.EqualTo("boolean"));
             Assert.That(generate["inputSchema"]?["properties"]?["analyze"]?.Value<bool>("default"), Is.True);
-            Assert.That(generate["inputSchema"]?["properties"]?["analysis_option"]?.Value<string>("type"), Is.EqualTo("object"));
+            Assert.That(generate["inputSchema"]?["properties"]?["analysis_option"], Is.Null);
             Assert.That(retarget["inputSchema"]?["properties"]?["source_character"], Is.Not.Null);
             Assert.That(retarget["inputSchema"]?["properties"]?["animation"], Is.Not.Null);
 

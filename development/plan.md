@@ -44,7 +44,7 @@
 
 ## 暂缓 TODO：Analysis Picture 行为修复
 
-- [ ] **Inspector 独立 Analysis 入口。** 在 `Advanced` 增加独立的完整 `animation.analysis` 选项；不要把已保留的 `animation.generate.analysis_option` 当作 UI 方案，也不要通过 Command Dispatcher 反射调用。生成完成后由共享 Editor 分析服务处理 Timeline 采样、缓存、Root Path 标记和 SceneView 图片。
+- [ ] **Inspector 独立 Analysis 入口。** 在 `Advanced` 增加独立的完整 `animation.analysis` 选项；生成命令不再暴露轻量 `analysis_option`。生成完成后由共享 Editor 分析服务处理 Timeline 采样、缓存、Root Path 标记和 SceneView 图片。
 - [ ] 让 `animation_analyze.picture.environment.mode` 真正控制画面环境，并验证 `tiles`、`output` 与返回的图片文件一致；当前这几个选项会被解析和回显，但实际渲染分支没有完整应用它们。
 - [ ] 评估并移除 `BuildEffectiveAnalysisOptions` 对 `keyframe_count`、`keyframes.max_count`、`keyframes.enabled` 的兼容清理；破坏性升级后应由 schema 直接拒绝旧字段。
 - [ ] 区分并保留仍有实际用途的 Timeline segment `role`、Marker `sourceRole` 与 analysis 输入字段，禁止全局关键字替换。
@@ -57,7 +57,7 @@
 - [ ] **Issue 3：跨片段 RootT.y 基线。** 先在同一 Avatar、Animator、`trackOffset`、`removeStartOffset` 和 `applyRootMotion` 条件下复现，再按 root-motion 语义决定有条件的垂直 rebase；站立片段与跳跃片段必须分开验收，暂不引入固定髋高。
 - [x] **Issue 6：inout 幻影速度误报。** deferred Out 样本在速度校验副本中排除未重锚的 `rootOverride`，保留姿态数据和原始生成样本；即时真实根运动仍由 7 m/s 校验拦截。
 - [ ] 为 QuickServer、连接超时、取消和输入错误定义稳定的错误码映射；当前执行器仍将未分类异常映射为 `invalid_argument`。
-- [x] 已删去 `animation.analysis` 不可从公开 schema 到达的 `analysis_option` 读取和旧字段拒绝逻辑；`animation.generate` 的轻量 `analysis_option` 保留。
+- [x] 已从 `animation.generate` 公开 schema 和 Editor generation request path 移除无读取者的轻量 `analysis_option`；ClipConstraint bake 继续使用内部 analysis-only KMB ClipConstraints。
 - [x] 已让 schema 校验与 handler 共用一次 JSON 解析结果；字符串命令入口仍保留，内部测试的错误响应行为不变。
 - [x] 已在 Runtime Constraints 内抽取不带隐式 clamp 的 Bézier 求值器，供 Command RootPath 与 Runtime path-angle 共用；切线计算仍留在 Command。
 

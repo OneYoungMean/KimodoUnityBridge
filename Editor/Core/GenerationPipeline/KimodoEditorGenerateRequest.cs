@@ -50,7 +50,6 @@ namespace KimodoBridge.Editor
         public int DiffusionSteps;
         public int EffectiveSeed;
         public KimodoConstraintPayload Constraints = new KimodoConstraintPayload();
-        public string AnalysisOptionsJson;
         internal KimodoEditorGenerateOutputPlan OutputPlan { get; private set; }
         public string ModelsRoot = string.Empty;
         internal AnimationClip TargetClip { get; set; }

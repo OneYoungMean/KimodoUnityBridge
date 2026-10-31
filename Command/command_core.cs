@@ -212,7 +212,6 @@ namespace KimodoUnityBridge.Command
                                 ["default"] = true,
                                 ["description"] = "Run the full animation.analysis command after generation; defaults to true."
                             }, false),
-                            Optional("analysis_option", "object", "Optional generation-time lightweight analysis. When enabled, generation returns sparse salient keyframe markers and foot-contact changes; it does not run the full animation.analysis command."),
                             OptionalConstraints("constraints", "Point constraints resolve to Root2D (root alone), FullBody (pose, optionally root/effector, after IK), or Effector (root + effector without pose). effector alone is invalid. Transforms accept World position and/or Euler rotation in degrees; omitted channels retain sampled values. Pose/effector safety preflight runs when the point explicitly contains both pose and effector. root_path and inout remain separate constraint forms; duplicate frames are rejected; command frames use 60 FPS."))),
                     CommandDefinition(PoseGetCommand,
                         "Sample one absolute Timeline-global frame at 60 FPS, or select mode scene_pose / skeleton_rest_pose to read the original scene Animator or Avatar rest pose. Every response includes character_root, the bound scene GameObject root Transform in world space; data.root is the sampled Pose root channel. Every call creates an External Pose slot and returns {track,index}.",
@@ -712,7 +711,6 @@ namespace KimodoUnityBridge.Command
                     ? ReadVector3(pathOptions["relative_offset"] as JArray, "path.relative_offset")
                     : Vector3.zero;
                 float duration = (float)(durationFrames / SessionFrameRate);
-                string analysisOptionsJson = ParseAnalysisOptionsJson(arguments);
                 bool analyzeAfterGeneration = arguments.Value<bool?>("analyze") ?? true;
                 int frameCount = Math.Max(1, KimodoFrameTimeUtility.SecondsToFrameCount(duration, frameRate));
                 int seed = generationOptions?.Value<int?>("seed") ?? (Guid.NewGuid().GetHashCode() & int.MaxValue);
@@ -880,8 +878,7 @@ namespace KimodoUnityBridge.Command
                     },
                     PersistGenerationJobStatus,
                     out KimodoEditorGenerationJobSession generation,
-                    out string error,
-                    analysisOptionsJson);
+                    out string error);
                 if (!started)
                 {
                     throw new InvalidOperationException(error);

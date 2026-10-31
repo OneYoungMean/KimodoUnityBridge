@@ -2166,7 +2166,7 @@
         ],
         "limits": [
           "Map explicit path and direction requirements to supported trajectory fields; use confirmed scene/analysis evidence to resolve details the prompt leaves unspecified. Leave other optional fields at their schema defaults.",
-          "analyze controls the full post-generation animation.analysis pass and defaults to true; analysis_option is lightweight generation-time analysis and remains independent.",
+          "analyze controls the full post-generation animation.analysis pass and defaults to true.",
           "Command checks validate supported request boundaries. Evaluate semantic and artistic quality with the task's acceptance criteria and analysis evidence."
         ],
         "related_commands": [
@@ -2331,10 +2331,6 @@
             "type": "boolean",
             "default": true,
             "description": "Run the full animation.analysis command after generation; defaults to true."
-          },
-          "analysis_option": {
-            "type": "object",
-            "description": "Optional generation-time lightweight analysis. When enabled, generation returns sparse salient keyframe markers and foot-contact changes; it does not run the full animation.analysis command."
           },
           "constraints": {
             "type": "array",
