@@ -507,11 +507,10 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(
                 Mathf.Abs((float)composed[0]["local_joints_rot"][0][0][1]),
                 Is.EqualTo(Mathf.PI / 2f).Within(0.001f));
-            Assert.That(
-                JToken.DeepEquals(
-                    composed[0]["local_joints_rot"][0][1],
-                    new JArray(0.1f, 0.2f, 0.3f)),
-                Is.True);
+            JArray childRotation = (JArray)composed[0]["local_joints_rot"][0][1];
+            Assert.That(childRotation[0].Value<float>(), Is.EqualTo(0.1f).Within(1e-6f));
+            Assert.That(childRotation[1].Value<float>(), Is.EqualTo(0.2f).Within(1e-6f));
+            Assert.That(childRotation[2].Value<float>(), Is.EqualTo(0.3f).Within(1e-6f));
         }
 
         [Test]

@@ -116,7 +116,7 @@
 
 ## 代码清理待办（暂缓，由后续处理）
 
-- [ ] **obstacle：归档不可达的非 ARDY ClipConstraint bake 分支。** `GenerateClipConstraintBakedAsync` 仅在 `TryGetClipConstraintAvatarMask()` 返回 `true` 时进入；当前实现固定返回 `false`。确认不再恢复该功能后，将这条非 ARDY 的 ClipConstraint mask/二次生成分支移入 archive。保留 ARDY In 边界使用的 `BuildBegin` 和通用 ClipConstraint 协议；也不要把共享的 `AnalyzeMergedMotionAsync` 一并归档：长窗口生成在启用了 generation 轻量分析时仍会调用它。
+- [x] 已将不可达的非 ARDY ClipConstraint mask-bake 分支及其专属合并/分析代码归档到 `archive/non-ardy-clip-constraint-bake-20261031/removed-code.txt`。保留 ARDY In 边界 `BuildBegin`、通用 ClipConstraint 协议与共享约束 JSON 工具；generation 轻量分析已移除，因此合并运动分析没有其他活动调用者。
 - [ ] 检查 `KimodoHandEffectorGoalTests` 中 AnimationHumanStream goal 与 Avatar post rotation 的 180° 偏差；确认是测试公式、Unity 版本差异还是运行时手部约束方向错误。
 - [ ] 将 FullDemo `5.RuntimeArdyDemo.unity` 中仍序列化到 `targetHumanoidAnimator` 的 8 个目标迁入 `targetHumanoidAnimators`，然后验证 ARDY 场景能启动；当前代码只读取新列表。
 - [ ] 为运行时生成失败定义退避或阻塞策略，避免 QuickServer 不可用或请求持续失败时每帧重试并重复写日志。

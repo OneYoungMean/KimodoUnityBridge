@@ -217,7 +217,6 @@ namespace KimodoBridge.Editor
                 clip,
                 timelineClip,
                 resolvedModelName,
-                runtimeFrameCount,
                 targetFrameRate,
                 runtimeTrimStartFrame,
                 !disableTimelineInOut &&
@@ -285,15 +284,6 @@ namespace KimodoBridge.Editor
             var combined = JArray.Parse(first);
             combined.Merge(JArray.Parse(second));
             return combined.ToString(Newtonsoft.Json.Formatting.None);
-        }
-
-        // TODO: expose an internal generation entry that supplies an AvatarMask when Clip Constraint is ready.
-        internal static bool TryGetClipConstraintAvatarMask(
-            KimodoPlayableClip clip,
-            out AvatarMask avatarMask)
-        {
-            avatarMask = null;
-            return false;
         }
 
         private static bool ShouldUseOutsideGuardFrame(
