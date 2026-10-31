@@ -691,7 +691,7 @@ namespace KimodoUnityBridge.Command
                         ["type"] = "integer",
                         ["minimum"] = 1,
                         ["default"] = 30,
-                        ["description"] = "Loop window duration in 60 FPS command frames; converted to model frames when building the loop window."
+                        ["description"] = "Loop window duration in 60 FPS command frames; converted to model frames when building the loop window. The copied tail starts on the core content's terminal frame, so the total extension is the window width minus one model frame."
                     },
                     ["sample_count"] = new JObject
                     {
@@ -706,7 +706,7 @@ namespace KimodoUnityBridge.Command
             };
             return new PropertyDefinition("loop", new JObject
             {
-                ["description"] = "Enable loop preprocessing and configure its window, or provide per-axis endpoint locks with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}.",
+                ["description"] = "Enable loop preprocessing and configure its window, or provide per-axis endpoint locks with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}. The copied tail starts on the core content's terminal frame.",
                 ["oneOf"] = new JArray(
                     new JObject { ["type"] = "boolean" },
                     structured)

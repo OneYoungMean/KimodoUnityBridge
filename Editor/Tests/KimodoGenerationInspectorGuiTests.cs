@@ -76,6 +76,50 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void BakeIntoClip_UsesRealCoverageSampleInsteadOfHoldingPreviousFrame()
+        {
+            string motionJson = new JObject
+            {
+                ["num_frames"] = 3,
+                ["num_joints"] = 1,
+                ["fps"] = 30,
+                ["joint_names"] = new JArray("Hips"),
+                ["joint_parents"] = new JArray(-1),
+                ["joints"] = new JArray(0, 0, 0, 1, 0, 0, 2, 0, 0),
+                ["local_rot_quats"] = new JArray(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+            }.ToString(Newtonsoft.Json.Formatting.None);
+            var clip = new AnimationClip { name = "RealCoverageSample", frameRate = 30f };
+            try
+            {
+                Assert.That(
+                    KimodoRetargetToolsEditor.BakeIntoClip(
+                        clip,
+                        motionJson,
+                        KimodoBakeSkeletonType.SOMA,
+                        KimodoMotionModelProfiles.DefaultModelName,
+                        null,
+                        out string error,
+                        hasRealCoverageSample: true),
+                    Is.True,
+                    error);
+
+                EditorCurveBinding binding = EditorCurveBinding.FloatCurve(
+                    "Hips", typeof(Transform), "m_LocalPosition.x");
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(clip, binding);
+                Assert.That(curve, Is.Not.Null);
+                Assert.That(curve.length, Is.EqualTo(3));
+                Assert.That(curve.keys[2].time, Is.EqualTo(2f / 30f).Within(1e-6f));
+                Assert.That(curve.keys[2].value, Is.EqualTo(-2f).Within(1e-6f));
+                Assert.That(curve.keys[2].value, Is.Not.EqualTo(curve.keys[1].value));
+                Assert.That(clip.length, Is.EqualTo(2f / 30f).Within(1e-6f));
+            }
+            finally
+            {
+                Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
         public void RelativeOffset_NormalizesRootBeforeBakeAndCarriesWorldPlacementOnRequest()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();

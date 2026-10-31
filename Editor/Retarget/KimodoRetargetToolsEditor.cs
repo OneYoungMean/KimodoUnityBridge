@@ -30,7 +30,8 @@ namespace KimodoBridge.Editor
             KimodoBakeSkeletonType skeletonType,
             string modelName,
             KimodoCurveFilterOptions curveFilterOptions,
-            out string error)
+            out string error,
+            bool hasRealCoverageSample = false)
         {
             error = string.Empty;
             if (targetClip == null)
@@ -86,8 +87,13 @@ namespace KimodoBridge.Editor
                 frameRate = fps
             };
 
-            BakeMotionCurvesDirect(rawClip, data, fps, frameCount);
-            KimodoFootContactTrackUtility.Apply(rawClip, data.foot_contacts, frameCount, fps);
+            BakeMotionCurvesDirect(rawClip, data, fps, frameCount, appendCoverageHoldFrame: !hasRealCoverageSample);
+            KimodoFootContactTrackUtility.Apply(
+                rawClip,
+                data.foot_contacts,
+                frameCount,
+                fps,
+                appendCoverageHoldFrame: !hasRealCoverageSample);
             KimodoEditorClipUtility.CopyClipData(rawClip, targetClip, forceNoLoopKeepY: true);
             UnityEngine.Object.DestroyImmediate(rawClip);
 
@@ -1222,7 +1228,12 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        private static void BakeMotionCurvesDirect(AnimationClip targetClip, MotionJsonData data, float fps, int frameCount)
+        private static void BakeMotionCurvesDirect(
+            AnimationClip targetClip,
+            MotionJsonData data,
+            float fps,
+            int frameCount,
+            bool appendCoverageHoldFrame)
         {
             int jointCount = Mathf.Min(data.joint_names.Length, data.num_joints > 0 ? data.num_joints : data.joint_names.Length);
             bool hasPositions = data.positions != null && data.positions.Count > 0;
@@ -1256,11 +1267,14 @@ namespace KimodoBridge.Editor
                         py.AddKey(t, p.y);
                         pz.AddKey(t, p.z);
                     }
-                    Vector3 heldPosition = ReadPos(data, frameCount - 1, joint);
-                    float coverageEnd = frameCount / fps;
-                    px.AddKey(coverageEnd, heldPosition.x);
-                    py.AddKey(coverageEnd, heldPosition.y);
-                    pz.AddKey(coverageEnd, heldPosition.z);
+                    if (appendCoverageHoldFrame)
+                    {
+                        Vector3 heldPosition = ReadPos(data, frameCount - 1, joint);
+                        float coverageEnd = frameCount / fps;
+                        px.AddKey(coverageEnd, heldPosition.x);
+                        py.AddKey(coverageEnd, heldPosition.y);
+                        pz.AddKey(coverageEnd, heldPosition.z);
+                    }
 
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalPosition.x", px);
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalPosition.y", py);
@@ -1283,12 +1297,15 @@ namespace KimodoBridge.Editor
                         qz.AddKey(t, q.z);
                         qw.AddKey(t, q.w);
                     }
-                    Quaternion heldRotation = ReadLocalQuat(data, frameCount - 1, joint, rotJointCount);
-                    float coverageEnd = frameCount / fps;
-                    qx.AddKey(coverageEnd, heldRotation.x);
-                    qy.AddKey(coverageEnd, heldRotation.y);
-                    qz.AddKey(coverageEnd, heldRotation.z);
-                    qw.AddKey(coverageEnd, heldRotation.w);
+                    if (appendCoverageHoldFrame)
+                    {
+                        Quaternion heldRotation = ReadLocalQuat(data, frameCount - 1, joint, rotJointCount);
+                        float coverageEnd = frameCount / fps;
+                        qx.AddKey(coverageEnd, heldRotation.x);
+                        qy.AddKey(coverageEnd, heldRotation.y);
+                        qz.AddKey(coverageEnd, heldRotation.z);
+                        qw.AddKey(coverageEnd, heldRotation.w);
+                    }
 
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.x", qx);
                     targetClip.SetCurve(path, typeof(Transform), "m_LocalRotation.y", qy);

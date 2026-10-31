@@ -498,7 +498,7 @@ namespace KimodoBridge
                 sourceStartFrame < 0 || sourceStartFrame >= motion.FrameCount ||
                 windowFrameCount <= 0 || sampleCount <= 0 || sampleCount > windowFrameCount ||
                 sourceOutputStartFrame < 0 || tailStartFrame < 0 || runtimeFrameCount <= 0 || frameRate <= 0f ||
-                tailStartFrame < sourceOutputStartFrame + windowFrameCount ||
+                tailStartFrame < sourceOutputStartFrame + windowFrameCount - 1 ||
                 sourceOutputStartFrame + windowFrameCount > runtimeFrameCount ||
                 tailStartFrame + windowFrameCount > runtimeFrameCount)
             {
@@ -553,9 +553,36 @@ namespace KimodoBridge
                 tailSamples,
                 targetAnchorPosition,
                 targetAnchorHeading);
+            // The loop tail begins on the core content's terminal frame. Keep
+            // one FullBody row per output frame and let the copied tail sample
+            // own the shared seam row (the tail is the continuation of the
+            // loop window at that frame).
             var samples = new List<KimodoConstraintInternalData>(sampleCount * 2);
+            var sampleByOutputFrame = new Dictionary<int, int>();
             samples.AddRange(sourceSamples);
-            samples.AddRange(tailSamples);
+            for (int i = 0; i < sourceSamples.Count; i++)
+            {
+                int offset = sampleCount == 1
+                    ? 0
+                    : Mathf.RoundToInt(i * (windowFrameCount - 1f) / (sampleCount - 1f));
+                sampleByOutputFrame[sourceOutputStartFrame + offset] = i;
+            }
+            for (int i = 0; i < tailSamples.Count; i++)
+            {
+                int offset = sampleCount == 1
+                    ? 0
+                    : Mathf.RoundToInt(i * (windowFrameCount - 1f) / (sampleCount - 1f));
+                int outputFrame = tailStartFrame + offset;
+                if (sampleByOutputFrame.TryGetValue(outputFrame, out int existingIndex))
+                {
+                    samples[existingIndex] = tailSamples[i];
+                }
+                else
+                {
+                    sampleByOutputFrame[outputFrame] = samples.Count;
+                    samples.Add(tailSamples[i]);
+                }
+            }
 
             return BuildFullBodyConstraints(
                 samples,

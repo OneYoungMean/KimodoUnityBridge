@@ -14,7 +14,7 @@ namespace KimodoBridge
             "RightToe"
         };
 
-        internal static void Apply(AnimationClip clip, KimodoRawMotionData motion)
+        internal static void Apply(AnimationClip clip, KimodoRawMotionData motion, bool appendCoverageHoldFrame = true)
         {
             if (clip == null || motion == null || !motion.HasFootContacts)
             {
@@ -30,10 +30,15 @@ namespace KimodoBridge
                     contacts.Add(value);
                 }
             }
-            Apply(clip, contacts, motion.FrameCount, motion.FrameRate);
+            Apply(clip, contacts, motion.FrameCount, motion.FrameRate, appendCoverageHoldFrame);
         }
 
-        internal static void Apply(AnimationClip clip, IReadOnlyList<float> contacts, int frameCount, float frameRate)
+        internal static void Apply(
+            AnimationClip clip,
+            IReadOnlyList<float> contacts,
+            int frameCount,
+            float frameRate,
+            bool appendCoverageHoldFrame = true)
         {
             if (clip == null || contacts == null || contacts.Count != frameCount * ChannelCount || frameCount <= 0)
             {
@@ -51,7 +56,10 @@ namespace KimodoBridge
                 }
 
                 float lastValue = contacts[(frameCount - 1) * ChannelCount + channel] >= 0.5f ? 1f : 0f;
-                curve.AddKey(CreateStepKey(frameCount / fps, lastValue));
+                if (appendCoverageHoldFrame)
+                {
+                    curve.AddKey(CreateStepKey(frameCount / fps, lastValue));
+                }
                 clip.SetCurve(string.Empty, typeof(Animator), GetPropertyName(channel), curve);
             }
         }

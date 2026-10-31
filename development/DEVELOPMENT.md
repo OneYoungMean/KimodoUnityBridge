@@ -70,7 +70,7 @@ Stage 3 runs only when Stage 2 produced a loop or deferred boundary window, or w
 - When heading override is active, all already-effective Root2D, FullBody, and Effector headings are updated, including constraints inherited from Stage 2.
 - Post-apply In/Out windows are anchored by the earliest constraint in each window and are placed around the core Stage 2 content. Window payloads are carried separately from ordinary deferred fields so Stage 3 can apply the requested re-anchoring policy. Loop and Out windows are mutually exclusive; Out has priority.
 - Stage 3 owns the final target duration after window placement. Its generation request disables only automatic Outside context expansion, because the resolved In/Out windows are already included in the Stage 3 target and are shifted explicitly into that request; constraint sampling and inherited Clip constraints remain enabled.
-- The loop window begins at the selected loop keyframe, is appended after the core content without overlap, and preserves its configured frame/sample mapping. The duration is extended to cover the appended window.
+- The loop window begins at the selected loop keyframe, and its copied tail begins on the core content's terminal frame. The shared seam frame is owned by the copied tail while preserving the configured frame/sample mapping. The duration is extended by the window width minus one frame.
 - The copied tail window is uniformly re-anchored from the source window's first sample to the Stage 2 terminal root with the complete locked Transform: a three-dimensional translation plus one rigid quaternion rotation. Loop Lock Pos/Rot is resolved once on that target anchor before the transform is derived; copied constraints receive only the resulting uniform rigid transform and are never individually axis-locked.
 - When PathAngle and Loop are both active, the Loop pass computes that window anchor first, then uses the PathAngle terminal Root2D value as the target anchor and removes the terminal PathAngle Root2D sample before appending the Loop window.
 
@@ -85,11 +85,11 @@ The loop In/Out window uses the configured total window frame count and sample c
 
 - The window frame count describes the complete temporal width of the window.
 - The sample count describes the number of constraints sampled inside that window.
-- Stage 3 duration and core offsets use the resolved full window width in model frames, not the span of the exported sample indices; a one-sample window still reserves its full configured duration.
+- Loop sampling uses the resolved full window width in model frames, while the tail extension and any deferred Out offset use `windowFrameCount - 1` because the first tail frame is the core terminal frame. A one-sample window still reserves that full tail span.
 - The Inspector exposes these Stage 3 values as `Loop Window Frames (60 FPS)` and `Loop Window Samples`, defaulting to `30` and `2`; the frame value is always a 60-FPS command-frame count and is converted to model frames with ceiling before sampling. In/Out and long-clip windows use the same 60-FPS duration contract; their old serialized model-frame values are migrated once while loop values retain their existing 60-FPS meaning.
 - For example, `30` means `0.5` seconds: it becomes `15` model frames at 30 FPS, `13` at 25 FPS, and `10` at 20 FPS.
 - The usable window span is limited to `floor(animationFrameCount * (sampleCount - 1) / sampleCount)`. If the requested window exceeds that limit, clamp it and emit a warning; the minimum effective span is one frame.
-- Use the start window's first sample as the loop anchor. Copy the start window to the tail without overlap, beginning at the frame immediately after the original final frame.
+- Use the start window's first sample as the loop anchor. Copy the start window to the tail beginning at the original final frame, so the tail's first sample occupies the shared seam frame.
 - At the start and tail endpoints, set Root2D headings from the Stage 2 motion; if an endpoint has no Root2D constraint, sample its position and heading from Stage 2. Resolve the target anchor with the existing Loop Lock Pos/Rot options, then apply the resulting uniform rigid Transform to the copied window. Do not apply lock axes directly to any copied endpoint or interior constraint.
 - Extend the target duration so the generated animation covers the original content and the appended window.
 - Preserve the window's frame spacing and sample count after the duration extension.
@@ -101,9 +101,9 @@ The old three-second loop trajectory sampling rule is not part of this design an
 1. **Contract and time mapping**: introduce the common Stage/Pass/result model, explicit stage source motion, and one frame-time mapping per stage.
 2. **Stage 1 migration**: move Clip constraints and non-`post_apply` In/Out composition into the baseline stage.
 3. **Stage 2 migration**: move path angle, path distance, relative offset, and heading handling into composable passes using Stage 1 root samples.
-4. **Stage 3 migration**: select the foot-contact exchange midpoint, inherit Stage 2 constraints, adjust only Root2D endpoint headings, and implement non-overlapping In/Out window extension.
+4. **Stage 3 migration**: select the foot-contact exchange midpoint, inherit Stage 2 constraints, adjust only Root2D endpoint headings, and implement window extension with the loop seam on the core terminal frame.
 5. **Trajectory cleanup**: remove trajectory-only branching and duplicate duration logic after all callers use the staged contract. Obsolete files must follow the repository archive rule.
-6. **Verification**: add focused tests for stage inheritance, delta-sum distance, heading-only fallback anchors, contact-exchange fallback, window clamping warnings, non-overlap, and final duration/frame ranges; then run the Unity Editor checks listed above.
+6. **Verification**: add focused tests for stage inheritance, delta-sum distance, heading-only fallback anchors, contact-exchange fallback, window clamping warnings, seam-frame replacement, and final duration/frame ranges; then run the Unity Editor checks listed above.
 
 ### Long-clip window controls (2026-10-28)
 

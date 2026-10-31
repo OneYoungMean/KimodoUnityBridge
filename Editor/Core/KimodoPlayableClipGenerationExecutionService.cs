@@ -501,7 +501,9 @@ namespace KimodoBridge.Editor
                     PassName = "Connected"
                 }).ToList());
             int totalFrameCount = entries[entries.Count - 1].StartFrame + entries[entries.Count - 1].FrameCount;
-            int runtimeFrameCount = totalFrameCount + contextBefore + contextAfter;
+            bool requestEndpointSample = !profile.IsArdy;
+            int runtimeFrameCount = totalFrameCount + contextBefore + contextAfter +
+                (requestEndpointSample ? 1 : 0);
             KimodoEditorGenerateRequest firstRequest = entries[0].Request;
             KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                 firstRequest,
@@ -524,7 +526,8 @@ namespace KimodoBridge.Editor
             }
             AddTimelineSegments(entries, profile, generation);
             generation.timeline_segments[0].duration += contextBefore / profile.SourceFps;
-            generation.timeline_segments[generation.timeline_segments.Count - 1].duration += contextAfter / profile.SourceFps;
+            generation.timeline_segments[generation.timeline_segments.Count - 1].duration +=
+                (contextAfter + (requestEndpointSample ? 1 : 0)) / profile.SourceFps;
 
             firstRequest.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating connected Timeline KMB...");
             var pipeline = new KimodoBridgeCommand();
@@ -562,6 +565,23 @@ namespace KimodoBridge.Editor
                             out string sliceError))
                     {
                         throw new InvalidOperationException(sliceError);
+                    }
+
+                    if (requestEndpointSample)
+                    {
+                        if (!KimodoRawMotionUtility.TrySlice(
+                                aggregate.MotionData,
+                                entry.StartFrame + contextBefore,
+                                entry.FrameCount + 1,
+                                out entry.Request.BakeMotionData,
+                                out string endpointSliceError))
+                        {
+                            throw new InvalidOperationException(
+                                $"Connected clip '{entry.Clip.name}' is missing its real endpoint sample: {endpointSliceError}");
+                        }
+                        entry.Request.RequestEndpointSample = true;
+                        entry.Request.BakeMotionJsonCompact =
+                            KimodoRawMotionUtility.ToCompactJson(entry.Request.BakeMotionData);
                     }
 
                     byte[] payload = KimodoRawMotionUtility.ToFlatBuffer(motion, profile.ModelName);
@@ -980,14 +1000,15 @@ namespace KimodoBridge.Editor
                 prompt,
                 externalConstraint,
                 token,
-                timelineClipOverride: timelineClipOverride);
+                timelineClipOverride: timelineClipOverride,
+                requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _));
             string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
 
             try
             {
                 request.Progress = progress;
                 KimodoEditorGenerationResult result;
-                if (request.EffectiveRuntimeFrameCount > KimodoMotionModelProfiles.MaxGenerationFrames)
+                if (request.EffectiveBackendRuntimeFrameCount > KimodoMotionModelProfiles.MaxGenerationFrames)
                 {
                     if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _) ||
                         (request.Constraints?.clips?.Count ?? 0) > 0)
@@ -1150,7 +1171,7 @@ namespace KimodoBridge.Editor
             string prompt,
             string modelName)
         {
-            int totalFrameCount = request.EffectiveRuntimeFrameCount;
+            int totalFrameCount = request.EffectiveBackendRuntimeFrameCount;
             float frameRate = request.TargetFrameRate;
             int minimumCoreFrames = Mathf.Max(1, Mathf.CeilToInt(3f * frameRate));
             int maximumCoreFrames = Mathf.Max(1, Mathf.FloorToInt(8f * frameRate));
@@ -1177,6 +1198,7 @@ namespace KimodoBridge.Editor
             int originalTargetFrameCount = request.TargetFrameCount;
             int originalRuntimeFrameCount = request.RuntimeFrameCount;
             int originalRuntimeTrimStartFrame = request.RuntimeTrimStartFrame;
+            bool originalRequestEndpointSample = request.RequestEndpointSample;
             string originalConstraintsJson = request.Constraints?.json ?? string.Empty;
             string originalAnalysisOptionsJson = request.AnalysisOptionsJson ?? string.Empty;
             var coreMotions = new List<KimodoRawMotionData>(windows.Count);
@@ -1189,6 +1211,7 @@ namespace KimodoBridge.Editor
             }
             try
             {
+                request.RequestEndpointSample = false;
                 for (int index = 0; index < windows.Count; index++)
                 {
                     request.Token.ThrowIfCancellationRequested();
@@ -1361,6 +1384,7 @@ namespace KimodoBridge.Editor
                 request.TargetFrameCount = originalTargetFrameCount;
                 request.RuntimeFrameCount = originalRuntimeFrameCount;
                 request.RuntimeTrimStartFrame = originalRuntimeTrimStartFrame;
+                request.RequestEndpointSample = originalRequestEndpointSample;
                 request.Constraints.json = originalConstraintsJson;
                 request.AnalysisOptionsJson = originalAnalysisOptionsJson;
                 var combinedResult = new KimodoBridgeCommandResult
@@ -1392,6 +1416,7 @@ namespace KimodoBridge.Editor
                 request.TargetFrameCount = originalTargetFrameCount;
                 request.RuntimeFrameCount = originalRuntimeFrameCount;
                 request.RuntimeTrimStartFrame = originalRuntimeTrimStartFrame;
+                request.RequestEndpointSample = originalRequestEndpointSample;
                 request.AnalysisOptionsJson = originalAnalysisOptionsJson;
                 if (request.Constraints != null)
                     request.Constraints.json = originalConstraintsJson;
@@ -1630,7 +1655,8 @@ namespace KimodoBridge.Editor
                     enableAutoBeginAnchor: !needsStage1Baseline && !generateLoop,
                     generateLoopOverride: false,
                     deferOutConstraint: clip.postApplyOutConstraint,
-                    deferInConstraint: clip.postApplyInConstraint);
+                    deferInConstraint: clip.postApplyInConstraint,
+                    requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(modelName, out _));
                 stage2Request = finalRequest;
                 var stage2 = new KimodoEditorGenerationStage(2, "Path and heading", finalRequest, motion);
                 if (firstRequest != null)
@@ -1858,8 +1884,11 @@ namespace KimodoBridge.Editor
                     stage2OutWindowJson,
                     out int firstOutFrame,
                     out _);
+                int loopTailExtensionFrames = generateLoop
+                    ? Mathf.Max(0, loopWindowFrames - 1)
+                    : 0;
                 int stage3TargetFrameCount = stage2Request.TargetFrameCount +
-                    inWindowFrames + outWindowFrames + loopWindowFrames;
+                    inWindowFrames + outWindowFrames + loopTailExtensionFrames;
                 double stage3DurationSeconds =
                     stage3TargetFrameCount /
                     (double)stage2Request.TargetFrameRate;
@@ -1877,7 +1906,8 @@ namespace KimodoBridge.Editor
                     deferInConstraint: clip.postApplyInConstraint,
                     // Stage 3 already includes the windows in its target duration;
                     // keep their constraints, but do not add the same windows again as context.
-                    disableOutsideContextExpansion: true);
+                    disableOutsideContextExpansion: true,
+                    requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(modelName, out _));
                 finalRequest.DebugTimelineGroup = stage2Request.DebugTimelineGroup;
                 int stage2BaseStartFrame = finalRequest.RuntimeTrimStartFrame + inWindowFrames;
                 finalRequest.InConstraintWindowJson = inWindowFrames > 0
@@ -1889,7 +1919,8 @@ namespace KimodoBridge.Editor
                 finalRequest.DeferredInConstraintJson = clip.postApplyInConstraint
                     ? finalRequest.InConstraintWindowJson
                     : string.Empty;
-                int deferredOutStartFrame = stage2BaseStartFrame + stage2Request.TargetFrameCount + loopWindowFrames;
+                int deferredOutStartFrame = stage2BaseStartFrame +
+                    stage2Request.TargetFrameCount + loopTailExtensionFrames;
                 finalRequest.OutConstraintWindowJson = outWindowFrames > 0
                     ? ShiftConstraintFrames(
                         stage2OutWindowJson,
@@ -1951,7 +1982,7 @@ namespace KimodoBridge.Editor
                             loopSourceStartFrame,
                             loopWindowFrames,
                             stage2BaseStartFrame,
-                            stage2BaseStartFrame + stage2Request.TargetFrameCount,
+                            stage2BaseStartFrame + stage2Request.TargetFrameCount - 1,
                             finalRequest.EffectiveRuntimeFrameCount,
                             clip.loopLockPositionX,
                             clip.loopLockPositionY,
@@ -2003,7 +2034,7 @@ namespace KimodoBridge.Editor
                             loopWindowFrames,
                             loopWindowSampleCount,
                             stage2BaseStartFrame,
-                            stage2BaseStartFrame + stage2Request.TargetFrameCount,
+                            stage2BaseStartFrame + stage2Request.TargetFrameCount - 1,
                             finalRequest.EffectiveRuntimeFrameCount,
                             finalRequest.TargetFrameRate,
                             clip.loopLockPositionX,
@@ -2014,9 +2045,10 @@ namespace KimodoBridge.Editor
                             clip.loopLockRotationZ,
                             loopTargetAnchorPosition,
                             loopTargetAnchorHeading);
-                        string combined = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                        string combined = KimodoClipConstraintBakeUtility.AppendConstraintsReplacingFullBodyFrameJson(
                             currentConstraints,
-                            loopWindowConstraintJson);
+                            loopWindowConstraintJson,
+                            stage2BaseStartFrame + stage2Request.TargetFrameCount - 1);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
                         {
                             Name = "Stage 3 Loop In window",
@@ -2397,7 +2429,8 @@ namespace KimodoBridge.Editor
                     externalConstraint,
                     token,
                     effectiveSeedOverride: baselineRequest.EffectiveSeed,
-                    timelineClipOverride: timelineClipOverride);
+                    timelineClipOverride: timelineClipOverride,
+                    requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(modelName, out _));
                 finalRequest.Progress = progress;
                 finalRequest.Constraints.json = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
                     baselineRequest.Constraints.json,

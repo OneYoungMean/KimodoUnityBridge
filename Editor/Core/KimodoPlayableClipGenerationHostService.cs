@@ -30,7 +30,8 @@ namespace KimodoBridge.Editor
             bool deferOutConstraint = false,
             bool deferInConstraint = false,
             double? targetDurationSecondsOverride = null,
-            bool disableOutsideContextExpansion = false)
+            bool disableOutsideContextExpansion = false,
+            bool requestEndpointSample = false)
         {
             if (clip == null)
             {
@@ -243,6 +244,7 @@ namespace KimodoBridge.Editor
                 TargetFrameRate = targetFrameRate,
                 RuntimeFrameCount = runtimeFrameCount,
                 RuntimeTrimStartFrame = runtimeTrimStartFrame,
+                RequestEndpointSample = requestEndpointSample,
                 LongClipWindowFrames60 = Mathf.Max(1, clip.longClipWindowFrames60),
                 LongClipWindowSampleCount = Mathf.Max(1, clip.longClipWindowSampleCount),
                 DiffusionSteps = KimodoMotionModelProfiles.ClampDiffusionSteps(

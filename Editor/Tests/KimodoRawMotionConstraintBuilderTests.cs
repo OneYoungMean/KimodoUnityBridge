@@ -266,7 +266,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void BuildLoopWindowConstraintJson_CopiesWindowSamplesToDisjointTailFrames()
+        public void BuildLoopWindowConstraintJson_StartsTailOnCoreTerminalFrame()
         {
             const string model = KimodoMotionModelProfiles.ArdyCoreModelName;
             const int frameCount = 4;
@@ -303,13 +303,13 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 2,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f));
 
             Assert.That(constraints, Has.Count.EqualTo(1));
             JArray frameIndices = (JArray)constraints[0]["frame_indices"];
-            CollectionAssert.AreEqual(new[] { 0, 2, 4, 6 }, frameIndices.ToObject<int[]>());
+            CollectionAssert.AreEqual(new[] { 0, 2, 3, 5 }, frameIndices.ToObject<int[]>());
             JArray rootsInConstraint = (JArray)constraints[0]["root_positions"];
             CollectionAssert.AreEqual(new[] { -1f, 1f, 1f }, rootsInConstraint[0].ToObject<float[]>());
             CollectionAssert.AreEqual(new[] { -3f, 1f, 3f }, rootsInConstraint[1].ToObject<float[]>());
@@ -323,8 +323,8 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 2,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f,
                 lockPositionX: true,
                 lockPositionY: true));
@@ -339,8 +339,8 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 2,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f,
                 targetAnchorPositionOverride: new Vector3(10f, 0f, 20f),
                 targetAnchorHeadingOverride: Quaternion.Euler(0f, 90f, 0f)));
@@ -356,8 +356,8 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 2,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f,
                 lockPositionX: true,
                 lockRotationY: true,
@@ -377,6 +377,50 @@ namespace KimodoBridge.Editor.Tests
                     ReadUnityRootRotation(lockedPathAngleAnchor[0]["local_joints_rot"][3][0]),
                     Quaternion.identity),
                 Is.LessThan(0.01f));
+
+            JArray overlap = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                motion,
+                model,
+                sourceStartFrame: 1,
+                windowFrameCount: 3,
+                sampleCount: 3,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 2,
+                runtimeFrameCount: 5,
+                frameRate: 20f,
+                targetAnchorPositionOverride: new Vector3(10f, 0f, 20f),
+                targetAnchorHeadingOverride: Quaternion.Euler(0f, 90f, 0f)));
+            CollectionAssert.AreEqual(
+                new[] { 0, 1, 2, 3, 4 },
+                overlap[0]["frame_indices"].Values<int>());
+            CollectionAssert.AreEqual(
+                new[] { -10f, 1f, 20f },
+                overlap[0]["root_positions"][2].Values<float>());
+
+            JArray singleSample = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                motion,
+                model,
+                sourceStartFrame: 0,
+                windowFrameCount: 3,
+                sampleCount: 1,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 2,
+                runtimeFrameCount: 5,
+                frameRate: 20f));
+            CollectionAssert.AreEqual(new[] { 0, 2 }, singleSample[0]["frame_indices"].Values<int>());
+
+            JArray oneFrameWindow = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
+                motion,
+                model,
+                sourceStartFrame: 3,
+                windowFrameCount: 1,
+                sampleCount: 1,
+                sourceOutputStartFrame: 0,
+                tailStartFrame: 0,
+                runtimeFrameCount: 1,
+                frameRate: 20f));
+            CollectionAssert.AreEqual(new[] { 0 }, oneFrameWindow[0]["frame_indices"].Values<int>());
+
             Assert.Throws<System.InvalidOperationException>(() =>
                 KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
                     motion,
@@ -385,8 +429,8 @@ namespace KimodoBridge.Editor.Tests
                     windowFrameCount: 3,
                     sampleCount: 2,
                     sourceOutputStartFrame: 0,
-                    tailStartFrame: 2,
-                    runtimeFrameCount: 7,
+                    tailStartFrame: 1,
+                    runtimeFrameCount: 5,
                     frameRate: 20f));
         }
 
@@ -439,8 +483,8 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 3,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f));
             JArray locked = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildLoopWindowConstraintJson(
                 motion,
@@ -449,8 +493,8 @@ namespace KimodoBridge.Editor.Tests
                 windowFrameCount: 3,
                 sampleCount: 3,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 frameRate: 20f,
                 lockPositionX: true,
                 lockPositionY: true,
@@ -587,8 +631,8 @@ namespace KimodoBridge.Editor.Tests
                 sourceStartFrame: 1,
                 windowFrameCount: 3,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7));
+                tailStartFrame: 3,
+                runtimeFrameCount: 6));
             JArray sampledStart = JArray.Parse(KimodoRawMotionConstraintBuilder.BuildRoot2DConstraintsJson(
                 motion, model, new[] { 1 }));
 
@@ -598,7 +642,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(
                 JToken.DeepEquals(result[0]["global_root_heading"][0], sampledStart[0]["global_root_heading"][0]),
                 Is.True);
-            Assert.That((int)result[1]["frame_indices"][0], Is.EqualTo(6));
+            Assert.That((int)result[1]["frame_indices"][0], Is.EqualTo(5));
             Vector3 rotatedWindowDelta = Quaternion.Euler(0f, 40f, 0f) * new Vector3(2f, 0f, 2f);
             Vector3 expectedTailPosition = new Vector3(3f, 1f, 3f) + rotatedWindowDelta;
             Assert.That((float)result[1]["smooth_root_2d"][0][0], Is.EqualTo(-expectedTailPosition.x).Within(0.001f));
@@ -614,12 +658,12 @@ namespace KimodoBridge.Editor.Tests
                 sourceStartFrame: 1,
                 windowFrameCount: 3,
                 sourceOutputStartFrame: 0,
-                tailStartFrame: 4,
-                runtimeFrameCount: 7,
+                tailStartFrame: 3,
+                runtimeFrameCount: 6,
                 lockPositionX: true,
                 lockPositionY: true,
                 lockRotationY: true));
-            Assert.That((int)locked[0]["frame_indices"][1], Is.EqualTo(6));
+            Assert.That((int)locked[0]["frame_indices"][1], Is.EqualTo(5));
             Assert.That((float)locked[0]["smooth_root_2d"][1][0], Is.EqualTo(-3f).Within(0.001f));
             Assert.That(
                 (float)locked[0]["smooth_root_2d"][1][1],

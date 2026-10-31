@@ -170,6 +170,49 @@ namespace KimodoUnityBridge.Generation.Tests
         }
 
         [Test]
+        public void TrimRuntimeResultForOutput_CapturesRealEndpointAndKeepsRequestedFrames()
+        {
+            var result = new KimodoBridgeCommandResult
+            {
+                MotionData = CreateMotion(3, 1, 30f),
+                MotionFormat = "kmb_v1"
+            };
+            var request = new KimodoEditorGenerateRequest
+            {
+                TargetFrameCount = 2,
+                TargetFrameRate = 30f,
+                RuntimeFrameCount = 2,
+                RuntimeTrimStartFrame = 0,
+                RequestEndpointSample = true
+            };
+
+            KimodoBridgeCommandResult output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+                request,
+                result,
+                KimodoMotionModelProfiles.DefaultModelName);
+
+            Assert.That(output.MotionData.FrameCount, Is.EqualTo(2));
+            Assert.That(output.MotionData.rootPositions[1].x, Is.EqualTo(1f));
+            Assert.That(KimodoRawMotionUtility.TryParse(
+                request.BakeMotionJsonCompact,
+                out KimodoRawMotionData bakeMotion,
+                out string error), Is.True, error);
+            Assert.That(bakeMotion.FrameCount, Is.EqualTo(3));
+            Assert.That(bakeMotion.rootPositions[2].x, Is.EqualTo(2f));
+            Assert.That(request.BakeMotionData, Is.Not.Null);
+            Assert.That(request.BakeMotionData.FrameCount, Is.EqualTo(3));
+            Assert.That(request.EffectiveRuntimeFrameCount, Is.EqualTo(2));
+            Assert.That(request.EffectiveBackendRuntimeFrameCount, Is.EqualTo(3));
+            Assert.That(request.EffectiveBackendRuntimeDurationSeconds, Is.EqualTo(0.1f).Within(1e-6f));
+            KimodoGenerationRequestDto backendRequest = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
+                request,
+                "walk",
+                KimodoMotionModelProfiles.DefaultModelName).GenerationRequest;
+            Assert.That(backendRequest.duration.HasValue, Is.True);
+            Assert.That(backendRequest.duration.Value, Is.EqualTo(0.1f).Within(1e-6f));
+        }
+
+        [Test]
         public void ConstraintLossComparisonWithoutConstraints_IsNotApplicable()
         {
             JObject result = KimodoGenerationConstraintLossComparer.Compare(

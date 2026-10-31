@@ -37,6 +37,11 @@ namespace KimodoBridge.Editor
         public float TargetFrameRate = KimodoMotionModelProfiles.DefaultFrameRate;
         public int RuntimeFrameCount;
         public int RuntimeTrimStartFrame;
+        // Requests one real endpoint sample from the backend while keeping the visible frame count unchanged.
+        internal bool RequestEndpointSample;
+        // Full output interval including the endpoint, used only when baking curve coverage.
+        internal string BakeMotionJsonCompact = string.Empty;
+        internal KimodoRawMotionData BakeMotionData;
         // Per-clip overlap settings used when a long runtime is split into generation windows.
         // Keep these on the request so the windowed route remains deterministic after the
         // Timeline asset has been read and asynchronous generation begins.
@@ -83,6 +88,12 @@ namespace KimodoBridge.Editor
 
         public float EffectiveRuntimeDurationSeconds =>
             EffectiveRuntimeFrameCount / TargetFrameRate;
+
+        internal int EffectiveBackendRuntimeFrameCount =>
+            EffectiveRuntimeFrameCount + (RequestEndpointSample ? 1 : 0);
+
+        internal float EffectiveBackendRuntimeDurationSeconds =>
+            EffectiveBackendRuntimeFrameCount / TargetFrameRate;
 
         internal void CreateTargetClip()
         {

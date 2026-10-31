@@ -416,6 +416,22 @@ namespace KimodoBridge.Editor
             return output.Count == 0 ? string.Empty : output.ToString(Formatting.None);
         }
 
+        internal static string AppendConstraintsReplacingFullBodyFrameJson(
+            string baseJson,
+            string additionalJson,
+            int replacedFrame)
+        {
+            if (replacedFrame < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(replacedFrame));
+            }
+
+            var output = new JArray();
+            AppendJsonReplacingFullBodyFrame(output, baseJson, replacedFrame);
+            AppendJson(output, additionalJson);
+            return output.Count == 0 ? string.Empty : output.ToString(Formatting.None);
+        }
+
         internal static string ReplaceRoot2DConstraintsJson(string baseJson, string replacementJson)
         {
             var output = new JArray();
@@ -462,6 +478,76 @@ namespace KimodoBridge.Editor
                 return;
             }
             throw new InvalidOperationException("Constraint JSON must be an array or object.");
+        }
+
+        private static void AppendJsonReplacingFullBodyFrame(JArray output, string json, int replacedFrame)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return;
+            JToken token = JToken.Parse(json);
+            if (token is JArray array)
+            {
+                foreach (JToken item in array)
+                {
+                    if (item is JObject constraint)
+                    {
+                        AppendFullBodyFrameFiltered(output, constraint, replacedFrame);
+                    }
+                    else
+                    {
+                        output.Add(item.DeepClone());
+                    }
+                }
+                return;
+            }
+            if (token is JObject obj)
+            {
+                AppendFullBodyFrameFiltered(output, obj, replacedFrame);
+                return;
+            }
+            throw new InvalidOperationException("Constraint JSON must be an array or object.");
+        }
+
+        private static void AppendFullBodyFrameFiltered(JArray output, JObject source, int replacedFrame)
+        {
+            JObject constraint = (JObject)source.DeepClone();
+            if (!string.Equals(constraint.Value<string>("type"), "fullbody", StringComparison.OrdinalIgnoreCase) ||
+                constraint["frame_indices"] is not JArray frames)
+            {
+                output.Add(constraint);
+                return;
+            }
+
+            var keep = new List<int>(frames.Count);
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (frames[i].Type != JTokenType.Integer || frames[i].Value<int>() != replacedFrame)
+                {
+                    keep.Add(i);
+                }
+            }
+            if (keep.Count == frames.Count)
+            {
+                output.Add(constraint);
+                return;
+            }
+            if (keep.Count == 0) return;
+
+            string[] alignedProperties =
+            {
+                "frame_indices",
+                "root_positions",
+                "smooth_root_2d",
+                "local_joints_rot",
+                "target_positions"
+            };
+            foreach (string propertyName in alignedProperties)
+            {
+                if (constraint[propertyName] is not JArray aligned || aligned.Count != frames.Count) continue;
+                var filtered = new JArray();
+                foreach (int index in keep) filtered.Add(aligned[index].DeepClone());
+                constraint[propertyName] = filtered;
+            }
+            output.Add(constraint);
         }
 
         private static void AppendJsonExceptRoot2D(JArray output, string json)

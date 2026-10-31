@@ -414,6 +414,58 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void AppendConstraintsReplacingFullBodyFrameJson_ReplacesOnlyTheSharedSeamRow()
+        {
+            string existing = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(1, 2, 3),
+                    ["root_positions"] = new JArray(
+                        new JArray(1f, 1f, 1f),
+                        new JArray(2f, 2f, 2f),
+                        new JArray(3f, 3f, 3f)),
+                    ["local_joints_rot"] = new JArray(
+                        new JArray(new JArray(1f, 0f, 0f)),
+                        new JArray(new JArray(2f, 0f, 0f)),
+                        new JArray(new JArray(3f, 0f, 0f)))
+                }
+            }.ToString();
+            string loop = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(2, 4),
+                    ["root_positions"] = new JArray(
+                        new JArray(20f, 20f, 20f),
+                        new JArray(40f, 40f, 40f)),
+                    ["local_joints_rot"] = new JArray(
+                        new JArray(new JArray(20f, 0f, 0f)),
+                        new JArray(new JArray(40f, 0f, 0f)))
+                }
+            }.ToString();
+
+            JArray result = JArray.Parse(KimodoClipConstraintBakeUtility.AppendConstraintsReplacingFullBodyFrameJson(
+                existing,
+                loop,
+                replacedFrame: 2));
+
+            CollectionAssert.AreEqual(new[] { 1, 3 }, result[0]["frame_indices"].Values<int>());
+            Assert.That(JToken.DeepEquals(
+                new JArray(new JArray(1f, 1f, 1f), new JArray(3f, 3f, 3f)),
+                result[0]["root_positions"]), Is.True);
+            Assert.That(JToken.DeepEquals(
+                new JArray(
+                    new JArray(new JArray(1f, 0f, 0f)),
+                    new JArray(new JArray(3f, 0f, 0f))),
+                result[0]["local_joints_rot"]), Is.True);
+            CollectionAssert.AreEqual(new[] { 2, 4 }, result[1]["frame_indices"].Values<int>());
+            Assert.That((float)result[1]["root_positions"][0][0], Is.EqualTo(20f));
+        }
+
+        [Test]
         public void GenerationStage_Root2DOverridesSameFrameFullBodyRoot()
         {
             var request = new KimodoEditorGenerateRequest();
