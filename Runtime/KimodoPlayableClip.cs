@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 using TimelineInject;
@@ -84,7 +83,6 @@ namespace KimodoBridge
         [SerializeField, HideInInspector]
         private int loopLockTargetFieldsEditorProxy;
         [Min(1), Tooltip("Total loop window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
-        [FormerlySerializedAs("loopWindowFrames")]
         public int loopWindowFrames60 = 30;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in the Stage 3 loop window, including its endpoints.")]
         public int loopWindowSampleCount = 2;
@@ -129,20 +127,14 @@ namespace KimodoBridge
         public bool postApplyOutConstraint;
         [Min(1), Tooltip("Total In constraint window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
         public int inConstraintWindowFrames60 = 1;
-        [SerializeField, HideInInspector, FormerlySerializedAs("inConstraintWindowFrames")]
-        private int legacyInConstraintWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples in the In window, including its endpoints.")]
         public int inConstraintSampleCount = 1;
         [Min(1), Tooltip("Total Out constraint window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
         public int outConstraintWindowFrames60 = 1;
-        [SerializeField, HideInInspector, FormerlySerializedAs("outConstraintWindowFrames")]
-        private int legacyOutConstraintWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples in the Out window, including its endpoints.")]
         public int outConstraintSampleCount = 1;
         [Min(1), Tooltip("Total long-animation overlap duration in 60 FPS command frames. Converted to the model frame rate before splitting.")]
         public int longClipWindowFrames60 = 60;
-        [SerializeField, HideInInspector, FormerlySerializedAs("longClipWindowFrames")]
-        private int legacyLongClipWindowModelFrames = -1;
         [Min(1), Tooltip("Number of evenly spaced FullBody samples retained in each long-animation overlap window, including its endpoints.")]
         public int longClipWindowSampleCount = 2;
         [SerializeField, HideInInspector]
@@ -200,37 +192,6 @@ namespace KimodoBridge
         public bool ConstraintPreviewEnabled => showConstraint;
         public int ConstraintPreviewPriority => 1;
         public string ConstraintPreviewName => "Clip";
-
-        private void OnValidate() => MigrateLegacyWindowFrameCounts();
-
-        internal bool MigrateLegacyWindowFrameCounts()
-        {
-            double modelFrameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(bridgeModelName);
-            bool migrated = false;
-            if (legacyInConstraintWindowModelFrames > 0)
-            {
-                inConstraintWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
-                    legacyInConstraintWindowModelFrames, modelFrameRate));
-                legacyInConstraintWindowModelFrames = -1;
-                migrated = true;
-            }
-            if (legacyOutConstraintWindowModelFrames > 0)
-            {
-                outConstraintWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
-                    legacyOutConstraintWindowModelFrames, modelFrameRate));
-                legacyOutConstraintWindowModelFrames = -1;
-                migrated = true;
-            }
-            if (legacyLongClipWindowModelFrames > 0)
-            {
-                longClipWindowFrames60 = Mathf.Max(1, KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(
-                    legacyLongClipWindowModelFrames, modelFrameRate));
-                legacyLongClipWindowModelFrames = -1;
-                migrated = true;
-            }
-
-            return migrated;
-        }
 
         public void ResetGeneration()
         {

@@ -37,50 +37,6 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void MigrateLegacyWindowFrameCounts_ConvertsLegacyModelFramesOnceButKeepsLoopUnits()
-        {
-            KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
-            try
-            {
-                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
-                typeof(KimodoPlayableClip).GetField("legacyInConstraintWindowModelFrames", flags).SetValue(clip, 7);
-                typeof(KimodoPlayableClip).GetField("legacyOutConstraintWindowModelFrames", flags).SetValue(clip, 4);
-                typeof(KimodoPlayableClip).GetField("legacyLongClipWindowModelFrames", flags).SetValue(clip, 30);
-                clip.loopWindowFrames60 = 30;
-
-                Assert.That(clip.MigrateLegacyWindowFrameCounts(), Is.True);
-                Assert.That(clip.inConstraintWindowFrames60, Is.EqualTo(14));
-                Assert.That(clip.outConstraintWindowFrames60, Is.EqualTo(8));
-                Assert.That(clip.longClipWindowFrames60, Is.EqualTo(60));
-                Assert.That(clip.loopWindowFrames60, Is.EqualTo(30));
-                Assert.That(clip.MigrateLegacyWindowFrameCounts(), Is.False);
-                Assert.That(clip.longClipWindowFrames60, Is.EqualTo(60));
-            }
-            finally
-            {
-                Object.DestroyImmediate(clip);
-            }
-        }
-
-        [Test]
-        public void MigrateLegacyWindowFrameCounts_LeavesNewAssetDefaultsUnchanged()
-        {
-            KimodoPlayableClip clip = ScriptableObject.CreateInstance<KimodoPlayableClip>();
-            try
-            {
-                Assert.That(clip.MigrateLegacyWindowFrameCounts(), Is.False);
-                Assert.That(clip.inConstraintWindowFrames60, Is.EqualTo(1));
-                Assert.That(clip.outConstraintWindowFrames60, Is.EqualTo(1));
-                Assert.That(clip.longClipWindowFrames60, Is.EqualTo(60));
-                Assert.That(clip.loopWindowFrames60, Is.EqualTo(30));
-            }
-            finally
-            {
-                Object.DestroyImmediate(clip);
-            }
-        }
-
-        [Test]
         public void KimodoBezierUtility_EvaluatesCubicMidpoint()
         {
             Vector2 midpoint = KimodoBezierUtility.EvaluateCubic(

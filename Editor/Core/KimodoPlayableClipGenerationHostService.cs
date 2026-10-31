@@ -38,10 +38,6 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException("Playable clip is null.");
             }
 
-            // Ensure legacy model-rate window fields are converted before any
-            // request snapshot captures the new 60 FPS command-time values.
-            clip.MigrateLegacyWindowFrameCounts();
-
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
             bool isArdy = KimodoMotionModelProfiles.TryGetArdy(
                 resolvedModelName,
