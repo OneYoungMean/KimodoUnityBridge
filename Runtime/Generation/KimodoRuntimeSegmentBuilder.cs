@@ -10,7 +10,7 @@ namespace KimodoBridge
     internal static class KimodoRuntimeSegmentBuilder
     {
         internal static async Task<KimodoRuntimeGeneratedSegment> BuildAsync(
-            KimodoBridgeGenerationResult bridgeResult,
+            KimodoGenerationResultDto bridgeResult,
             string modelName,
             string prompt,
             int segmentIndex,
@@ -20,7 +20,7 @@ namespace KimodoBridge
             CancellationToken token)
         {
             KimodoRawMotionMetadata metadata = isArdy
-                ? ReadArdyMetadata(bridgeResult.MotionData)
+                ? ReadArdyMetadata(bridgeResult.motionData)
                 : await ReadKimodoMetadataAsync(
                     bridgeResult,
                     modelName,
@@ -64,52 +64,52 @@ namespace KimodoBridge
                 EffectiveLastFrameTimeSeconds = metadata.Motion.FrameRate > 0f
                     ? (isArdy ? metadata.Motion.FrameCount : effectiveLastFrameIndex) / metadata.Motion.FrameRate
                     : metadata.Motion.LastFrameTimeSeconds,
-                MotionBytes = bridgeResult?.MotionBytes,
-                MotionRepFingerprint = bridgeResult?.MotionRepFingerprint ?? string.Empty,
-                ResolvedSeed = bridgeResult?.ResolvedSeed,
+                MotionBytes = bridgeResult?.motionBytes,
+                MotionRepFingerprint = bridgeResult?.motionRepFingerprint ?? string.Empty,
+                ResolvedSeed = bridgeResult?.resolvedSeed,
                 UseRawRootPosition = isArdy
             };
         }
 
         internal static void ValidateArdyResult(
-            KimodoBridgeGenerationResult result,
+            KimodoGenerationResultDto result,
             KimodoMotionModelProfile profile,
             int requestedSeed)
         {
             if (result == null ||
-                !string.Equals(result.MotionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase) ||
-                result.EndFrameExclusive < result.StartFrame)
+                !string.Equals(result.motionFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase) ||
+                result.endFrameExclusive < result.startFrame)
             {
                 throw new InvalidOperationException("ARDY result metadata is invalid.");
             }
 
-            int expectedFrames = result.EndFrameExclusive - result.StartFrame;
+            int expectedFrames = result.endFrameExclusive - result.startFrame;
             if (expectedFrames == 0)
             {
-                if (result.MotionData != null || result.MotionBytes == null || result.MotionBytes.Length != 0)
+                if (result.motionData != null || result.motionBytes == null || result.motionBytes.Length != 0)
                 {
                     throw new InvalidOperationException("Empty ARDY result contains unexpected KMB data.");
                 }
             }
-            else if (result.MotionData == null ||
-                result.MotionBytes == null ||
-                result.MotionBytes.Length == 0 ||
-                result.MotionData.FrameCount != expectedFrames ||
-                result.MotionData.JointCount != profile.JointCount ||
-                Mathf.Abs(result.MotionData.FrameRate - profile.SourceFps) > 1e-4f)
+            else if (result.motionData == null ||
+                result.motionBytes == null ||
+                result.motionBytes.Length == 0 ||
+                result.motionData.FrameCount != expectedFrames ||
+                result.motionData.JointCount != profile.JointCount ||
+                Mathf.Abs(result.motionData.FrameRate - profile.SourceFps) > 1e-4f)
             {
                 throw new InvalidOperationException("ARDY KMB frame count, FPS, or rig metadata does not match its response.");
             }
 
             if (!string.Equals(
-                    result.MotionRepFingerprint,
+                    result.motionRepFingerprint,
                     profile.MotionRepFingerprint,
                     StringComparison.Ordinal))
             {
                 throw new InvalidOperationException("ARDY result motion representation fingerprint mismatch.");
             }
 
-            if (!result.ResolvedSeed.HasValue || result.ResolvedSeed.Value != requestedSeed)
+            if (!result.resolvedSeed.HasValue || result.resolvedSeed.Value != requestedSeed)
             {
                 throw new InvalidOperationException("ARDY result resolved_seed does not match the requested seed.");
             }
@@ -131,7 +131,7 @@ namespace KimodoBridge
         }
 
         private static Task<KimodoRawMotionMetadata> ReadKimodoMetadataAsync(
-            KimodoBridgeGenerationResult bridgeResult,
+            KimodoGenerationResultDto bridgeResult,
             string modelName,
             bool allowPartialJoints,
             CancellationToken token) =>

@@ -51,9 +51,13 @@ namespace KimodoBridge.Editor.Tests
         public void OutsideWindow_ClampsShortNeighborsAndDoesNotPadMissingOrDisabledBoundaries()
         {
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var directorRoot = new GameObject("OutsideContextFrameResolutionTest");
             try
             {
                 var track = timeline.CreateTrack<AnimationTrack>();
+                var director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                director.SetGenericBinding(track, directorRoot.AddComponent<Animator>());
                 var previous = track.CreateDefaultClip(); previous.start = 0; previous.duration = 0.1;
                 var current = track.CreateClip<KimodoPlayableClip>(); current.start = 0.1; current.duration = 1;
                 var playable = (KimodoPlayableClip)current.asset;
@@ -71,7 +75,11 @@ namespace KimodoBridge.Editor.Tests
                 KimodoInOutConstraintTools.ResolveOutsideContextFrames(current, out before, out after);
                 Assert.That(before, Is.Zero);
             }
-            finally { Object.DestroyImmediate(timeline); }
+            finally
+            {
+                Object.DestroyImmediate(directorRoot);
+                Object.DestroyImmediate(timeline);
+            }
         }
 
         [Test]

@@ -124,7 +124,7 @@ namespace KimodoBridge.Editor
                     ? new JObject()
                     : JObject.Parse(input.AnalysisOptionsJson);
                 options["analysis_only"] = true;
-                KimodoBridgeGenerationResult response = KimodoBridgeService.Shared.GenerateAsync(
+                KimodoGenerationResultDto response = KimodoBridgeService.Shared.GenerateAsync(
                     new KimodoGenerationRequestDto
                     {
                         prompt = string.Empty,
@@ -144,22 +144,22 @@ namespace KimodoBridge.Editor
                         }
                     },
                     CancellationToken.None).GetAwaiter().GetResult();
-                if (string.IsNullOrWhiteSpace(response?.AnalysisJson))
+                if (string.IsNullOrWhiteSpace(response?.analysisJson))
                 {
                     throw new InvalidOperationException("Analysis returned no data.");
                 }
-                if (response.MotionBytes == null || response.MotionBytes.Length == 0)
+                if (response.motionBytes == null || response.motionBytes.Length == 0)
                 {
                     throw new InvalidOperationException("Analysis returned no dense KMB motion.");
                 }
-                if (!KimodoRawMotionUtility.TryParseFlatBuffer(response.MotionBytes, out KimodoRawMotionData motion, out string parseError) ||
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(response.motionBytes, out KimodoRawMotionData motion, out string parseError) ||
                     !motion.HasFootContacts)
                 {
                     throw new InvalidOperationException($"Analysis returned dense KMB without foot contacts: {parseError}");
                 }
 
-                analysisJson = response.AnalysisJson;
-                motionBytes = response.MotionBytes;
+                analysisJson = response.analysisJson;
+                motionBytes = response.motionBytes;
                 return true;
             }
             catch (Exception ex)
@@ -508,7 +508,7 @@ namespace KimodoBridge.Editor
             KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                 firstRequest,
                 firstRequest.Prompt?.Trim() ?? string.Empty,
-                profile.ModelName).GenerationRequest;
+                profile.ModelName);
             generation.duration = runtimeFrameCount / profile.SourceFps;
             generation.time_as_double = 0.0;
             generation.seed = groupSeed;
@@ -531,22 +531,22 @@ namespace KimodoBridge.Editor
 
             firstRequest.Progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Generating connected Timeline KMB...");
             var pipeline = new KimodoBridgeCommand();
-            KimodoBridgeCommandResult aggregate = await pipeline.ExecuteAsync(
-                new KimodoBridgeCommandRequest { GenerationRequest = generation },
+            KimodoGenerationResultDto aggregate = await pipeline.ExecuteAsync(
+                generation,
                 (stage, message) => progress?.Invoke(stage, message),
                 token);
             if (profile.IsArdy)
             {
                 KimodoEditorGeneratePipeline.ValidateArdyResult(aggregate, profile, groupSeed);
             }
-            else if (aggregate?.MotionData == null)
+            else if (aggregate?.motionData == null)
             {
                 throw new InvalidOperationException("Connected Timeline generation returned no motion.");
             }
-            if (aggregate.MotionData.FrameCount != runtimeFrameCount)
+            if (aggregate.motionData.FrameCount != runtimeFrameCount)
             {
                 throw new InvalidOperationException(
-                    $"Connected generation returned {aggregate.MotionData.FrameCount} frames; expected {runtimeFrameCount}.");
+                    $"Connected generation returned {aggregate.motionData.FrameCount} frames; expected {runtimeFrameCount}.");
             }
 
             var baked = new List<KimodoEditorGenerationResult>(entries.Count);
@@ -558,7 +558,7 @@ namespace KimodoBridge.Editor
                     token.ThrowIfCancellationRequested();
                     ConnectedClipEntry entry = entries[i];
                     if (!KimodoRawMotionUtility.TrySlice(
-                            aggregate.MotionData,
+                            aggregate.motionData,
                             entry.StartFrame + contextBefore,
                             entry.FrameCount,
                             out KimodoRawMotionData motion,
@@ -570,7 +570,7 @@ namespace KimodoBridge.Editor
                     if (requestEndpointSample)
                     {
                         if (!KimodoRawMotionUtility.TrySlice(
-                                aggregate.MotionData,
+                                aggregate.motionData,
                                 entry.StartFrame + contextBefore,
                                 entry.FrameCount + 1,
                                 out entry.Request.BakeMotionData,
@@ -590,18 +590,18 @@ namespace KimodoBridge.Editor
                         entry.Request,
                         entry.Request.Prompt?.Trim() ?? string.Empty,
                         profile.ModelName,
-                        new KimodoBridgeCommandResult
+                        new KimodoGenerationResultDto
                         {
-                            MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(motion),
-                            MotionData = motion,
-                            MotionBytes = payload,
-                            MotionFormat = "kmb_v1",
-                            Message = "Connected Timeline generation complete.",
-                            RawStatus = "done",
-                            MotionRepFingerprint = aggregate.MotionRepFingerprint,
-                            ResolvedSeed = aggregate.ResolvedSeed,
-                            StartFrame = entry.StartFrame,
-                            EndFrameExclusive = entry.StartFrame + entry.FrameCount
+                            motionJsonCompact = KimodoRawMotionUtility.ToCompactJson(motion),
+                            motionData = motion,
+                            motionBytes = payload,
+                            motionFormat = "kmb_v1",
+                            message = "Connected Timeline generation complete.",
+                            rawStatus = "done",
+                            motionRepFingerprint = aggregate.motionRepFingerprint,
+                            resolvedSeed = aggregate.resolvedSeed,
+                            startFrame = entry.StartFrame,
+                            endFrameExclusive = entry.StartFrame + entry.FrameCount
                         }));
                 }
 
@@ -1017,7 +1017,7 @@ namespace KimodoBridge.Editor
                             "Long-clip window generation currently supports standard models and raw constraints only.");
                     }
 
-                    KimodoBridgeCommandResult combinedMotion = await GenerateWindowedRuntimeAsync(
+                    KimodoGenerationResultDto combinedMotion = await GenerateWindowedRuntimeAsync(
                         request,
                         prompt,
                         modelName);
@@ -1166,7 +1166,7 @@ namespace KimodoBridge.Editor
                 : sampledConstraintSpan;
         }
 
-        private static async Task<KimodoBridgeCommandResult> GenerateWindowedRuntimeAsync(
+        private static async Task<KimodoGenerationResultDto> GenerateWindowedRuntimeAsync(
             KimodoEditorGenerateRequest request,
             string prompt,
             string modelName)
@@ -1336,21 +1336,21 @@ namespace KimodoBridge.Editor
                         Debug.LogWarning(
                             $"[Kimodo][DebugTimeline] Could not reserve long-clip window {index + 1} on the Timeline.");
                     }
-                    KimodoBridgeCommandResult result = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                    KimodoGenerationResultDto result = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
                         request,
                         prompt,
                         modelName);
-                    if (result?.MotionData == null || result.MotionData.FrameCount != window.RequestFrameCount)
+                    if (result?.motionData == null || result.motionData.FrameCount != window.RequestFrameCount)
                     {
                         throw new InvalidOperationException(
-                            $"Window {index + 1} returned {result?.MotionData?.FrameCount ?? 0} frames; " +
+                            $"Window {index + 1} returned {result?.motionData?.FrameCount ?? 0} frames; " +
                             $"expected {window.RequestFrameCount}.");
                     }
 
-                    generatedWindows.Add(result.MotionData);
+                    generatedWindows.Add(result.motionData);
                     int coreStartInRequest = window.CoreStartFrame - window.RequestStartFrame;
                     if (!KimodoRawMotionUtility.TrySlice(
-                            result.MotionData,
+                            result.motionData,
                             coreStartInRequest,
                             window.CoreFrameCount,
                             out KimodoRawMotionData coreMotion,
@@ -1365,7 +1365,7 @@ namespace KimodoBridge.Editor
                             request.TimelineClipSnapshot.asset as KimodoPlayableClip,
                             request,
                             windowReservation,
-                            result.MotionData);
+                            result.motionData);
                     }
                     request.DebugTimelineReservation = null;
 
@@ -1387,12 +1387,12 @@ namespace KimodoBridge.Editor
                 request.RequestEndpointSample = originalRequestEndpointSample;
                 request.Constraints.json = originalConstraintsJson;
                 request.AnalysisOptionsJson = originalAnalysisOptionsJson;
-                var combinedResult = new KimodoBridgeCommandResult
+                var combinedResult = new KimodoGenerationResultDto
                 {
-                    MotionData = combined,
-                    MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(combined),
-                    MotionFormat = "json",
-                    RawStatus = "done"
+                    motionData = combined,
+                    motionJsonCompact = KimodoRawMotionUtility.ToCompactJson(combined),
+                    motionFormat = "json",
+                    rawStatus = "done"
                 };
                 combinedResult = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
                     request,
@@ -1403,11 +1403,11 @@ namespace KimodoBridge.Editor
                     JObject analysis = await AnalyzeMergedMotionAsync(
                         request,
                         modelName,
-                        combinedResult.MotionData,
+                        combinedResult.motionData,
                         originalAnalysisOptionsJson,
                         request.Progress,
                         request.Token);
-                    combinedResult.AnalysisJson = analysis.ToString(Formatting.None);
+                    combinedResult.analysisJson = analysis.ToString(Formatting.None);
                 }
                 return combinedResult;
             }
@@ -1628,7 +1628,7 @@ namespace KimodoBridge.Editor
                         throw new InvalidOperationException("Prompt is empty.");
                     }
                     token.ThrowIfCancellationRequested();
-                    KimodoBridgeCommandResult firstResult = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                    KimodoGenerationResultDto firstResult = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
                         firstRequest,
                         firstPassPrompt,
                         modelName);
@@ -2135,7 +2135,7 @@ namespace KimodoBridge.Editor
 
         private static KimodoRawMotionData ParseFirstPassMotion(
             KimodoEditorGenerateRequest firstRequest,
-            KimodoBridgeCommandResult firstResult,
+            KimodoGenerationResultDto firstResult,
             string operation)
         {
             if (firstResult == null)
@@ -2145,14 +2145,14 @@ namespace KimodoBridge.Editor
 
             KimodoRawMotionData motion;
             string motionError;
-            if (firstResult.MotionBytes != null && firstResult.MotionBytes.Length > 0)
+            if (firstResult.motionBytes != null && firstResult.motionBytes.Length > 0)
             {
-                if (!KimodoRawMotionUtility.TryParseFlatBuffer(firstResult.MotionBytes, out motion, out motionError))
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(firstResult.motionBytes, out motion, out motionError))
                 {
                     throw new InvalidOperationException($"{operation} pass 1 raw motion parsing failed: {motionError}");
                 }
             }
-            else if (!KimodoRawMotionUtility.TryParse(firstResult.MotionJsonCompact, out motion, out motionError))
+            else if (!KimodoRawMotionUtility.TryParse(firstResult.motionJsonCompact, out motion, out motionError))
             {
                 throw new InvalidOperationException($"{operation} pass 1 raw motion parsing failed: {motionError}");
             }
@@ -2325,7 +2325,7 @@ namespace KimodoBridge.Editor
                 baselineRequest.AnalysisOptionsJson = string.Empty;
 
                 progress?.Invoke(KimodoBridgeCommandStage.Constraint, "ClipConstraint bake: generating baseline motion...");
-                KimodoBridgeCommandResult baseline = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                KimodoGenerationResultDto baseline = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
                     baselineRequest,
                     prompt,
                     modelName);
@@ -2368,7 +2368,7 @@ namespace KimodoBridge.Editor
                 }
 
                 KimodoRawMotionData alignedConstraint = KimodoClipConstraintBakeUtility.AlignConstraintMotion(
-                    baseline.MotionData,
+                    baseline.motionData,
                     constrainedMotion,
                     baselineRequest.RuntimeTrimStartFrame);
                 Avatar characterAvatar = null;
@@ -2384,7 +2384,7 @@ namespace KimodoBridge.Editor
                 }
                 KimodoRawMotionData merged;
                 if (!KimodoClipConstraintBakeUtility.TryMergeHumanoidFootEffectorMotion(
-                        baseline.MotionData,
+                        baseline.motionData,
                         alignedConstraint,
                         clipConstraint.mask,
                         characterAvatar,
@@ -2397,7 +2397,7 @@ namespace KimodoBridge.Editor
                         throw new InvalidOperationException(footMergeError);
                     }
                     merged = KimodoClipConstraintBakeUtility.MergeMaskedMotion(
-                        baseline.MotionData,
+                        baseline.motionData,
                         alignedConstraint,
                         clipConstraint.mask);
                 }
@@ -2438,7 +2438,7 @@ namespace KimodoBridge.Editor
                 finalRequest.Constraints.clips.Clear();
 
                 progress?.Invoke(KimodoBridgeCommandStage.Constraint, $"ClipConstraint bake: regenerating with {keyframes.Count} FullBody keyframes...");
-                KimodoBridgeCommandResult finalRuntime = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
+                KimodoGenerationResultDto finalRuntime = await KimodoEditorGeneratePipeline.ExecuteRuntimePipelineAsync(
                     finalRequest,
                     prompt,
                     modelName);
@@ -2492,15 +2492,15 @@ namespace KimodoBridge.Editor
                     }
                 }
             };
-            KimodoBridgeGenerationResult analysisResult = await KimodoBridgeService.Shared.GenerateAsync(
+            KimodoGenerationResultDto analysisResult = await KimodoBridgeService.Shared.GenerateAsync(
                 analysisRequest,
                 message => progress?.Invoke(KimodoBridgeCommandStage.Constraint, message),
                 token);
-            if (string.IsNullOrWhiteSpace(analysisResult?.AnalysisJson))
+            if (string.IsNullOrWhiteSpace(analysisResult?.analysisJson))
             {
                 throw new InvalidOperationException("ClipConstraint bake analysis returned no keyframe data.");
             }
-            return JObject.Parse(analysisResult.AnalysisJson);
+            return JObject.Parse(analysisResult.analysisJson);
         }
 
         private static List<int> ExtractAnalysisKeyframes(

@@ -542,7 +542,7 @@ namespace KimodoBridge.Editor.Tests
                 KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                     request,
                     "walk",
-                    clip.bridgeModelName).GenerationRequest;
+                    clip.bridgeModelName);
 
                 Assert.That(request.ConstraintSamples, Is.Empty);
                 Assert.That(generation.ardy_history_weight, Is.Null);
@@ -584,7 +584,7 @@ namespace KimodoBridge.Editor.Tests
                 KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                     request,
                     "walk",
-                    clip.bridgeModelName).GenerationRequest;
+                    clip.bridgeModelName);
 
                 Assert.That(generation.ardy_history_weight, Is.EqualTo(0.25));
             }
@@ -623,7 +623,7 @@ namespace KimodoBridge.Editor.Tests
                 KimodoGenerationRequestDto generation = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                     request,
                     "walk",
-                    clip.bridgeModelName).GenerationRequest;
+                    clip.bridgeModelName);
 
                 Assert.That(request.AnalysisOptionsJson, Is.Empty);
                 Assert.That(generation.analysis_option_json, Is.Empty);

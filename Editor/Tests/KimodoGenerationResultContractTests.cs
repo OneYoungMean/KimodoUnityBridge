@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using Newtonsoft.Json.Linq;
@@ -17,24 +19,6 @@ namespace KimodoUnityBridge.Generation.Tests
     /// </summary>
     public sealed class KimodoGenerationResultContractTests
     {
-        private static readonly string[] ResultFieldNames =
-        {
-            "MotionJsonCompact",
-            "MotionData",
-            "MotionFormat",
-            "RawStatus",
-            "Message",
-            "MotionBytes",
-            "Mp4Path",
-            "KmbAttachments",
-            "MotionRepFingerprint",
-            "ResolvedSeed",
-            "ArdyPlaybackReserveSeconds",
-            "StartFrame",
-            "EndFrameExclusive",
-            "AnalysisJson"
-        };
-
         private static readonly string[] DtoFieldNames =
         {
             "motionJsonCompact",
@@ -54,21 +38,41 @@ namespace KimodoUnityBridge.Generation.Tests
         };
 
         [Test]
-        public void BridgeDtoAndPipelineResultRetainEveryMappedBoundaryField()
+        public void BridgeAndPipelineShareOneResultDto()
         {
-            AssertMembers(typeof(KimodoBridgeGenerationResult), ResultFieldNames);
             AssertMembers(typeof(KimodoGenerationResultDto), DtoFieldNames);
-            AssertMembers(typeof(KimodoBridgeCommandResult), ResultFieldNames);
         }
 
         [Test]
-        public void BridgeCommandResultFrom_PreservesMp4Path()
+        public void GenerationFactory_UsesReplaceableTransportAndReturnsItsResponse()
         {
-            const string mp4Path = "C:/quickserver/generated_animation_test.mp4";
-            KimodoBridgeCommandResult result = KimodoBridgeCommandResult.From(
-                new KimodoGenerationResultDto { Mp4Path = mp4Path });
+            var request = new KimodoGenerationRequestDto { prompt = "walk" };
+            var response = new KimodoGenerationResultDto
+            {
+                motionJsonCompact = "{}",
+                motionFormat = "json_compact"
+            };
+            var transport = new FakeGenerationTransport { Result = response };
+            var factory = new KimodoGenerationTransportFactory(() => transport);
+            var command = new KimodoBridgeCommand(factory.Create());
+            var stages = new List<KimodoBridgeCommandStage>();
 
-            Assert.That(result.Mp4Path, Is.EqualTo(mp4Path));
+            KimodoGenerationResultDto result = command.ExecuteAsync(
+                request,
+                (stage, _) => stages.Add(stage),
+                CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.That(transport.Request, Is.SameAs(request));
+            Assert.That(result, Is.SameAs(response));
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    KimodoBridgeCommandStage.Validate,
+                    KimodoBridgeCommandStage.InvokeBackend,
+                    KimodoBridgeCommandStage.InvokeBackend,
+                    KimodoBridgeCommandStage.Completed
+                },
+                stages);
         }
 
         [Test]
@@ -108,20 +112,21 @@ namespace KimodoUnityBridge.Generation.Tests
             };
             var attachments = new List<KimodoBridgeKmbAttachment> { attachment };
             byte[] originalMotionBytes = { 1, 2, 3 };
-            var result = new KimodoBridgeCommandResult
+            var result = new KimodoGenerationResultDto
             {
-                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(source),
-                MotionData = source,
-                MotionFormat = "kmb_v1",
-                RawStatus = "done",
-                Message = "preserve me",
-                MotionBytes = originalMotionBytes,
-                KmbAttachments = attachments,
-                MotionRepFingerprint = "fp-123",
-                ResolvedSeed = 42,
-                StartFrame = 10,
-                EndFrameExclusive = 14,
-                AnalysisJson = "{\"keyframes\":[{\"frame\":0},{\"frame\":2},{\"frame\":3}]}"
+                motionJsonCompact = KimodoRawMotionUtility.ToCompactJson(source),
+                motionData = source,
+                motionFormat = "kmb_v1",
+                rawStatus = "done",
+                message = "preserve me",
+                motionBytes = originalMotionBytes,
+                kmbAttachments = attachments,
+                motionRepFingerprint = "fp-123",
+                resolvedSeed = 42,
+                ardyPlaybackReserveSeconds = 0.75d,
+                startFrame = 10,
+                endFrameExclusive = 14,
+                analysisJson = "{\"keyframes\":[{\"frame\":0},{\"frame\":2},{\"frame\":3}]}"
             };
             var request = new KimodoEditorGenerateRequest
             {
@@ -130,52 +135,50 @@ namespace KimodoUnityBridge.Generation.Tests
                 RuntimeFrameCount = 4,
                 RuntimeTrimStartFrame = 1
             };
-            SetMember(result, "ArdyPlaybackReserveSeconds", 0.75d);
-
-            KimodoBridgeCommandResult trimmed = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+            KimodoGenerationResultDto trimmed = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
                 request,
                 result,
                 KimodoMotionModelProfiles.DefaultModelName);
 
             Assert.That(trimmed, Is.SameAs(result));
-            Assert.That(trimmed.MotionFormat, Is.EqualTo("kmb_v1"));
-            Assert.That(trimmed.RawStatus, Is.EqualTo("done"));
-            Assert.That(trimmed.Message, Is.EqualTo("preserve me"));
-            Assert.That(trimmed.MotionRepFingerprint, Is.EqualTo("fp-123"));
-            Assert.That(trimmed.ResolvedSeed, Is.EqualTo(42));
-            Assert.That(GetMemberValue(trimmed, "ArdyPlaybackReserveSeconds"), Is.EqualTo(0.75d));
-            Assert.That(trimmed.KmbAttachments, Is.SameAs(attachments));
-            Assert.That(trimmed.KmbAttachments[0], Is.SameAs(attachment));
-            Assert.That(trimmed.MotionData.FrameCount, Is.EqualTo(2));
-            Assert.That(trimmed.StartFrame, Is.EqualTo(11));
-            Assert.That(trimmed.EndFrameExclusive, Is.EqualTo(13));
-            Assert.That(trimmed.MotionBytes, Is.Not.Null);
-            Assert.That(trimmed.MotionBytes, Is.Not.SameAs(originalMotionBytes));
-            Assert.That(trimmed.AnalysisJson, Does.Contain("\"frame\":1"));
-            Assert.That(trimmed.AnalysisJson, Does.Not.Contain("\"frame\":3"));
+            Assert.That(trimmed.motionFormat, Is.EqualTo("kmb_v1"));
+            Assert.That(trimmed.rawStatus, Is.EqualTo("done"));
+            Assert.That(trimmed.message, Is.EqualTo("preserve me"));
+            Assert.That(trimmed.motionRepFingerprint, Is.EqualTo("fp-123"));
+            Assert.That(trimmed.resolvedSeed, Is.EqualTo(42));
+            Assert.That(trimmed.ardyPlaybackReserveSeconds, Is.EqualTo(0.75d));
+            Assert.That(trimmed.kmbAttachments, Is.SameAs(attachments));
+            Assert.That(trimmed.kmbAttachments[0], Is.SameAs(attachment));
+            Assert.That(trimmed.motionData.FrameCount, Is.EqualTo(2));
+            Assert.That(trimmed.startFrame, Is.EqualTo(11));
+            Assert.That(trimmed.endFrameExclusive, Is.EqualTo(13));
+            Assert.That(trimmed.motionBytes, Is.Not.Null);
+            Assert.That(trimmed.motionBytes, Is.Not.SameAs(originalMotionBytes));
+            Assert.That(trimmed.analysisJson, Does.Contain("\"frame\":1"));
+            Assert.That(trimmed.analysisJson, Does.Not.Contain("\"frame\":3"));
         }
 
         [TestCase(0, 4)]
         [TestCase(3, 9)]
         public void TrimRuntimeResultForOutput_DiscardsContextAndKeepsExactOutputFrames(int prefix, int runtimeFrames)
         {
-            var result = new KimodoBridgeCommandResult { MotionData = CreateMotion(runtimeFrames, 1, 30f) };
+            var result = new KimodoGenerationResultDto { motionData = CreateMotion(runtimeFrames, 1, 30f) };
             var request = new KimodoEditorGenerateRequest
             { TargetFrameCount = 2, TargetFrameRate = 30, RuntimeFrameCount = runtimeFrames, RuntimeTrimStartFrame = prefix };
             var output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(request, result,
                 KimodoMotionModelProfiles.DefaultModelName);
-            Assert.That(output.MotionData.FrameCount, Is.EqualTo(2));
-            Assert.That(output.MotionData.rootPositions[0].x, Is.EqualTo(prefix));
-            Assert.That(output.MotionData.rootPositions[1].x, Is.EqualTo(prefix + 1));
+            Assert.That(output.motionData.FrameCount, Is.EqualTo(2));
+            Assert.That(output.motionData.rootPositions[0].x, Is.EqualTo(prefix));
+            Assert.That(output.motionData.rootPositions[1].x, Is.EqualTo(prefix + 1));
         }
 
         [Test]
         public void TrimRuntimeResultForOutput_CapturesRealEndpointAndKeepsRequestedFrames()
         {
-            var result = new KimodoBridgeCommandResult
+            var result = new KimodoGenerationResultDto
             {
-                MotionData = CreateMotion(3, 1, 30f),
-                MotionFormat = "kmb_v1"
+                motionData = CreateMotion(3, 1, 30f),
+                motionFormat = "kmb_v1"
             };
             var request = new KimodoEditorGenerateRequest
             {
@@ -186,13 +189,13 @@ namespace KimodoUnityBridge.Generation.Tests
                 RequestEndpointSample = true
             };
 
-            KimodoBridgeCommandResult output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+            KimodoGenerationResultDto output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
                 request,
                 result,
                 KimodoMotionModelProfiles.DefaultModelName);
 
-            Assert.That(output.MotionData.FrameCount, Is.EqualTo(2));
-            Assert.That(output.MotionData.rootPositions[1].x, Is.EqualTo(1f));
+            Assert.That(output.motionData.FrameCount, Is.EqualTo(2));
+            Assert.That(output.motionData.rootPositions[1].x, Is.EqualTo(1f));
             Assert.That(KimodoRawMotionUtility.TryParse(
                 request.BakeMotionJsonCompact,
                 out KimodoRawMotionData bakeMotion,
@@ -207,7 +210,7 @@ namespace KimodoUnityBridge.Generation.Tests
             KimodoGenerationRequestDto backendRequest = KimodoEditorGeneratePipeline.CreateRuntimePipelineRequest(
                 request,
                 "walk",
-                KimodoMotionModelProfiles.DefaultModelName).GenerationRequest;
+                KimodoMotionModelProfiles.DefaultModelName);
             Assert.That(backendRequest.duration.HasValue, Is.True);
             Assert.That(backendRequest.duration.Value, Is.EqualTo(0.1f).Within(1e-6f));
         }
@@ -226,17 +229,17 @@ namespace KimodoUnityBridge.Generation.Tests
         [Test]
         public void TrimRuntimeResultForOutput_WithNoTrimReturnsTheOriginalResult()
         {
-            var result = new KimodoBridgeCommandResult
+            var result = new KimodoGenerationResultDto
             {
-                MotionFormat = "analysis_only",
-                RawStatus = "done",
-                Message = "analysis",
-                MotionJsonCompact = string.Empty,
-                MotionBytes = Array.Empty<byte>(),
-                KmbAttachments = Array.Empty<KimodoBridgeKmbAttachment>(),
-                MotionRepFingerprint = "fp",
-                ResolvedSeed = 9,
-                AnalysisJson = "{\"analysis\":true}"
+                motionFormat = "analysis_only",
+                rawStatus = "done",
+                message = "analysis",
+                motionJsonCompact = string.Empty,
+                motionBytes = Array.Empty<byte>(),
+                kmbAttachments = Array.Empty<KimodoBridgeKmbAttachment>(),
+                motionRepFingerprint = "fp",
+                resolvedSeed = 9,
+                analysisJson = "{\"analysis\":true}"
             };
             var request = new KimodoEditorGenerateRequest
             {
@@ -246,32 +249,40 @@ namespace KimodoUnityBridge.Generation.Tests
                 RuntimeTrimStartFrame = 0
             };
 
-            KimodoBridgeCommandResult output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+            KimodoGenerationResultDto output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
                 request,
                 result,
                 KimodoMotionModelProfiles.DefaultModelName);
 
             Assert.That(output, Is.SameAs(result));
-            Assert.That(output.MotionJsonCompact, Is.Empty);
-            Assert.That(output.MotionBytes, Is.Empty);
-            Assert.That(output.KmbAttachments, Is.Empty);
-            Assert.That(output.AnalysisJson, Is.EqualTo("{\"analysis\":true}"));
+            Assert.That(output.motionJsonCompact, Is.Empty);
+            Assert.That(output.motionBytes, Is.Empty);
+            Assert.That(output.kmbAttachments, Is.Empty);
+            Assert.That(output.analysisJson, Is.EqualTo("{\"analysis\":true}"));
         }
 
         [Test]
         public void BridgeCommand_RejectsNullRequestBeforeInvokingBackend()
         {
-            var command = new KimodoBridgeCommand();
+            var command = new KimodoBridgeCommand(new FakeGenerationTransport());
             Assert.Throws<ArgumentNullException>(() =>
                 command.ExecuteAsync(null, null, default).GetAwaiter().GetResult());
         }
 
-        [Test]
-        public void BridgeCommand_RejectsMissingGenerationRequestBeforeInvokingBackend()
+        private sealed class FakeGenerationTransport : IKimodoGenerationTransport
         {
-            var command = new KimodoBridgeCommand();
-            Assert.Throws<InvalidOperationException>(() =>
-                command.ExecuteAsync(new KimodoBridgeCommandRequest(), null, default).GetAwaiter().GetResult());
+            public KimodoGenerationRequestDto Request;
+            public KimodoGenerationResultDto Result;
+
+            public Task<KimodoGenerationResultDto> SendGenerateAsync(
+                KimodoGenerationRequestDto request,
+                Action<string> progress,
+                CancellationToken token)
+            {
+                Request = request;
+                progress?.Invoke("transport progress");
+                return Task.FromResult(Result);
+            }
         }
 
         private static void AssertMembers(Type type, IEnumerable<string> names)
@@ -282,36 +293,6 @@ namespace KimodoUnityBridge.Generation.Tests
                     .FirstOrDefault();
                 Assert.That(member, Is.Not.Null, $"{type.FullName} lost result field {name}");
             }
-        }
-
-        private static void SetMember(object instance, string name, object value)
-        {
-            MemberInfo member = instance.GetType().GetMember(name, BindingFlags.Instance | BindingFlags.Public)
-                .FirstOrDefault();
-            Assert.That(member, Is.Not.Null, $"{instance.GetType().FullName} lost result field {name}");
-            if (member is FieldInfo field)
-            {
-                field.SetValue(instance, value);
-                return;
-            }
-            if (member is PropertyInfo property && property.CanWrite)
-            {
-                property.SetValue(instance, value, null);
-                return;
-            }
-            Assert.Fail($"{instance.GetType().FullName} result field {name} is not writable.");
-        }
-
-        private static object GetMemberValue(object instance, string name)
-        {
-            MemberInfo member = instance.GetType().GetMember(name, BindingFlags.Instance | BindingFlags.Public)
-                .FirstOrDefault();
-            Assert.That(member, Is.Not.Null, $"{instance.GetType().FullName} lost result field {name}");
-            if (member is FieldInfo field)
-            {
-                return field.GetValue(instance);
-            }
-            return ((PropertyInfo)member).GetValue(instance, null);
         }
 
         private static KimodoRawMotionData CreateMotion(int frameCount, int jointCount, float frameRate)

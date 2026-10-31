@@ -4,10 +4,50 @@ using System.Threading.Tasks;
 
 namespace KimodoBridge
 {
+    public interface IKimodoGenerationTransport
+    {
+        Task<KimodoGenerationResultDto> SendGenerateAsync(
+            KimodoGenerationRequestDto request,
+            Action<string> progress,
+            CancellationToken token);
+    }
+
+    public sealed class KimodoGenerationTransportFactory
+    {
+        private readonly Func<IKimodoGenerationTransport> createTransport;
+
+        public KimodoGenerationTransportFactory(Func<IKimodoGenerationTransport> createTransport)
+        {
+            this.createTransport = createTransport ?? throw new ArgumentNullException(nameof(createTransport));
+        }
+
+        public IKimodoGenerationTransport Create()
+        {
+            return createTransport() ?? throw new InvalidOperationException("Generation transport factory returned null.");
+        }
+
+        public static KimodoGenerationTransportFactory CreateDefault()
+        {
+            return new KimodoGenerationTransportFactory(() => KimodoBridgeService.Shared);
+        }
+    }
+
     public sealed class KimodoBridgeCommand
     {
-        public async Task<KimodoBridgeCommandResult> ExecuteAsync(
-            KimodoBridgeCommandRequest request,
+        private readonly IKimodoGenerationTransport transport;
+
+        public KimodoBridgeCommand()
+            : this(KimodoGenerationTransportFactory.CreateDefault().Create())
+        {
+        }
+
+        public KimodoBridgeCommand(IKimodoGenerationTransport transport)
+        {
+            this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
+        }
+
+        public async Task<KimodoGenerationResultDto> ExecuteAsync(
+            KimodoGenerationRequestDto request,
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token)
         {
@@ -17,15 +57,12 @@ namespace KimodoBridge
             }
 
             progress?.Invoke(KimodoBridgeCommandStage.Validate, "Validating generation request...");
-
-            if (request.GenerationRequest == null)
-            {
-                throw new InvalidOperationException("Generation request is required.");
-            }
-
+            progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Invoking generation backend...");
             token.ThrowIfCancellationRequested();
-            KimodoGenerationResultDto result = await ExecuteBridgeAsync(request, progress, token);
-
+            KimodoGenerationResultDto result = await transport.SendGenerateAsync(
+                request,
+                message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
+                token);
             if (result == null)
             {
                 throw new InvalidOperationException("Runtime generation returned null result.");
@@ -44,50 +81,7 @@ namespace KimodoBridge
             }
 
             progress?.Invoke(KimodoBridgeCommandStage.Completed, "Generation backend completed.");
-
-            return KimodoBridgeCommandResult.From(result);
-        }
-
-        private static async Task<KimodoGenerationResultDto> ExecuteBridgeAsync(
-            KimodoBridgeCommandRequest request,
-            Action<KimodoBridgeCommandStage, string> progress,
-            CancellationToken token)
-        {
-            progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, "Invoking generation backend...");
-
-            return await KimodoBridgeService.Shared.GenerateAsync(
-                request.GenerationRequest,
-                message => progress?.Invoke(KimodoBridgeCommandStage.InvokeBackend, message ?? string.Empty),
-                token);
-        }
-    }
-
-    public sealed class KimodoBridgeCommandResult : KimodoGenerationResultDto
-    {
-        internal static KimodoBridgeCommandResult From(KimodoGenerationResultDto result)
-        {
-            if (result == null)
-            {
-                return null;
-            }
-
-            return new KimodoBridgeCommandResult
-            {
-                motionJsonCompact = result.motionJsonCompact,
-                motionData = result.motionData,
-                motionBytes = result.motionBytes,
-                mp4Path = result.mp4Path,
-                kmbAttachments = result.kmbAttachments,
-                motionFormat = result.motionFormat,
-                rawStatus = result.rawStatus ?? "done",
-                message = result.message ?? "Bridge generation complete.",
-                motionRepFingerprint = result.motionRepFingerprint ?? string.Empty,
-                resolvedSeed = result.resolvedSeed,
-                startFrame = result.startFrame,
-                endFrameExclusive = result.endFrameExclusive,
-                ardyPlaybackReserveSeconds = result.ardyPlaybackReserveSeconds,
-                analysisJson = result.analysisJson
-            };
+            return result;
         }
     }
 
@@ -102,10 +96,5 @@ namespace KimodoBridge
         Retarget = 6,
         Finalize = 7,
         Completed = 8
-    }
-
-    public sealed class KimodoBridgeCommandRequest
-    {
-        public KimodoGenerationRequestDto GenerationRequest;
     }
 }

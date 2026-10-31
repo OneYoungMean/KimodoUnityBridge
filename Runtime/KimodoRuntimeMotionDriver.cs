@@ -633,8 +633,11 @@ namespace KimodoBridge
                 }
 
                 OnProgress($"Generating segment {requestSegmentIndex}...");
-                KimodoBridgeGenerationResult bridgeResult =
-                    await bridgeService.GenerateAsync(request, OnProgress, generationToken);
+                KimodoGenerationResultDto bridgeResult =
+                    await new KimodoBridgeCommand(bridgeService).ExecuteAsync(
+                        request,
+                        (_, message) => OnProgress(message),
+                        generationToken);
                 bool staleRequest = requestVersion != generationSession.RequestVersion || generationToken.IsCancellationRequested;
                 if (KimodoRuntimeGenerationSession.ShouldDiscardResult(
                         isArdy,
@@ -660,12 +663,12 @@ namespace KimodoBridge
                         bridgeResult,
                         ardyProfile,
                         resolvedRequestSeed);
-                    if (bridgeResult.ArdyPlaybackReserveSeconds.HasValue)
+                    if (bridgeResult.ardyPlaybackReserveSeconds.HasValue)
                     {
                         generationSession.SetArdyPlaybackReserve(
-                            (float)bridgeResult.ArdyPlaybackReserveSeconds.Value);
+                            (float)bridgeResult.ardyPlaybackReserveSeconds.Value);
                     }
-                    if (bridgeResult.MotionData == null)
+                    if (bridgeResult.motionData == null)
                     {
                         generationSession.CompleteArdyRequest(
                             sendPrompt,
@@ -704,7 +707,7 @@ namespace KimodoBridge
                 {
                     if (!motionPlayer.ReplaceArdy(
                             generatedSegment,
-                            bridgeResult.StartFrame,
+                            bridgeResult.startFrame,
                             verboseLogging,
                             out string appendError))
                     {
