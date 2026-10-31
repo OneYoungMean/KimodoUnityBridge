@@ -104,8 +104,6 @@ namespace KimodoBridge
         public bool useRelativeOffset;
         [Tooltip("World-space target position for the generated Clip's first root pose. The final output root Y curve is preserved and used for height compensation.")]
         public Vector3 relativeOffset;
-        [Tooltip("Backend analysis options serialized as JSON and applied to this generation clip.")]
-        public string analysisOptionsJson = string.Empty;
         [Tooltip("Run the full animation analysis automatically after generation.")]
         public bool analyzeAfterGeneration = true;
         [Tooltip("Optional generated AnimationClip asset name without extension.")]

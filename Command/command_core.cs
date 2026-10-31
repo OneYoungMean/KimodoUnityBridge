@@ -816,7 +816,6 @@ namespace KimodoUnityBridge.Command
                 playableClip.loop = loopRequested
                     ? UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.On
                     : UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.Off;
-                playableClip.analysisOptionsJson = analysisOptionsJson;
                 playableClip.analyzeAfterGeneration = analyzeAfterGeneration;
                 playableClip.generatedAssetName = trace.Animation.Name;
                 playableClip.generatedOutputFolder = outputFolder;
@@ -881,7 +880,8 @@ namespace KimodoUnityBridge.Command
                     },
                     PersistGenerationJobStatus,
                     out KimodoEditorGenerationJobSession generation,
-                    out string error);
+                    out string error,
+                    analysisOptionsJson);
                 if (!started)
                 {
                     throw new InvalidOperationException(error);

@@ -285,10 +285,8 @@ namespace KimodoBridge.Editor
             return Task.FromResult(result);
         }
 
-        // Shared entry for Inspector and command generation.  Callers configure
-        // the KimodoPlayableClip first; this method deliberately supplies no
-        // external constraint payload so BuildRequest reads the same serialized
-        // UI fields and resolves Timeline neighbors through the common path.
+        // Shared entry for Inspector and command generation. Command-only
+        // lightweight analysis options flow through the existing request path.
         internal static bool TryStartConfiguredGenerate(
             KimodoPlayableClip clip,
             UnityEngine.Object jobTarget,
@@ -299,7 +297,8 @@ namespace KimodoBridge.Editor
             Action<KimodoEditorGenerationJobSession> finallyGenerate,
             Action<KimodoEditorGenerationJobSession> statusChanged,
             out KimodoEditorGenerationJobSession session,
-            out string error)
+            out string error,
+            string analysisOptionsJson = null)
         {
             session = null;
             error = string.Empty;
@@ -309,6 +308,9 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            KimodoExternalConstraintRequest commandOptions = string.IsNullOrWhiteSpace(analysisOptionsJson)
+                ? null
+                : new KimodoExternalConstraintRequest { AnalysisOptionsJson = analysisOptionsJson };
             UnityEngine.Object resolvedTarget = jobTarget != null ? jobTarget : clip;
             return KimodoEditorGenerationJobService.Start(
                 resolvedTarget,
@@ -319,7 +321,7 @@ namespace KimodoBridge.Editor
                         beforeGenerate?.Invoke(handle);
                         KimodoEditorGenerationResult result = await GenerateAndFinalizeAsync(
                             clip,
-                            externalConstraint: null,
+                            externalConstraint: commandOptions,
                             (stage, message) => KimodoEditorGenerationJobService.UpdateProgress(
                                 resolvedTarget,
                                 handle.RequestId,

@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -10,53 +8,6 @@ namespace KimodoBridge.Editor
     internal static class KimodoGenerationInspectorGui
     {
         private static GUIStyle promptTextAreaStyle;
-
-        internal static string SetLightweightAnalysisEnabled(string analysisOptionsJson, bool enabled)
-        {
-            if (!enabled)
-            {
-                return string.Empty;
-            }
-
-            JObject options;
-            try
-            {
-                options = string.IsNullOrWhiteSpace(analysisOptionsJson)
-                    ? new JObject()
-                    : JObject.Parse(analysisOptionsJson);
-            }
-            catch (JsonException)
-            {
-                options = new JObject();
-            }
-
-            JObject keyframes = options["keyframes"] as JObject ?? new JObject();
-            keyframes["enabled"] = true;
-            options["keyframes"] = keyframes;
-            return options.ToString(Formatting.None);
-        }
-
-        internal static string GetLightweightAnalysisSummary(string analysisJson)
-        {
-            if (string.IsNullOrWhiteSpace(analysisJson))
-            {
-                return string.Empty;
-            }
-
-            try
-            {
-                JObject analysis = JObject.Parse(analysisJson);
-                int keyframeCount = (analysis["keyframes"] as JArray)?.Count ?? 0;
-                int contactChangeCount = (analysis["foot_contact_changes"] as JArray)?.Count ?? 0;
-                return keyframeCount == 0 && contactChangeCount == 0
-                    ? string.Empty
-                    : $"{keyframeCount} keyframes, {contactChangeCount} foot-contact changes";
-            }
-            catch (JsonException)
-            {
-                return string.Empty;
-            }
-        }
 
         private static readonly string[] BaseModelOptions = { "Kimodo", "ARDY" };
 

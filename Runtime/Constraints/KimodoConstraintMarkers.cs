@@ -210,7 +210,6 @@ namespace KimodoBridge
         // Each effector declares local or world space. The pose pipeline
         // normalizes local values against rootOverride exactly once; command
         // inputs are authored as world-space values.
-        [UnityEngine.Serialization.FormerlySerializedAs("worldIkTargets")]
         public KimodoConstraintEffectors effectors = new KimodoConstraintEffectors();
         // Complete hips override in the same explicit-target space. For a
         // root2d constraint, consumers project only X/Z and heading;
