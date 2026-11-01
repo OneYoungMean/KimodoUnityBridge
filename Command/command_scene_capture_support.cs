@@ -30,19 +30,13 @@ namespace KimodoUnityBridge.Command
             Color color,
             float lineWidth)
         {
-            if (points == null || points.Length < 2) return;
-            GameObject lineObject = MoveToAnalysisSessionRoot(
-                new GameObject("Kimodo Analysis Body Trajectory") { hideFlags = HideFlags.HideAndDontSave });
-            SetLayerRecursively(lineObject, SessionCaptureLayer);
-            LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.positionCount = points.Length;
-            line.SetPositions(points.Select(point => point + Vector3.up * .02f).ToArray());
-            line.startWidth = line.endWidth = lineWidth;
-            line.useWorldSpace = true;
-            color.a = 1f;
-            line.sharedMaterial = CreatePipelineUnlitMaterial(color);
-            line.startColor = line.endColor = color;
-            objects.Add(lineObject);
+            CreateWorldLineCore(
+                objects,
+                points,
+                "Kimodo Analysis Body Trajectory",
+                lineWidth,
+                color,
+                Vector3.up * .02f);
         }
 
         private static void Fill(Texture2D texture, Color color)
@@ -130,12 +124,30 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateWorldLine(List<GameObject> objects, Vector3 from, Vector3 to, float width, Color color)
         {
+            CreateWorldLineCore(
+                objects,
+                new[] { from, to },
+                "Kimodo Evidence Line",
+                width,
+                color,
+                Vector3.zero);
+        }
+
+        private static void CreateWorldLineCore(
+            List<GameObject> objects,
+            IReadOnlyList<Vector3> points,
+            string name,
+            float width,
+            Color color,
+            Vector3 offset)
+        {
+            if (points == null || points.Count < 2) return;
             GameObject lineObject = MoveToAnalysisSessionRoot(
-                new GameObject("Kimodo Evidence Line") { hideFlags = HideFlags.HideAndDontSave });
+                new GameObject(name) { hideFlags = HideFlags.HideAndDontSave });
             SetLayerRecursively(lineObject, SessionCaptureLayer);
             LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.positionCount = 2;
-            line.SetPositions(new[] { from, to });
+            line.positionCount = points.Count;
+            line.SetPositions(points.Select(point => point + offset).ToArray());
             line.startWidth = line.endWidth = width;
             line.useWorldSpace = true;
             color.a = 1f;

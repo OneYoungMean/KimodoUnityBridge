@@ -106,6 +106,7 @@
 
 - 2026-11-01 FullDemo 定向回归（Unity 2022.3.62f3c1）：Command/InOut 单独组 37/37 通过；扩展的 Window、Provider、Generation 与 Command 组 114/117 通过。3 项失败均为 `KimodoConstraintNormalizationUtilityTests.ConstraintInitialization_UsesTimelinePoseForPreviewAndExport` 的 Auto Sample pose 对比；它们不在本次 Window/Transport/Command 改动路径中，且本次未对基线复跑确认。
 - 同一 FullDemo 的 `dotnet build KimodoTool.Command.Editor.csproj --no-restore` 通过，0 警告、0 错误。
+- 本批 Command 收尾验证（2026-11-01，Unity 2022.3.62f3c1）：FullDemo `KimodoTool.Command.Editor` 编译通过（0 警告、0 错误）；Command API 合同、In/Out 和 Session 生命周期 EditMode 定向组 53/53 通过。
 - Unity 6000.5.7f1 导入/编译通过；schema、六类合法输入、部分 transform 覆盖、旧输入拒绝、IK FullBody、marker 序列化和协议折叠均已做定向断言。
 - 更早的全范围定向断言记录了两项旧 CaptureWorldTargets validity 断言和一项 PoseGet fixture Timeline Animator 绑定失败；这些记录与上面的本轮结果分开看待。
 - 尚未执行本次升级的后端生成或播放验证；不要引用归档中的旧项目/旧版本测试数量作为本次通过证据。
@@ -131,6 +132,6 @@
 - [x] 已收窄 transport 注入边界：生成执行只依赖 `IKimodoGenerationTransport`，模型配置查询使用独立 `IKimodoModelConfigurationTransport`；status、Mocap 与服务器生命周期仍由 `KimodoBridgeService` 提供，不让 generation 测试替身实现无关方法。
 - [x] 已归档 `command_inout.cs` 中不再可达的直接 FullBody In/Out sampler，以及重复的 `RequireInOutFields` 手工 allow-list；活动 handler 统一依赖实时 schema 的 `additionalProperties: false` 校验和共享 Editor pipeline。
 - [x] 已将 `CommandInOutTests` 从归档的直接采样反射入口迁移到 `ConfigureCommandInOutClip` 与共享 generation window；schema 契约测试覆盖嵌套 In/Out 旧字段拒绝。
-- [ ] 合并 `ConfigureCommandInOutClip` 的两次规划：当前第一次只为预留范围计算窗口，创建 Clip 后第二次又完整解析同一份 inout；应缓存只读计划，避免重复解析和重复锁定检查。
-- [ ] 评估 Command 内重复的场景资源查询：`command_session_state.GetSceneSessionRoots` 与 `KimodoSessionRuntimeGuard.FindLoadedContextRoots` 都按 SessionRootPrefix 扫描已加载场景；抽成一个只读查询工具，保留按场景与全局两种过滤。
-- [ ] 评估两个 `CreateWorldLine` 绘制 helper（轨迹点列线与两点证据线）是否可由一个共享绘制核心承载；只合并材质、layer 和 parent 设置，保留两种调用语义。
+- [x] 已评估 In/Out 的两次规划；按本次 P1 取舍保留现状，暂不增加计划缓存，避免为小幅优化引入额外状态。
+- [x] 已将场景 SessionRoot 扫描统一到 `command_context.FindLoadedSessionRoots`，保留单场景和全局过滤，供场景级查询与 Runtime Guard 共用。
+- [x] 已将轨迹线、analysis 轨迹线和证据线的对象创建收敛到共享绘制核心，同时保留名称、偏移、宽度与颜色差异。

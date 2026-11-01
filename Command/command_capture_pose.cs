@@ -25,19 +25,13 @@ namespace KimodoUnityBridge.Command
 
         private static void CreateWorldLine(List<GameObject> objects, IReadOnlyList<Vector3> points, Color color, float width)
         {
-            if (points == null || points.Count < 2) return;
-            GameObject lineObject = MoveToAnalysisSessionRoot(
-                new GameObject("Kimodo Root2D Pelvis Trajectory") { hideFlags = HideFlags.HideAndDontSave });
-            SetLayerRecursively(lineObject, SessionCaptureLayer);
-            LineRenderer line = lineObject.AddComponent<LineRenderer>();
-            line.positionCount = points.Count;
-            line.SetPositions(points.Select(point => point + Vector3.up * .025f).ToArray());
-            line.startWidth = line.endWidth = width;
-            line.useWorldSpace = true;
-            color.a = 1f;
-            line.sharedMaterial = CreatePipelineUnlitMaterial(color);
-            line.startColor = line.endColor = color;
-            objects.Add(lineObject);
+            CreateWorldLineCore(
+                objects,
+                points,
+                "Kimodo Root2D Pelvis Trajectory",
+                width,
+                color,
+                Vector3.up * .025f);
         }
 
         private static Color MetricColor(float value, float redThreshold)

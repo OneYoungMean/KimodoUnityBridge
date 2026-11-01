@@ -68,10 +68,7 @@ namespace KimodoUnityBridge.Command
 
         private static GameObject[] FindLoadedContextRoots()
         {
-            return Resources.FindObjectsOfTypeAll<GameObject>()
-                .Where(item => item != null && item.scene.IsValid() && item.scene.isLoaded &&
-                    item.name.StartsWith(KimodoRuntimeUtility.SessionRootPrefix, System.StringComparison.Ordinal))
-                .ToArray();
+            return command_context.FindLoadedSessionRoots();
         }
 
         private static KimodoDisableOnRuntime[] FindLoadedGuards()
