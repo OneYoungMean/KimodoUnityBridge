@@ -252,26 +252,32 @@ namespace KimodoUnityBridge.Command
 
         private static string ListModels(JObject arguments)
         {
-                EnsureCanManageServer();
-                KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
-                JObject response;
-                using (var timeout = new CancellationTokenSource(CommandBridgeQueryTimeoutMs))
-                {
-                    response = KimodoBridgeService.Shared.ListModelConfigurationsAsync(
-                        ResolveModelName(null),
-                        KimodoTextEncoderModeProtocol.ToProtocolValue(settings.DefaultTextEncoderMode),
-                        settings.LocalModelsPath?.Trim() ?? string.Empty,
-                        null,
-                        timeout.Token).GetAwaiter().GetResult();
-                }
-                var result = new JObject(response);
-                result.Remove("status");
-                result["count"] = (result["configs"] as JArray)?.Count ?? 0;
-                if (arguments.Value<bool?>("compact") == true)
-                {
-                    result = CompactModelConfigurations(result);
-                }
-                return Ok(result);
+            return ListModels(arguments, KimodoBridgeService.Shared);
+        }
+
+        internal static string ListModels(JObject arguments, IKimodoModelConfigurationTransport transport)
+        {
+            if (transport == null) throw new ArgumentNullException(nameof(transport));
+            EnsureCanManageServer();
+            KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
+            JObject response;
+            using (var timeout = new CancellationTokenSource(CommandBridgeQueryTimeoutMs))
+            {
+                response = transport.ListModelConfigurationsAsync(
+                    ResolveModelName(null),
+                    KimodoTextEncoderModeProtocol.ToProtocolValue(settings.DefaultTextEncoderMode),
+                    settings.LocalModelsPath?.Trim() ?? string.Empty,
+                    null,
+                    timeout.Token).GetAwaiter().GetResult();
+            }
+            var result = new JObject(response);
+            result.Remove("status");
+            result["count"] = (result["configs"] as JArray)?.Count ?? 0;
+            if (arguments.Value<bool?>("compact") == true)
+            {
+                result = CompactModelConfigurations(result);
+            }
+            return Ok(result);
 
         }
 

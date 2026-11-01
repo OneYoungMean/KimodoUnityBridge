@@ -137,7 +137,7 @@ namespace KimodoBridge.Editor
         {
             if (request == null || request.Mode == KimodoInOutConstraintMode.None ||
                 !(isBegin ? request.EnableBegin : request.EnableEnd)) return 0;
-            int requested = Mathf.Clamp(isBegin ? request.BeginWindowModelFrameCount : request.EndWindowModelFrameCount,
+            int requested = Mathf.Clamp(GetWindowSpec(request, isBegin).ModelFrameCount,
                 1, KimodoMotionModelProfiles.MaxGenerationFrames);
             KimodoTimelineInOutConstraintContext explicitContext = isBegin
                 ? request.BeginTimelineContext
@@ -225,7 +225,7 @@ namespace KimodoBridge.Editor
             out double[] timelineTimes, out double[] exportTimes)
         {
             int frames = ResolveWindowFrameCount(request, isBegin);
-            int count = frames == 0 ? 0 : Mathf.Clamp(isBegin ? request.BeginSampleCount : request.EndSampleCount, 1, frames);
+            int count = frames == 0 ? 0 : Mathf.Clamp(GetWindowSpec(request, isBegin).SampleCount, 1, frames);
             timelineTimes = new double[count];
             exportTimes = new double[count];
             if (count == 0) return;
@@ -279,7 +279,7 @@ namespace KimodoBridge.Editor
                 KimodoMotionModelProfiles.TryGetArdy(request.ModelName, out _))
             {
                 if (request?.TimelineContext == null && request?.Mode != KimodoInOutConstraintMode.None &&
-                    ((request?.BeginSampleCount ?? 1) > 1 || (request?.EndSampleCount ?? 1) > 1))
+                    ((request?.BeginWindow?.SampleCount ?? 1) > 1 || (request?.EndWindow?.SampleCount ?? 1) > 1))
                 {
                     error = "Multi-frame In/Out sampling requires a Timeline context.";
                     return false;
@@ -429,7 +429,7 @@ namespace KimodoBridge.Editor
             }
 
             int frames = ResolveWindowFrameCount(request, isBegin);
-            int count = isBegin ? request.BeginSampleCount : request.EndSampleCount;
+            int count = GetWindowSpec(request, isBegin).SampleCount;
             if (frames == 0)
             {
                 return true;
@@ -513,10 +513,10 @@ namespace KimodoBridge.Editor
             }
             int frames = ResolveWindowFrameCount(request, isBegin);
             int requested = Mathf.Clamp(
-                isBegin ? request.BeginWindowModelFrameCount : request.EndWindowModelFrameCount,
+                GetWindowSpec(request, isBegin).ModelFrameCount,
                 1,
                 KimodoMotionModelProfiles.MaxGenerationFrames);
-            int samples = isBegin ? request.BeginSampleCount : request.EndSampleCount;
+            int samples = GetWindowSpec(request, isBegin).SampleCount;
             if (frames < requested)
             {
                 error = $"In/Out {(isBegin ? "In" : "Out")} source Clip is too short for the configured {requested}-frame window.";
@@ -568,6 +568,15 @@ namespace KimodoBridge.Editor
             }
             before = ResolveWindowFrameCount(request, true);
             after = ResolveWindowFrameCount(request, false);
+        }
+
+        internal static KimodoConstraintWindowSpec GetWindowSpec(
+            KimodoInOutConstraintRequest request,
+            bool isBegin)
+        {
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            return isBegin ? request.BeginWindow : request.EndWindow;
         }
 
         internal static bool TrySampleBoundaryPair(

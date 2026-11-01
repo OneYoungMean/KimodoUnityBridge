@@ -28,9 +28,9 @@ namespace KimodoBridge.Editor
             }
 
             var built = new KimodoInOutConstraintResult();
-            built.BeginBoundaryWindowModelFrameCount =
+            built.BeginWindow.ModelFrameCount =
                 KimodoInOutConstraintTools.ResolveWindowFrameCount(request, isBegin: true);
-            built.EndBoundaryWindowModelFrameCount =
+            built.EndWindow.ModelFrameCount =
                 KimodoInOutConstraintTools.ResolveWindowFrameCount(request, isBegin: false);
 
             if (!KimodoInOutConstraintTools.TrySampleBoundaries(

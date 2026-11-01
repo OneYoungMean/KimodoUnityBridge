@@ -113,7 +113,7 @@ namespace KimodoBridge.Editor
                         deferredSamples[i].sampleTime += sampleTimeOffsetSeconds;
                     }
 
-                    result.DeferredOutConstraintJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                    result.DeferredOutWindow.Json = KimodoConstraintJsonExporter.ToConstraintsJson(
                         deferredSamples,
                         ResolveExportContext(timelineClip, generationContext),
                         0.0,
@@ -129,7 +129,7 @@ namespace KimodoBridge.Editor
                         deferredSamplesForExport);
                     for (int i = 0; i < deferredSamplesForExport.Count; i++)
                         deferredSamplesForExport[i].sampleTime += sampleTimeOffsetSeconds;
-                    result.DeferredInConstraintJson = KimodoConstraintJsonExporter.ToConstraintsJson(
+                    result.DeferredInWindow.Json = KimodoConstraintJsonExporter.ToConstraintsJson(
                         deferredSamplesForExport,
                         ResolveExportContext(timelineClip, generationContext),
                         0.0,
@@ -178,7 +178,7 @@ namespace KimodoBridge.Editor
             // Keep the deferred payload and its window payload in one request
             // contract.  The window is the exact authored frame/sample set; the
             // stage-3 route may reposition it without rebuilding the samples.
-            result.InConstraintWindowJson = result.BeginBoundarySamples.Count > 0
+            result.BeginWindow.Json = result.BeginBoundarySamples.Count > 0
                 ? KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.BeginBoundarySamples,
                     ResolveExportContext(timelineClip, generationContext),
@@ -186,7 +186,7 @@ namespace KimodoBridge.Editor
                     runtimeLengthSeconds,
                     frameRate)
                 : string.Empty;
-            result.OutConstraintWindowJson = result.EndBoundarySamples.Count > 0
+            result.EndWindow.Json = result.EndBoundarySamples.Count > 0
                 ? KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.EndBoundarySamples,
                     ResolveExportContext(timelineClip, generationContext),

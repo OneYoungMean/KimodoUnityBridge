@@ -26,14 +26,15 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void KimodoFrameWindow_ConvertsDurationAtSixtyFps()
+        public void ConstraintWindowSpec_ConvertsCommandFramesAtSixtyFps()
         {
-            var halfSecond = new KimodoFrameWindow(30, 2);
-            Assert.That(halfSecond.DurationSeconds, Is.EqualTo(0.5).Within(1e-9));
-            Assert.That(halfSecond.ResolveModelFrameCount(30f), Is.EqualTo(15));
-            Assert.That(halfSecond.ResolveModelFrameCount(25f), Is.EqualTo(13));
-            Assert.That(KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(30, 30f), Is.EqualTo(60));
-            Assert.That(KimodoFrameWindow.ModelFrameCountToCommandFrameCount60(1, 30f), Is.EqualTo(2));
+            KimodoConstraintWindowSpec halfSecond = KimodoConstraintWindowSpec.FromCommandFrames60(30, 2, 30f);
+            Assert.That(halfSecond.ModelFrameCount, Is.EqualTo(15));
+            Assert.That(halfSecond.SampleCount, Is.EqualTo(2));
+            Assert.That(KimodoConstraintWindowSpec.FromCommandFrames60(30, 2, 25f).ModelFrameCount, Is.EqualTo(13));
+            KimodoConstraintWindowSpec resized = halfSecond.WithModelFrameCount(8);
+            Assert.That(resized.ModelFrameCount, Is.EqualTo(8));
+            Assert.That(resized.SampleCount, Is.EqualTo(2));
         }
 
         [Test]

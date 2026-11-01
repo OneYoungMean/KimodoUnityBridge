@@ -50,23 +50,6 @@ namespace KimodoBridge.Editor.Tests
                 Mathf.Abs(item.Frame - windows[0].CoreEndFrame) <= fps / 2), Is.False,
                 "The selected cut must avoid the authored constraint guard bands.");
 
-            List<KimodoWindowConstraint> left = KimodoGenerationWindowPlanner.MapConstraints(windows[0], constraints);
-            List<KimodoWindowConstraint> right = KimodoGenerationWindowPlanner.MapConstraints(windows[1], constraints);
-            CollectionAssert.AreEqual(
-                new[] { KimodoRawConstraintKind.Root2D, KimodoRawConstraintKind.FullBody },
-                left.Select(item => item.Kind));
-            CollectionAssert.AreEqual(
-                new[] { KimodoRawConstraintKind.Root2D, KimodoRawConstraintKind.Effector },
-                right.Select(item => item.Kind));
-            CollectionAssert.AreEqual(
-                constraints.Where(item => item.Frame >= windows[0].RequestStartFrame && item.Frame < windows[0].RequestEndFrame)
-                    .Select(item => item.Frame - windows[0].RequestStartFrame),
-                left.Select(item => item.LocalFrame));
-            CollectionAssert.AreEqual(
-                constraints.Where(item => item.Frame >= windows[1].RequestStartFrame && item.Frame < windows[1].RequestEndFrame)
-                    .Select(item => item.Frame - windows[1].RequestStartFrame),
-                right.Select(item => item.LocalFrame));
-
             Assert.That(KimodoGenerationWindowPlanner.TryGetOverlapBoundaryFrames(
                 windows[0], windows[1], out int overlapStart, out int overlapEnd), Is.True);
             Assert.That(overlapEnd - overlapStart, Is.EqualTo(fps - 1));
@@ -85,18 +68,10 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(endRoot.RootPosition.x, Is.EqualTo(overlapEnd / (float)fps).Within(0.001f));
             Assert.That(endRoot.RootPosition.y, Is.EqualTo((overlapEnd - 180) / 30f).Within(0.001f));
 
-            List<KimodoWindowConstraint> leftWithOverlapRoots = KimodoGenerationWindowPlanner.MapConstraints(
-                windows[0], constraints.Append(startRoot).Append(endRoot));
-            Assert.That(leftWithOverlapRoots.Any(item =>
-                item.LocalFrame == overlapStart - windows[0].RequestStartFrame &&
-                item.Kind == KimodoRawConstraintKind.Root2D), Is.True);
-            Assert.That(leftWithOverlapRoots.Any(item =>
-                item.LocalFrame == overlapEnd - windows[0].RequestStartFrame &&
-                item.Kind == KimodoRawConstraintKind.Root2D), Is.True);
         }
 
         [Test]
-        public void PreviousWindowOverlapFullBody_ConstrainsBothOverlapEndpoints()
+        public void MiddleLongClipWindow_ComposesIncomingFullBodyAndOutgoingRoot2DWithDebugPasses()
         {
             const string model = "SOMA30";
             const int frameRate = 30;
@@ -142,7 +117,7 @@ namespace KimodoBridge.Editor.Tests
 
             Assert.That(KimodoGenerationWindowPlanner.TryGetOverlapBoundaryFrames(
                 previousWindow, currentWindow, out int overlapStart, out int overlapEnd), Is.True);
-            string json = KimodoPlayableClipGenerationExecutionService.BuildPreviousWindowOverlapFullBodyConstraintsJson(
+            KimodoConstraintWindow fullBodyWindow = KimodoPlayableClipGenerationExecutionService.BuildPreviousWindowOverlapFullBodyWindow(
                 previousMotion,
                 model,
                 previousWindow,
@@ -150,7 +125,8 @@ namespace KimodoBridge.Editor.Tests
                 overlapStart,
                 overlapEnd,
                 frameRate);
-            JArray constraints = JArray.Parse(json);
+            JArray constraints = JArray.Parse(fullBodyWindow.Json);
+            Assert.That(fullBodyWindow.ModelFrameCount, Is.EqualTo(currentWindow.RequestFrameCount));
 
             Assert.That(constraints, Has.Count.EqualTo(1));
             Assert.That(constraints[0].Value<string>("type"), Is.EqualTo("fullbody"));
@@ -160,7 +136,7 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(constraints[0]["root_positions"][1][0].Value<float>(), Is.EqualTo(-59f));
             Assert.That(constraints[0]["local_joints_rot"], Has.Count.EqualTo(2));
 
-            string fourSampleJson = KimodoPlayableClipGenerationExecutionService.BuildPreviousWindowOverlapFullBodyConstraintsJson(
+            KimodoConstraintWindow fourSampleWindow = KimodoPlayableClipGenerationExecutionService.BuildPreviousWindowOverlapFullBodyWindow(
                 previousMotion,
                 model,
                 previousWindow,
@@ -169,10 +145,87 @@ namespace KimodoBridge.Editor.Tests
                 overlapEnd,
                 frameRate,
                 sampleCount: 4);
-            JObject fourSampleConstraint = JArray.Parse(fourSampleJson)[0] as JObject;
+            JObject fourSampleConstraint = JArray.Parse(fourSampleWindow.Json)[0] as JObject;
             CollectionAssert.AreEqual(new[] { 0, 10, 19, 29 }, fourSampleConstraint["frame_indices"].Values<int>());
             Assert.That(fourSampleConstraint["root_positions"], Has.Count.EqualTo(4));
             Assert.That(fourSampleConstraint["local_joints_rot"], Has.Count.EqualTo(4));
+
+            var nextWindow = new KimodoGenerationWindow
+            {
+                CoreStartFrame = 205,
+                CoreEndFrame = 265,
+                RequestStartFrame = 190,
+                RequestEndFrame = 280
+            };
+            Assert.That(KimodoGenerationWindowPlanner.TryGetOverlapBoundaryFrames(
+                currentWindow, nextWindow, out int nextOverlapStart, out int nextOverlapEnd), Is.True);
+            var rootAnchors = new List<KimodoGlobalRawConstraint>
+            {
+                Anchor(180, KimodoRawConstraintKind.Root2D,
+                    new Vector2(5f, 2f), Vector2.up, new JObject()),
+                Anchor(230, KimodoRawConstraintKind.FullBody,
+                    new Vector2(15f, 12f), Vector2.right, new JObject())
+            };
+            KimodoConstraintWindow outgoingRootWindow =
+                KimodoPlayableClipGenerationExecutionService.BuildInterpolatedOverlapRootWindow(
+                    currentWindow,
+                    nextOverlapStart,
+                    nextOverlapEnd,
+                    rootAnchors);
+
+            var request = new KimodoEditorGenerateRequest();
+            KimodoPlayableClipGenerationExecutionService.AppendWindowConstraint(
+                request, true, "Incoming FullBody", fullBodyWindow, model, currentWindow, frameRate);
+            KimodoPlayableClipGenerationExecutionService.AppendWindowConstraint(
+                request, true, "Outgoing Root2D", outgoingRootWindow, model, currentWindow, frameRate);
+            JArray composed = JArray.Parse(request.Constraints.json);
+
+            CollectionAssert.AreEqual(
+                new[] { "fullbody", "root2d", "root2d" },
+                composed.Values<JObject>().Select(item => item.Value<string>("type")));
+            CollectionAssert.AreEqual(new[] { 60 }, composed[1]["frame_indices"].Values<int>());
+            CollectionAssert.AreEqual(new[] { 89 }, composed[2]["frame_indices"].Values<int>());
+            Assert.That(request.DebugConstraintPasses, Has.Count.EqualTo(2));
+            Assert.That(request.DebugConstraintPasses[0].FrameCount, Is.EqualTo(currentWindow.RequestFrameCount));
+            Assert.That(request.DebugConstraintPasses[0].AddedConstraintsJson, Does.Contain("fullbody"));
+            Assert.That(request.DebugConstraintPasses[1].AddedConstraintsJson, Does.Contain("root2d"));
+            Assert.That(JToken.DeepEquals(
+                JArray.Parse(request.DebugConstraintPasses[1].CombinedConstraintsJson),
+                composed), Is.True);
+        }
+
+        [Test]
+        public void InterpolatedOverlapRootWindow_UsesCurrentWindowLocalFrames()
+        {
+            var window = new KimodoGenerationWindow
+            {
+                CoreStartFrame = 145,
+                CoreEndFrame = 205,
+                RequestStartFrame = 130,
+                RequestEndFrame = 220
+            };
+            var anchors = new List<KimodoGlobalRawConstraint>
+            {
+                Anchor(150, KimodoRawConstraintKind.Root2D,
+                    new Vector2(2f, 1f), Vector2.up, new JObject()),
+                Anchor(190, KimodoRawConstraintKind.FullBody,
+                    new Vector2(6f, 5f), Vector2.right, new JObject())
+            };
+
+            KimodoConstraintWindow rootWindow =
+                KimodoPlayableClipGenerationExecutionService.BuildInterpolatedOverlapRootWindow(
+                    window,
+                    overlapStartFrame: 160,
+                    overlapEndFrame: 180,
+                    anchors);
+            JArray constraints = JArray.Parse(rootWindow.Json);
+
+            Assert.That(rootWindow.ModelFrameCount, Is.EqualTo(window.RequestFrameCount));
+            Assert.That(constraints, Has.Count.EqualTo(2));
+            Assert.That(constraints.All(x => x.Value<string>("type") == "root2d"), Is.True);
+            CollectionAssert.AreEqual(new[] { 30, 50 }, constraints.SelectMany(x => x["frame_indices"].Values<int>()));
+            Assert.That((float)constraints[0]["smooth_root_2d"][0][0], Is.EqualTo(3f).Within(0.001f));
+            Assert.That((float)constraints[1]["smooth_root_2d"][0][0], Is.EqualTo(5f).Within(0.001f));
         }
 
         [Test]
@@ -198,8 +251,12 @@ namespace KimodoBridge.Editor.Tests
                 constraints: new List<KimodoGlobalRawConstraint>(),
                 constraintGuardFrames: 0);
 
-            var first = JArray.Parse(KimodoGenerationWindowPlanner.BuildWindowConstraintsJson(windows[0], rawConstraints));
-            var second = JArray.Parse(KimodoGenerationWindowPlanner.BuildWindowConstraintsJson(windows[1], rawConstraints));
+            KimodoConstraintWindow firstWindow = KimodoGenerationWindowPlanner.MapConstraints(windows[0], rawConstraints);
+            KimodoConstraintWindow secondWindow = KimodoGenerationWindowPlanner.MapConstraints(windows[1], rawConstraints);
+            var first = JArray.Parse(firstWindow.Json);
+            var second = JArray.Parse(secondWindow.Json);
+            Assert.That(firstWindow.ModelFrameCount, Is.EqualTo(windows[0].RequestFrameCount));
+            Assert.That(secondWindow.ModelFrameCount, Is.EqualTo(windows[1].RequestFrameCount));
 
             CollectionAssert.AreEqual(new[] { "root2d", "fullbody" }, first.Values<JObject>().Select(x => x.Value<string>("type")));
             CollectionAssert.AreEqual(new[] { "root2d", "right-hand" }, second.Values<JObject>().Select(x => x.Value<string>("type")));

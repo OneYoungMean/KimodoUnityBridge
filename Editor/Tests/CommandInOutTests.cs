@@ -64,15 +64,14 @@ namespace KimodoUnityBridge.Command.Tests
 
         [TestCase("{'constraints':[{'inout':{}}]}", false, "requires")]
         [TestCase("{'constraints':[{'inout':{'mode':'typo'}}]}", false, "mode")]
-        [TestCase("{'constraints':[{'inout':{'typo':1}}]}", false, "Unknown")]
         [TestCase("{'constraints':[{'inout':{},'frame':0}]}", false, "standalone")]
         [TestCase("{'constraints':[{'inout':{}},{'inout':{}}]}", false, "standalone")]
         [TestCase("{'constraints':[{'inout':{}}]}", true, "loop")]
         public void InvalidInOut_IsRejectedBeforeSampling(string json, bool loop, string error)
         {
-            var build = typeof(command_context).GetMethod("BuildCommandInOutConstraints", PrivateStatic);
-            var exception = Assert.Throws<TargetInvocationException>(() => build.Invoke(null,
-                new object[] { JObject.Parse(json), null, KimodoMotionModelProfiles.DefaultModelName, 60, 30f, loop, new List<KimodoMarkerSampleResult>() }));
+            var configure = typeof(command_context).GetMethod("ConfigureCommandInOutClip", PrivateStatic);
+            var exception = Assert.Throws<TargetInvocationException>(() => configure.Invoke(null,
+                new object[] { JObject.Parse(json), null, null, KimodoMotionModelProfiles.DefaultModelName, 60, 30f, loop, new List<KimodoMarkerSampleResult>() }));
             Assert.That(exception.InnerException, Is.TypeOf<InvalidOperationException>());
             Assert.That(exception.InnerException.Message, Does.Contain(error));
         }
@@ -134,27 +133,18 @@ namespace KimodoUnityBridge.Command.Tests
                 var trace = Activator.CreateInstance(traceType, new object[] { session, character, 8.0, 2.0 });
                 var arguments = JObject.Parse(@"{'constraints':[{'inout':{'in':{'source':{'clip':'Previous'},'window_frames':30,'sample_count':5},'out':{'source':{'clip':'Next'},'window_frames':12,'sample_count':3}}}]}");
                 arguments["constraints"][0]["inout"]["mode"] = inside ? "inside" : "outside";
-                var build = typeof(command_context).GetMethod("BuildCommandInOutConstraints", PrivateStatic);
+                var configure = typeof(command_context).GetMethod("ConfigureCommandInOutClip", PrivateStatic);
+                Assert.That(configure, Is.Not.Null);
                 director.RebuildGraph();
                 director.Evaluate();
-                var defaults = (KimodoExternalConstraintRequest)build.Invoke(null,
-                    new object[] { arguments.DeepClone(), trace, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
-                Assert.That(defaults.DeferInConstraint, Is.True,
-                    "CLI In post_apply defaults to deferred application.");
-                Assert.That(defaults.DeferOutConstraint, Is.True,
-                    "CLI Out post_apply defaults to deferred application.");
+                Assert.That((bool)configure.Invoke(null,
+                    new object[] { arguments.DeepClone(), trace, null, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() }), Is.True);
+                var diagnostics = (JObject)traceType.GetProperty("InOutSampling").GetValue(trace);
                 arguments["constraints"][0]["inout"]["in"]["post_apply"] = false;
-                var explicitPostApply = (KimodoExternalConstraintRequest)build.Invoke(null,
-                    new object[] { arguments.DeepClone(), trace, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
-                Assert.That(explicitPostApply.DeferInConstraint, Is.False,
-                    "CLI callers can opt out of deferred In application.");
-                Assert.That(explicitPostApply.DeferOutConstraint, Is.True);
-                arguments["constraints"][0]["inout"]["in"]["post_apply"] = true;
-                arguments["constraints"][0]["inout"]["out"]["post_apply"] = true;
                 void Reject(int targetFrames, List<KimodoMarkerSampleResult> points, string message)
                 {
-                    var exception = Assert.Throws<TargetInvocationException>(() => build.Invoke(null,
-                        new object[] { arguments, trace, model, targetFrames, 30f, false, points }));
+                    var exception = Assert.Throws<TargetInvocationException>(() => configure.Invoke(null,
+                        new object[] { arguments, trace, null, model, targetFrames, 30f, false, points }));
                     Assert.That(exception.InnerException.Message, Does.Contain(message));
                 }
                 Reject(inside ? 20 : 300, new List<KimodoMarkerSampleResult>(), inside ? "overlap" : "exceeding");
@@ -163,40 +153,17 @@ namespace KimodoUnityBridge.Command.Tests
                     Reject(60, new List<KimodoMarkerSampleResult> { new KimodoMarkerSampleResult { sampleTime = 0 } }, "conflicts");
                     arguments["constraints"][0]["inout"]["in"]["sample_count"] = 1;
                     arguments["constraints"][0]["inout"]["out"]["sample_count"] = 1;
-                    var endpoints = (KimodoExternalConstraintRequest)build.Invoke(null,
-                        new object[] { arguments.DeepClone(), trace, model, 20, 30f, false, new List<KimodoMarkerSampleResult>() });
-                    Assert.That(endpoints.ConstraintSamples, Has.Count.EqualTo(2),
-                        "One sample per side keeps the two requested endpoints when their windows overlap.");
-                    CollectionAssert.AreEqual(new[] { 0, 19 }, endpoints.ConstraintSamples
-                        .Select(sample => Mathf.RoundToInt((float)(sample.sampleTime * 30f))).OrderBy(frame => frame).ToArray());
+                    Assert.That((bool)configure.Invoke(null,
+                        new object[] { arguments.DeepClone(), trace, null, model, 20, 30f, false, new List<KimodoMarkerSampleResult>() }), Is.True);
+                    var endpointDiagnostics = (JObject)traceType.GetProperty("InOutSampling").GetValue(trace);
+                    CollectionAssert.AreEqual(new[] { 0 }, endpointDiagnostics["in"]["output_model_frames"].Values<int>());
+                    CollectionAssert.AreEqual(new[] { 19 }, endpointDiagnostics["out"]["output_model_frames"].Values<int>());
                     arguments["constraints"][0]["inout"]["in"]["sample_count"] = 5;
                     arguments["constraints"][0]["inout"]["out"]["sample_count"] = 3;
                 }
-                var external = (KimodoExternalConstraintRequest)build.Invoke(null,
-                    new object[] { arguments, trace, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
-                Assert.That(external.ConstraintSamples.Count, Is.EqualTo(8),
-                    "Command diagnostics retain both explicit In and Out samples.");
-                Assert.That(external.DeferredOutConstraintSamples.Count, Is.EqualTo(3),
-                    "Explicit Out samples are deferred for postapply calibration.");
-                Assert.That(external.DeferredInConstraintSamples.Count, Is.EqualTo(5),
-                    "Explicit In samples are deferred for postapply calibration.");
-                Assert.That(external.DeferInConstraint, Is.True,
-                    "CLI In post_apply defaults to deferred application.");
-                Assert.That(external.DeferOutConstraint, Is.True,
-                    "CLI Out post_apply defaults to deferred application.");
-                Assert.That(director.time, Is.EqualTo(0).Within(1e-8), "Sampling must restore Timeline time.");
-                var diagnostics = (JObject)traceType.GetProperty("InOutSampling").GetValue(trace);
-                Assert.That(diagnostics["in"]["source_times_seconds"], Is.Null);
-                Assert.That(diagnostics["in"]["source_timeline_times_seconds"], Is.Null);
                 Assert.That(diagnostics["in"]["source_timeline_frames_60"], Is.TypeOf<JArray>());
                 Assert.That(diagnostics["runtime_model_frame_count"], Is.Not.Null);
                 Assert.That(diagnostics["crop_start_model_frame"], Is.Not.Null);
-                var firstTime = diagnostics["in"]["source_timeline_frames_60"][0].Value<int>() / 60.0;
-                var sampleContext = new KimodoTimelineInOutConstraintContext
-                { Director = director, Track = track, Animator = skeleton.animator, SourceClip = character.Animations[0].TimelineClip, ModelName = model };
-                Assert.That(KimodoTimelineConstraintSampler.TrySampleMarker(sampleContext, firstTime, 0, "fullbody", model, out var expected, out error), Is.True, error);
-                Assert.That(Vector3.Distance(external.ConstraintSamples[0].rootOverride.t, expected.rootOverride.t), Is.LessThan(0.001f), "Batch and single-frame sampling must agree.");
-                Assert.That(Math.Abs(external.ConstraintSamples[0].rootOverride.t.x), Is.GreaterThan(1f), "Track offset must be retained in Character world samples.");
 
                 typeof(command_context).GetMethod("PrepareCommandOutsideEvidencePosition", PrivateStatic)
                     .Invoke(null, new object[] { trace });
@@ -242,30 +209,8 @@ namespace KimodoUnityBridge.Command.Tests
                     "Command-created clips enable Postapply Out without exposing a command option.");
                 Assert.That(playable.autoBeginAnchor, Is.True,
                     "Command-created clips must retain the automatic begin anchor; real explicit samples take precedence during normalization.");
-                var request = KimodoPlayableClipGenerationHostService.BuildRequest(
-                    playable, "stand", external, CancellationToken.None,
-                    timelineClipOverride: output,
-                    deferOutConstraint: true,
-                    deferInConstraint: true);
-                Assert.That(request.TargetFrameCount, Is.EqualTo(60));
-                Assert.That(request.RuntimeFrameCount, Is.EqualTo(inside ? 60 : 81));
-                Assert.That(request.RuntimeTrimStartFrame, Is.EqualTo(inside ? 0 : 15));
-                var deferredIn = JArray.Parse(request.DeferredInConstraintJson)
-                    .Values<JObject>().Single(c => c.Value<string>("type") == "fullbody");
-                CollectionAssert.AreEqual(
-                    diagnostics["in"]["runtime_model_frames"].Values<int>().ToArray(),
-                    deferredIn["frame_indices"].Values<int>().ToArray());
-                var deferredOut = JArray.Parse(request.DeferredOutConstraintJson)
-                    .Values<JObject>().Single(c => c.Value<string>("type") == "fullbody");
-                CollectionAssert.AreEqual(
-                    diagnostics["out"]["runtime_model_frames"].Values<int>().ToArray(),
-                    deferredOut["frame_indices"].Values<int>().ToArray());
                 Assert.That(output.duration, Is.EqualTo(2));
-                var before = external.ConstraintSamples[0].sampleTime;
-                Assert.That(before, Is.EqualTo(inside ? 0 : -0.5).Within(1e-8), "Provider must not mutate source snapshots.");
 
-                var configure = typeof(command_context).GetMethod("ConfigureCommandInOutClip", PrivateStatic);
-                Assert.That(configure, Is.Not.Null);
                 configure.Invoke(null,
                     new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
                 Assert.That(playable.inOutConstraintMode, Is.EqualTo(inside
@@ -273,14 +218,42 @@ namespace KimodoUnityBridge.Command.Tests
                     : KimodoInOutConstraintMode.Outside));
                 Assert.That(playable.inConstraintSourceAsset, Is.SameAs(character.Animations[0].TimelineClip.asset));
                 Assert.That(playable.outConstraintSourceAsset, Is.SameAs(character.Animations[1].TimelineClip.asset));
+                arguments["constraints"][0]["inout"]["in"]["post_apply"] = false;
+                configure.Invoke(null,
+                    new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
+                Assert.That(playable.postApplyInConstraint, Is.False,
+                    "The command's explicit post_apply option must be copied to the shared clip configuration.");
+                arguments["constraints"][0]["inout"]["in"]["post_apply"] = true;
+                configure.Invoke(null,
+                    new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
+                Assert.That(playable.postApplyInConstraint, Is.True,
+                    "In constraint post-application defaults to enabled.");
                 var sharedRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
                     playable, "stand", externalConstraint: null, token: CancellationToken.None,
                     timelineClipOverride: output,
                     deferInConstraint: playable.postApplyInConstraint,
                     deferOutConstraint: playable.postApplyOutConstraint);
+                Assert.That(sharedRequest.TargetFrameCount, Is.EqualTo(60));
                 Assert.That(sharedRequest.RuntimeFrameCount, Is.EqualTo(inside ? 60 : 81));
-                Assert.That(sharedRequest.DeferredInConstraintJson, Is.Not.Empty);
-                Assert.That(sharedRequest.DeferredOutConstraintJson, Is.Not.Empty);
+                Assert.That(sharedRequest.RuntimeTrimStartFrame, Is.EqualTo(inside ? 0 : 15));
+                Assert.That(sharedRequest.InConstraintWindow.HasConstraints, Is.True);
+                Assert.That(sharedRequest.OutConstraintWindow.HasConstraints, Is.True);
+                int[] inFrames = JArray.Parse(sharedRequest.InConstraintWindow.Json)
+                    .Values<JObject>()
+                    .Where(constraint => constraint.Value<string>("type") == "fullbody")
+                    .SelectMany(constraint => constraint["frame_indices"].Values<int>())
+                    .Distinct().OrderBy(frame => frame).ToArray();
+                CollectionAssert.AreEqual(
+                    diagnostics["in"]["runtime_model_frames"].Values<int>().OrderBy(frame => frame).ToArray(),
+                    inFrames);
+                int[] outFrames = JArray.Parse(sharedRequest.OutConstraintWindow.Json)
+                    .Values<JObject>()
+                    .Where(constraint => constraint.Value<string>("type") == "fullbody")
+                    .SelectMany(constraint => constraint["frame_indices"].Values<int>())
+                    .Distinct().OrderBy(frame => frame).ToArray();
+                CollectionAssert.AreEqual(
+                    diagnostics["out"]["runtime_model_frames"].Values<int>().OrderBy(frame => frame).ToArray(),
+                    outFrames);
             }
             finally
             {

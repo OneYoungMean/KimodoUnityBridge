@@ -1,0 +1,153 @@
+# Archived unreachable code: command In/Out direct sampler path
+
+This helper had no production callers. Tests formerly reached it through reflection; those assertions now exercise ConfigureCommandInOutClip and the shared Editor generation pipeline. The active command writes the same In/Out configuration into KimodoPlayableClip.
+
+        private static KimodoExternalConstraintRequest BuildCommandInOutConstraints(
+            JObject arguments, TimelineGenerationTrace trace, string model, int targetFrames, float fps,
+            bool loop, IReadOnlyList<KimodoMarkerSampleResult> pointSamples)
+        {
+            var entries = (arguments["constraints"] as JArray)?.OfType<JObject>()
+                .Where(item => item.Property("inout") != null).ToArray() ?? Array.Empty<JObject>();
+            if (entries.Length == 0) return null;
+            if (entries.Length != 1 || entries[0].Properties().Count() != 1)
+                throw new InvalidOperationException("Supply one standalone inout entry; put point constraints in separate entries.");
+            if (KimodoMotionModelProfiles.TryGetArdy(model, out _))
+                throw new InvalidOperationException("Command inout FullBody sampling is not supported by ARDY; its clip-constraint history requires a separate adapter.");
+            if (loop) throw new InvalidOperationException("inout cannot be combined with loop generation.");
+            JObject config = entries[0]["inout"] as JObject
+                ?? throw new InvalidOperationException("inout must be an object.");
+            RequireInOutFields(config, "mode", "in", "out");
+            string mode = config.Value<string>("mode") ?? "outside";
+            if (mode != "inside" && mode != "outside")
+                throw new InvalidOperationException("inout.mode must be inside or outside.");
+            if (config["in"] == null && config["out"] == null)
+                throw new InvalidOperationException("inout requires in, out, or both.");
+            var request = new KimodoExternalConstraintRequest { Enabled = true, IncludeTimelineConstraints = true };
+            var diagnostics = new JObject { ["mode"] = mode, ["command_fps"] = SessionFrameRate, ["model_fps"] = fps };
+            var plans = new List<(bool IsIn, bool PostApply, TimelineAnimationRecord Animation, CommandInOutWindow Window)>();
+            foreach (string key in new[] { "in", "out" })
+            {
+                if (config.Property(key) == null) continue;
+                JObject side = config[key] as JObject ?? throw new InvalidOperationException($"inout.{key} must be an object.");
+                RequireInOutFields(side, "source", "window_frames", "sample_count", "post_apply");
+                bool postApply = side.Value<bool?>("post_apply") ?? true;
+                JObject source = side["source"] as JObject ?? throw new InvalidOperationException($"inout.{key}.source is required.");
+                RequireInOutFields(source, "character", "clip", "frame");
+                string characterName = source.Value<string>("character") ?? trace.Character.Name;
+                var character = ResolveSessionCharacterByReference(trace.Session, characterName, addIfMissing: true);
+                if (!ReferenceEquals(character, trace.Character))
+                    throw new InvalidOperationException("inout source.character must be the generation character; cross-character alignment is not supported.");
+                var animation = ResolveAnimation(new JObject { ["animation"] = RequiredStringValue(source, "clip") }, character);
+                if (animation.TimelineSegments.Count == 0 || animation.TimelineSegments.Any(s => s.Clip == null))
+                    throw new InvalidOperationException($"In/Out source '{animation.Name}' is not a completed playable clip.");
+                var window = ResolveCommandInOutWindow(side, mode == "inside", key == "in", animation.TimelineDurationSeconds, targetFrames, fps);
+                int startFrame = (int)Math.Floor((animation.TimelineStartSeconds + window.SourceTimes[0]) * SessionFrameRate);
+                int endFrame = (int)Math.Ceiling((animation.TimelineStartSeconds + window.SourceTimes.Last()) * SessionFrameRate) + 1;
+                ThrowIfGenerationRangeLocked(trace.Session, character, startFrame, endFrame, GenerateAnimationCommand);
+                plans.Add((key == "in", postApply, animation, window));
+                if (key == "in") request.DeferInConstraint = postApply;
+                else request.DeferOutConstraint = postApply;
+                if (mode == "outside")
+                {
+                    if (key == "in") request.ContextBeforeFrames = window.ModelFrameCount;
+                    else request.ContextAfterFrames = window.ModelFrameCount;
+                }
+                diagnostics[key] = new JObject
+                {
+                    ["source"] = new JObject { ["character"] = character.Name, ["clip"] = animation.Name },
+                    ["window_frames"] = side.Value<int?>("window_frames") ?? 1,
+                    ["model_window_frames"] = window.ModelFrameCount,
+                    ["sample_count"] = window.SourceTimes.Length,
+                    ["post_apply"] = postApply,
+                    ["source_frames_60"] = new JArray(window.SourceTimes.Select(t => Mathf.RoundToInt((float)(t * SessionFrameRate)))),
+                    ["source_timeline_frames_60"] = new JArray(window.SourceTimes.Select(t =>
+                        Mathf.RoundToInt((float)((animation.TimelineStartSeconds + t) * SessionFrameRate)))),
+                    ["output_model_frames"] = new JArray(window.OutputFrames)
+                };
+            }
+            if (mode == "inside" && plans.Sum(p => p.Window.ModelFrameCount) > targetFrames &&
+                plans.Any(p => p.Window.SourceTimes.Length > 1))
+                throw new InvalidOperationException("Inside In/Out windows overlap.");
+            int runtimeFrames = targetFrames + request.ContextBeforeFrames + request.ContextAfterFrames;
+            if (runtimeFrames > KimodoMotionModelProfiles.MaxGenerationFrames)
+                throw new InvalidOperationException($"In/Out context needs {runtimeFrames} model frames, exceeding {KimodoMotionModelProfiles.MaxGenerationFrames}; shorten the output or windows.");
+            var boundaryFrames = new HashSet<int>(plans.SelectMany(p => p.Window.OutputFrames));
+            if (pointSamples.Any(s => boundaryFrames.Contains((int)Math.Round(s.sampleTime * fps))))
+                throw new InvalidOperationException("An In/Out sample conflicts with an explicit constraint on the same model frame.");
+
+            var context = new KimodoTimelineInOutConstraintContext
+            {
+                Director = trace.Session.Director, Track = trace.Character.Track,
+                Animator = trace.Character.Animator, SourceClip = plans[0].Animation.TimelineClip, ModelName = model
+            };
+            if (!KimodoTimelineSamplingSession.TryCreate(context, model, out var sampler, out string error))
+                throw new InvalidOperationException($"In/Out sampling failed: {error}");
+            var inOutputFrames = new HashSet<int>(plans
+                .Where(plan => plan.IsIn)
+                .SelectMany(plan => plan.Window.OutputFrames));
+            bool skippedOutSampleAtInFrame = false;
+            using (sampler)
+            {
+                foreach (var plan in plans)
+                {
+                    double[] times = plan.Window.SourceTimes.Select(t => plan.Animation.TimelineStartSeconds + t).ToArray();
+                    if (!sampler.TryCaptureTargetBoneSamples(times, fps, out var bones, out error))
+                        throw new InvalidOperationException($"In/Out sampling failed: {error}");
+                    for (int i = 0; i < times.Length; i++)
+                    {
+                        if (!plan.IsIn && inOutputFrames.Contains(plan.Window.OutputFrames[i]))
+                        {
+                            skippedOutSampleAtInFrame = true;
+                            continue;
+                        }
+                        if (!KimodoRetargetMarkerSamplingUtility.TryBuildMarkerSampleResultFromBoneSample(
+                            bones[i], sampler.TargetCache, model, "fullbody", plan.Window.OutputFrames[i] / (double)fps,
+                            out var sample, out error))
+                            throw new InvalidOperationException($"In/Out pose capture failed: {error}");
+                        sample.constraintMode = "fullbody";
+                        request.ConstraintSamples.Add(sample);
+                        if (plan.IsIn && plan.PostApply)
+                        {
+                            request.DeferredInConstraintSamples.Add(sample);
+                        }
+                        else if (!plan.IsIn && plan.PostApply)
+                        {
+                            request.DeferredOutConstraintSamples.Add(sample);
+                        }
+                    }
+                }
+            }
+            if (skippedOutSampleAtInFrame)
+                diagnostics["overlap_resolution"] = "The In sample takes priority over an Out sample on the same model frame.";
+            diagnostics["context_before_model_frames"] = request.ContextBeforeFrames;
+            diagnostics["context_after_model_frames"] = request.ContextAfterFrames;
+            diagnostics["runtime_model_frame_count"] = runtimeFrames;
+            diagnostics["crop_start_model_frame"] = request.ContextBeforeFrames;
+            diagnostics["crop_end_model_frame_exclusive"] = request.ContextBeforeFrames + targetFrames;
+            foreach (var plan in plans)
+                diagnostics[plan.IsIn ? "in" : "out"]["runtime_model_frames"] =
+                    new JArray(plan.Window.OutputFrames.Select(f => f + request.ContextBeforeFrames));
+            trace.InOutSampling = diagnostics;
+            trace.InOutEvidencePlans.Clear();
+            if (mode == "outside")
+            {
+                trace.InOutEvidencePlans.AddRange(plans.Select(plan => new CommandInOutEvidencePlan
+                {
+                    IsIn = plan.IsIn,
+                    Animation = plan.Animation,
+                    Window = plan.Window
+                }));
+            }
+            return request;
+        }
+
+
+# Archived redundant validation
+
+The live command schema rejects undeclared In/Out fields before its handler runs; this manual allow-list duplicated that boundary.
+
+        private static void RequireInOutFields(JObject value, params string[] allowed)
+        {
+            string unknown = value.Properties().Select(p => p.Name).FirstOrDefault(n => !allowed.Contains(n));
+            if (unknown != null) throw new InvalidOperationException($"Unknown inout parameter '{unknown}'.");
+        }

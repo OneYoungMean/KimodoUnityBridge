@@ -22,5 +22,7 @@
 !/archive/inspector-analysis-legacy~/**
 !/archive/obsolete-tests-cleanup-20261021/
 !/archive/obsolete-tests-cleanup-20261021/**
+!/archive/command-inout-dead-path-20261101/
+!/archive/command-inout-dead-path-20261101/**
 !/archive/depth-composite-legacy-20261021/
 !/archive/depth-composite-legacy-20261021/**

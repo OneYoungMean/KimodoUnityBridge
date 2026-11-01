@@ -27,8 +27,8 @@ namespace KimodoBridge.Editor
 
         internal static string ApplyInOut(
             string existingJson,
-            string deferredInJson,
-            string deferredOutJson,
+            KimodoConstraintWindow deferredInWindow,
+            KimodoConstraintWindow deferredOutWindow,
             KimodoRawMotionData firstPassMotion,
             string modelName,
             float frameRate,
@@ -37,8 +37,8 @@ namespace KimodoBridge.Editor
             bool reanchorOutWindow = true)
         {
             JArray existing = ParseArray(existingJson);
-            JArray deferredIn = ParseArray(deferredInJson);
-            JArray deferredOut = ParseArray(deferredOutJson);
+            JArray deferredIn = ParseArray(deferredInWindow?.Json);
+            JArray deferredOut = ParseArray(deferredOutWindow?.Json);
             List<RootRow> inRows = ReadRows(deferredIn);
             List<RootRow> outRows = ReadRows(deferredOut);
             if (inRows.Count == 0 && outRows.Count == 0)
@@ -175,7 +175,8 @@ namespace KimodoBridge.Editor
             foreach (JObject record in source.OfType<JObject>())
             {
                 if (excludedFrames != null &&
-                    !FilterRecordFrames(record, frame => !excludedFrames.Contains(frame)))
+                    !KimodoConstraintWindow.FilterFrameAlignedRecord(
+                        record, frame => !excludedFrames.Contains(frame)))
                 {
                     continue;
                 }
@@ -233,37 +234,8 @@ namespace KimodoBridge.Editor
             ISet<int> deferredFrames)
         {
             if (record["frame_indices"] is not JArray) return true;
-            return FilterRecordFrames(record, frame => deferredFrames == null || !deferredFrames.Contains(frame));
-        }
-
-        private static bool FilterRecordFrames(JObject record, Func<int, bool> keepFrame)
-        {
-            if (record["frame_indices"] is not JArray frames) return true;
-            var keep = new List<int>(frames.Count);
-            for (int i = 0; i < frames.Count; i++)
-            {
-                int frame = frames[i].Value<int>();
-                if (keepFrame(frame)) keep.Add(i);
-            }
-            if (keep.Count == frames.Count) return true;
-            if (keep.Count == 0) return false;
-            string[] alignedProperties =
-            {
-                "frame_indices",
-                "smooth_root_2d",
-                "global_root_heading",
-                "local_joints_rot",
-                "root_positions",
-                "target_positions"
-            };
-            foreach (string propertyName in alignedProperties)
-            {
-                if (record[propertyName] is JArray aligned && aligned.Count == frames.Count)
-                {
-                    record[propertyName] = new JArray(keep.Select(index => aligned[index].DeepClone()));
-                }
-            }
-            return true;
+            return KimodoConstraintWindow.FilterFrameAlignedRecord(
+                record, frame => deferredFrames == null || !deferredFrames.Contains(frame));
         }
 
         private static void TransformRecord(JObject record, PlanarTransform transform)

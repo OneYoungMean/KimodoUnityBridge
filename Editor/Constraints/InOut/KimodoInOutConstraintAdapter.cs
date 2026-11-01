@@ -475,16 +475,18 @@ namespace KimodoBridge.Editor
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
                 OutputStartFrame = Mathf.Max(0, outputStartFrame),
                 OutputFrameCount = Mathf.Max(0, outputFrameCount),
-                BeginWindowModelFrameCount = isArdy ? 1 : new KimodoFrameWindow(
-                    playable?.inConstraintWindowFrames60 ?? 1,
-                    playable?.inConstraintSampleCount ?? 1).ResolveModelFrameCount(
+                BeginWindow = isArdy
+                    ? KimodoConstraintWindowSpec.FromModelFrames(1, 1)
+                    : KimodoConstraintWindowSpec.FromCommandFrames60(
+                        playable?.inConstraintWindowFrames60 ?? 1,
+                        playable?.inConstraintSampleCount ?? 1,
                         KimodoMotionModelProfiles.ResolveGenerationFrameRate(context.ModelName)),
-                BeginSampleCount = isArdy ? 1 : playable?.inConstraintSampleCount ?? 1,
-                EndWindowModelFrameCount = isArdy ? 1 : new KimodoFrameWindow(
-                    playable?.outConstraintWindowFrames60 ?? 1,
-                    playable?.outConstraintSampleCount ?? 1).ResolveModelFrameCount(
+                EndWindow = isArdy
+                    ? KimodoConstraintWindowSpec.FromModelFrames(1, 1)
+                    : KimodoConstraintWindowSpec.FromCommandFrames60(
+                        playable?.outConstraintWindowFrames60 ?? 1,
+                        playable?.outConstraintSampleCount ?? 1,
                         KimodoMotionModelProfiles.ResolveGenerationFrameRate(context.ModelName)),
-                EndSampleCount = isArdy ? 1 : playable?.outConstraintSampleCount ?? 1,
                 AutoBeginAnchor = autoBeginAnchor,
                 DeferNormalization = deferNormalization,
                 DeferBeginConstraint = deferBeginConstraint,

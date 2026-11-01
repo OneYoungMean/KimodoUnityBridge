@@ -25,13 +25,6 @@ namespace KimodoBridge.Editor
         public Vector2 Heading = Vector2.up;
     }
 
-    internal sealed class KimodoWindowConstraint
-    {
-        public int LocalFrame;
-        public KimodoRawConstraintKind Kind;
-        public JObject Payload;
-    }
-
     internal sealed class KimodoGenerationWindow
     {
         // Core output ownership interval, half-open and in global model frames.
@@ -213,25 +206,16 @@ namespace KimodoBridge.Editor
             return windows;
         }
 
-        internal static List<KimodoWindowConstraint> MapConstraints(
+        internal static KimodoConstraintWindow MapConstraints(
             KimodoGenerationWindow window,
-            IEnumerable<KimodoGlobalRawConstraint> constraints)
+            string constraintsJson)
         {
             if (window == null)
                 throw new ArgumentNullException(nameof(window));
-
-            return (constraints ?? Enumerable.Empty<KimodoGlobalRawConstraint>())
-                .Where(item => item != null &&
-                    item.Frame >= window.RequestStartFrame &&
-                    item.Frame < window.RequestEndFrame)
-                .OrderBy(item => item.Frame)
-                .Select(item => new KimodoWindowConstraint
-                {
-                    LocalFrame = item.Frame - window.RequestStartFrame,
-                    Kind = item.Kind,
-                    Payload = item.Payload?.DeepClone() as JObject
-                })
-                .ToList();
+            return KimodoConstraintWindow.SliceToLocalFrames(
+                constraintsJson,
+                window.RequestStartFrame,
+                window.RequestFrameCount);
         }
 
         internal static bool TryGetOverlapBoundaryFrames(
@@ -286,61 +270,6 @@ namespace KimodoBridge.Editor
             return before != null && after != null
                 ? InterpolateRoot2D(before, after, frame)
                 : null;
-        }
-
-        internal static string BuildWindowConstraintsJson(
-            KimodoGenerationWindow window,
-            string constraintsJson)
-        {
-            if (window == null)
-                throw new ArgumentNullException(nameof(window));
-            if (string.IsNullOrWhiteSpace(constraintsJson))
-                return string.Empty;
-
-            JArray source = JArray.Parse(constraintsJson);
-            var result = new JArray();
-            foreach (JObject constraint in source.Children<JObject>())
-            {
-                if (constraint["frame_indices"] is not JArray frames)
-                    throw new InvalidOperationException("A generation constraint is missing frame_indices.");
-
-                var selectedIndices = Enumerable.Range(0, frames.Count)
-                    .Where(index => frames[index].Type == JTokenType.Integer &&
-                        frames[index].Value<int>() >= window.RequestStartFrame &&
-                        frames[index].Value<int>() < window.RequestEndFrame)
-                    .ToArray();
-                if (selectedIndices.Length == 0)
-                    continue;
-
-                var mapped = (JObject)constraint.DeepClone();
-                mapped["frame_indices"] = new JArray(selectedIndices.Select(index =>
-                    frames[index].Value<int>() - window.RequestStartFrame));
-
-                string[] frameAlignedProperties =
-                {
-                    "smooth_root_2d",
-                    "global_root_heading",
-                    "local_joints_rot",
-                    "root_positions",
-                    "target_positions"
-                };
-                foreach (JProperty property in constraint.Properties())
-                {
-                    if (property.Name == "frame_indices" ||
-                        !frameAlignedProperties.Contains(property.Name, StringComparer.Ordinal) ||
-                        !(property.Value is JArray values))
-                        continue;
-
-                    if (values.Count != frames.Count)
-                        throw new InvalidOperationException(
-                            $"Constraint property '{property.Name}' does not match frame_indices.");
-                    mapped[property.Name] = new JArray(selectedIndices.Select(index => values[index].DeepClone()));
-                }
-
-                result.Add(mapped);
-            }
-
-            return result.ToString(Formatting.None);
         }
 
         internal static JObject CreateRoot2DConstraint(

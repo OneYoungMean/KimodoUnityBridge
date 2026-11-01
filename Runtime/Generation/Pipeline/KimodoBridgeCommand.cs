@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace KimodoBridge
 {
@@ -8,6 +9,16 @@ namespace KimodoBridge
     {
         Task<KimodoGenerationResultDto> SendGenerateAsync(
             KimodoGenerationRequestDto request,
+            Action<string> progress,
+            CancellationToken token);
+    }
+
+    public interface IKimodoModelConfigurationTransport
+    {
+        Task<JObject> ListModelConfigurationsAsync(
+            string model,
+            string textEncoderMode,
+            string modelsRoot,
             Action<string> progress,
             CancellationToken token);
     }

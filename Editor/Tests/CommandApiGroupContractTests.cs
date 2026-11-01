@@ -36,6 +36,52 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(unknownProperty["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
             Assert.That(unknownProperty["error"]?.Value<string>("message"), Does.Contain("unexpected"));
 
+            JObject unknownInOutProperty = JObject.Parse(command_dispatcher.Invoke(
+                "animation.generate",
+                new JObject
+                {
+                    ["character"] = "test-character",
+                    ["prompt"] = "walk",
+                    ["duration_frames"] = 60,
+                    ["constraints"] = new JArray(new JObject
+                    {
+                        ["inout"] = new JObject
+                        {
+                            ["mode"] = "inside",
+                            ["legacy_option"] = true,
+                            ["in"] = new JObject
+                            {
+                                ["source"] = new JObject { ["clip"] = "completed" }
+                            }
+                        }
+                    })
+                }.ToString()));
+            Assert.That(unknownInOutProperty.Value<bool>("ok"), Is.False);
+            Assert.That(unknownInOutProperty["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
+            Assert.That(unknownInOutProperty["error"]?.Value<string>("message"), Does.Contain("supported input form"));
+
+            JObject unknownInOutSourceProperty = JObject.Parse(command_dispatcher.Invoke(
+                "animation.generate",
+                new JObject
+                {
+                    ["character"] = "test-character",
+                    ["prompt"] = "walk",
+                    ["duration_frames"] = 60,
+                    ["constraints"] = new JArray(new JObject
+                    {
+                        ["inout"] = new JObject
+                        {
+                            ["in"] = new JObject
+                            {
+                                ["source"] = new JObject { ["clip"] = "completed", ["legacy_frame"] = 3 }
+                            }
+                        }
+                    })
+                }.ToString()));
+            Assert.That(unknownInOutSourceProperty.Value<bool>("ok"), Is.False);
+            Assert.That(unknownInOutSourceProperty["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
+            Assert.That(unknownInOutSourceProperty["error"]?.Value<string>("message"), Does.Contain("supported input form"));
+
             JObject dateText = JObject.Parse(command_dispatcher.Invoke(
                 "kimodo.help",
                 new JObject { ["command"] = "2026-10-20T12:34:56Z" }.ToString()));

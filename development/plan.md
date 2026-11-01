@@ -44,11 +44,11 @@
 
 ## 暂缓 TODO：Analysis Picture 行为修复
 
-- [ ] **Inspector 独立 Analysis 入口。** 在 `Advanced` 增加独立的完整 `animation.analysis` 选项；生成命令不再暴露轻量 `analysis_option`。生成完成后由共享 Editor 分析服务处理 Timeline 采样、缓存、Root Path 标记和 SceneView 图片。
+- [x] 已完成：生成后的完整分析走共享 Editor 分析服务，独立结果仍由 `animation.analysis` 提供；生成请求中无读取者的轻量 `analysis_option` 已移除，Inspector 的独立旧入口已归档。
 - [ ] 让 `animation_analyze.picture.environment.mode` 真正控制画面环境，并验证 `tiles`、`output` 与返回的图片文件一致；当前这几个选项会被解析和回显，但实际渲染分支没有完整应用它们。
-- [ ] 评估并移除 `BuildEffectiveAnalysisOptions` 对 `keyframe_count`、`keyframes.max_count`、`keyframes.enabled` 的兼容清理；破坏性升级后应由 schema 直接拒绝旧字段。
+- [x] 已确认 `BuildEffectiveAnalysisOptions` 和上述旧输入字段处理已不在当前实现中；`animation.analysis` 顶层及 Clip 输入都由严格 schema 拒绝未声明字段。
 - [ ] 区分并保留仍有实际用途的 Timeline segment `role`、Marker `sourceRole` 与 analysis 输入字段，禁止全局关键字替换。
-- [ ] 完成图片选项与 Analysis option 协议调整后，重新验证拾取苹果生成流程；在此之前，拾取苹果任务使用当前稳定的 generation 命令链，不依赖未完成的 Analysis 协议重构。
+- [ ] 完成图片环境、tiles 和 output 语义调整后，重新验证拾取苹果生成流程；generation 不再依赖已移除的 `analysis_option`。
 
 ## 暂缓 TODO：Command 层收敛
 
@@ -104,8 +104,10 @@
 
 ## 当前验证记录
 
+- 2026-11-01 FullDemo 定向回归（Unity 2022.3.62f3c1）：Command/InOut 单独组 37/37 通过；扩展的 Window、Provider、Generation 与 Command 组 114/117 通过。3 项失败均为 `KimodoConstraintNormalizationUtilityTests.ConstraintInitialization_UsesTimelinePoseForPreviewAndExport` 的 Auto Sample pose 对比；它们不在本次 Window/Transport/Command 改动路径中，且本次未对基线复跑确认。
+- 同一 FullDemo 的 `dotnet build KimodoTool.Command.Editor.csproj --no-restore` 通过，0 警告、0 错误。
 - Unity 6000.5.7f1 导入/编译通过；schema、六类合法输入、部分 transform 覆盖、旧输入拒绝、IK FullBody、marker 序列化和协议折叠均已做定向断言。
-- 最近全范围定向断言仍有三项现存失败：两项旧 CaptureWorldTargets validity 断言，以及 PoseGet fixture 的 Timeline Animator 绑定。它们不作为当前 constraint 类型契约。
+- 更早的全范围定向断言记录了两项旧 CaptureWorldTargets validity 断言和一项 PoseGet fixture Timeline Animator 绑定失败；这些记录与上面的本轮结果分开看待。
 - 尚未执行本次升级的后端生成或播放验证；不要引用归档中的旧项目/旧版本测试数量作为本次通过证据。
 - Inspector 专用分析按钮、预计算图片桥接及反射服务已移入 `archive/inspector-analysis-legacy~`；活动分析入口为 Command 层的 `animation.analysis` 与 `pose.analysis`。
 
@@ -117,9 +119,18 @@
 ## 代码清理待办（暂缓，由后续处理）
 
 - [x] 已将不可达的非 ARDY ClipConstraint mask-bake 分支及其专属合并/分析代码归档到 `archive/non-ardy-clip-constraint-bake-20261031/removed-code.txt`。保留 ARDY In 边界 `BuildBegin`、通用 ClipConstraint 协议与共享约束 JSON 工具；generation 轻量分析已移除，因此合并运动分析没有其他活动调用者。
+- [ ] **Runtime Effector 约束尚未接通。** 四个 `Set*Constraint` Runtime API 继续作为空兼容壳；若恢复 Effector 能力，先定义同帧 pose、root 与 effectors 的规范样本，再只执行一次 Avatar retarget，并复用现有 `KimodoConstraintPosePipeline` 和 `KimodoConstraintJsonExporter` 进入 generation request。禁止各 API 各自拼协议、重复 retarget，或恢复旧的分叉求解实现。
 - [ ] 检查 `KimodoHandEffectorGoalTests` 中 AnimationHumanStream goal 与 Avatar post rotation 的 180° 偏差；确认是测试公式、Unity 版本差异还是运行时手部约束方向错误。
 - [ ] 将 FullDemo `5.RuntimeArdyDemo.unity` 中仍序列化到 `targetHumanoidAnimator` 的 8 个目标迁入 `targetHumanoidAnimators`，然后验证 ARDY 场景能启动；当前代码只读取新列表。
 - [ ] 为运行时生成失败定义退避或阻塞策略，避免 QuickServer 不可用或请求持续失败时每帧重试并重复写日志。
 - [ ] 调整 `SegmentReady` 通知与生成状态提交顺序，避免订阅者异常导致已接受的段播放、但段号和约束 revision 未提交。
 - [ ] 收敛 Runtime Motion Driver 的 Stop/Reset 状态重置，并确保 `ResetMotionAsync` 在异常路径也解除 `GenerationBlocked`。
-- [ ] 更新或归档 `AnalysisPictureSpacingTests` 中反射调用的旧截图间距 helper；当前测试名仍对应已不存在的私有实现。
+- [x] 已核对当前分支不存在 `AnalysisPictureSpacingTests` 文件或其旧 helper 引用，无需再执行该清理。
+- [x] 已将通用 Window JSON 合并、帧对齐字段裁剪与数组长度校验收敛到 `KimodoConstraintWindow`；PostApply 保留 SOMA 平面变换，错位数组由共享裁剪器拒绝。
+- [x] 已明确 `KimodoConstraintWindow.Combine` 的帧数契约：合并结果取两者较大值，因为 Stage 3 的 Loop/替换窗口会有意扩大目标跨度；局部帧移位仍由调用方在同一 generation window 内完成。
+- [x] 已收窄 transport 注入边界：生成执行只依赖 `IKimodoGenerationTransport`，模型配置查询使用独立 `IKimodoModelConfigurationTransport`；status、Mocap 与服务器生命周期仍由 `KimodoBridgeService` 提供，不让 generation 测试替身实现无关方法。
+- [x] 已归档 `command_inout.cs` 中不再可达的直接 FullBody In/Out sampler，以及重复的 `RequireInOutFields` 手工 allow-list；活动 handler 统一依赖实时 schema 的 `additionalProperties: false` 校验和共享 Editor pipeline。
+- [x] 已将 `CommandInOutTests` 从归档的直接采样反射入口迁移到 `ConfigureCommandInOutClip` 与共享 generation window；schema 契约测试覆盖嵌套 In/Out 旧字段拒绝。
+- [ ] 合并 `ConfigureCommandInOutClip` 的两次规划：当前第一次只为预留范围计算窗口，创建 Clip 后第二次又完整解析同一份 inout；应缓存只读计划，避免重复解析和重复锁定检查。
+- [ ] 评估 Command 内重复的场景资源查询：`command_session_state.GetSceneSessionRoots` 与 `KimodoSessionRuntimeGuard.FindLoadedContextRoots` 都按 SessionRootPrefix 扫描已加载场景；抽成一个只读查询工具，保留按场景与全局两种过滤。
+- [ ] 评估两个 `CreateWorldLine` 绘制 helper（轨迹点列线与两点证据线）是否可由一个共享绘制核心承载；只合并材质、layer 和 parent 设置，保留两种调用语义。

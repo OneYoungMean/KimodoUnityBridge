@@ -21,7 +21,7 @@ namespace KimodoBridge
         public int EndFrameExclusive { get; internal set; }
     }
 
-    public sealed class KimodoBridgeService : IDisposable, IKimodoGenerationTransport
+    public sealed class KimodoBridgeService : IDisposable, IKimodoGenerationTransport, IKimodoModelConfigurationTransport
     {
         // The editor command job id is propagated to the TCP task so status
         // queries can use one stable identifier across both layers.
@@ -131,6 +131,16 @@ namespace KimodoBridge
             CancellationToken token)
         {
             return GenerateAsync(request, progress, token);
+        }
+
+        Task<JObject> IKimodoModelConfigurationTransport.ListModelConfigurationsAsync(
+            string model,
+            string textEncoderMode,
+            string modelsRoot,
+            Action<string> progress,
+            CancellationToken token)
+        {
+            return ListModelConfigurationsAsync(model, textEncoderMode, modelsRoot, progress, token);
         }
 
         internal async Task WarmupAsync(

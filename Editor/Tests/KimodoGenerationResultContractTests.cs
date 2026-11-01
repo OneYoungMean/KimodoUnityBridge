@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using KimodoBridge;
 using KimodoBridge.Editor;
+using KimodoUnityBridge.Command;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -44,7 +45,7 @@ namespace KimodoUnityBridge.Generation.Tests
         }
 
         [Test]
-        public void GenerationFactory_UsesReplaceableTransportAndReturnsItsResponse()
+        public void BridgeFactory_UsesReplaceableTransportAndReturnsItsResponse()
         {
             var request = new KimodoGenerationRequestDto { prompt = "walk" };
             var response = new KimodoGenerationResultDto
@@ -52,7 +53,7 @@ namespace KimodoUnityBridge.Generation.Tests
                 motionJsonCompact = "{}",
                 motionFormat = "json_compact"
             };
-            var transport = new FakeGenerationTransport { Result = response };
+            var transport = new FakeBridgeTransport { Result = response };
             var factory = new KimodoGenerationTransportFactory(() => transport);
             var command = new KimodoBridgeCommand(factory.Create());
             var stages = new List<KimodoBridgeCommandStage>();
@@ -73,6 +74,37 @@ namespace KimodoUnityBridge.Generation.Tests
                     KimodoBridgeCommandStage.Completed
                 },
                 stages);
+        }
+
+        [Test]
+        public void ModelListCommand_UsesInjectedBridgeTransportAndNormalizesItsResponse()
+        {
+            var transport = new FakeModelTransport
+            {
+                ModelListResponse = new JObject
+                {
+                    ["status"] = "done",
+                    ["default"] = new JObject { ["model"] = "test-model" },
+                    ["configs"] = new JArray(new JObject
+                    {
+                        ["model"] = "test-model",
+                        ["text_encoder_model"] = "default",
+                        ["available"] = true,
+                        ["private_field"] = "removed"
+                    })
+                }
+            };
+
+            JObject result = JObject.Parse(command_context.ListModels(
+                new JObject { ["compact"] = true },
+                transport));
+
+            Assert.That(transport.RequestedModel, Is.Not.Null.And.Not.Empty);
+            Assert.That(transport.RequestedTextEncoderMode, Is.Not.Null.And.Not.Empty);
+            Assert.That(result["status"], Is.Null);
+            Assert.That(result.Value<int>("count"), Is.EqualTo(1));
+            Assert.That(result["configs"]?[0]?["model"]?.Value<string>(), Is.EqualTo("test-model"));
+            Assert.That(result["configs"]?[0]?["private_field"], Is.Null);
         }
 
         [Test]
@@ -264,12 +296,12 @@ namespace KimodoUnityBridge.Generation.Tests
         [Test]
         public void BridgeCommand_RejectsNullRequestBeforeInvokingBackend()
         {
-            var command = new KimodoBridgeCommand(new FakeGenerationTransport());
+            var command = new KimodoBridgeCommand(new FakeBridgeTransport());
             Assert.Throws<ArgumentNullException>(() =>
                 command.ExecuteAsync(null, null, default).GetAwaiter().GetResult());
         }
 
-        private sealed class FakeGenerationTransport : IKimodoGenerationTransport
+        private sealed class FakeBridgeTransport : IKimodoGenerationTransport
         {
             public KimodoGenerationRequestDto Request;
             public KimodoGenerationResultDto Result;
@@ -282,6 +314,26 @@ namespace KimodoUnityBridge.Generation.Tests
                 Request = request;
                 progress?.Invoke("transport progress");
                 return Task.FromResult(Result);
+            }
+
+        }
+
+        private sealed class FakeModelTransport : IKimodoModelConfigurationTransport
+        {
+            public JObject ModelListResponse;
+            public string RequestedModel;
+            public string RequestedTextEncoderMode;
+
+            public Task<JObject> ListModelConfigurationsAsync(
+                string model,
+                string textEncoderMode,
+                string modelsRoot,
+                Action<string> progress,
+                CancellationToken token)
+            {
+                RequestedModel = model;
+                RequestedTextEncoderMode = textEncoderMode;
+                return Task.FromResult(ModelListResponse);
             }
         }
 

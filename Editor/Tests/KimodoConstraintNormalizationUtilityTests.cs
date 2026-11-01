@@ -27,7 +27,8 @@ namespace KimodoBridge.Editor.Tests
                 var request = new KimodoInOutConstraintRequest
                 {
                     Mode = mode, EnableBegin = true, EnableEnd = true, GenerationFrames = 74,
-                    BeginWindowModelFrameCount = 7, EndWindowModelFrameCount = 7, BeginSampleCount = 4, EndSampleCount = 4,
+                    BeginWindow = KimodoConstraintWindowSpec.FromModelFrames(7, 4),
+                    EndWindow = KimodoConstraintWindowSpec.FromModelFrames(7, 4),
                     TimelineContext = new KimodoTimelineInOutConstraintContext
                     { SourceClip = current, PreviousTimelineClip = previous, NextTimelineClip = next, Track = track }
                 };
@@ -38,7 +39,10 @@ namespace KimodoBridge.Editor.Tests
                     Assert.That(times[i], Is.EqualTo((sourceFirst + i * 2) / 30.0).Within(1e-6));
                     Assert.That(exports[i], Is.EqualTo((exportedFirst + i * 2) / 30.0).Within(1e-6));
                 }
-                request.BeginSampleCount = request.EndSampleCount = 1;
+                request.BeginWindow = KimodoConstraintWindowSpec.FromModelFrames(
+                    request.BeginWindow.ModelFrameCount, 1);
+                request.EndWindow = KimodoConstraintWindowSpec.FromModelFrames(
+                    request.EndWindow.ModelFrameCount, 1);
                 KimodoInOutConstraintTools.BuildBoundarySampleTimes(request, begin, out times, out exports);
                 int seamOffset = (mode == KimodoInOutConstraintMode.Inside) == begin ? 0 : 6;
                 Assert.That(times[0], Is.EqualTo((sourceFirst + seamOffset) / 30.0).Within(1e-6));

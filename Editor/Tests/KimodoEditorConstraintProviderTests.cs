@@ -110,7 +110,7 @@ namespace KimodoUnityBridge.Command.Tests
             string outJson = CreateRootConstraint(0, 2f);
 
             JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
-                "[]", inJson, outJson, null, KimodoMotionModelProfiles.DefaultModelName,
+                "[]", KimodoConstraintWindow.FromJson(inJson), KimodoConstraintWindow.FromJson(outJson), null, KimodoMotionModelProfiles.DefaultModelName,
                 30f, 0));
 
             Assert.That(result, Has.Count.EqualTo(1), result.ToString());
@@ -137,7 +137,7 @@ namespace KimodoUnityBridge.Command.Tests
             }.ToString();
 
             JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
-                existing, deferredIn, "[]", null,
+                existing, KimodoConstraintWindow.FromJson(deferredIn), KimodoConstraintWindow.FromJson("[]"), null,
                 KimodoMotionModelProfiles.DefaultModelName, 30f, 0));
             JObject effector = result.Values<JObject>().Single(item => item.Value<string>("type") == "effector");
             CollectionAssert.AreEqual(new[] { 5 }, effector["frame_indices"].Values<int>().ToArray());
@@ -175,8 +175,8 @@ namespace KimodoUnityBridge.Command.Tests
 
             JArray result = JArray.Parse(KimodoPostApplyOutConstraintUtility.ApplyInOut(
                 existing,
-                window,
-                string.Empty,
+                KimodoConstraintWindow.FromJson(window),
+                KimodoConstraintWindow.FromJson(string.Empty),
                 null,
                 KimodoMotionModelProfiles.DefaultModelName,
                 30f,
@@ -339,36 +339,56 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void ConstraintWindow_SlicesAlignedRowsAndRejectsMismatchedArrays()
+        {
+            string source = new JArray
+            {
+                new JObject
+                {
+                    ["type"] = "fullbody",
+                    ["frame_indices"] = new JArray(2, 3, 4),
+                    ["root_positions"] = new JArray(
+                        new JArray(2f, 0f, 0f),
+                        new JArray(3f, 0f, 0f),
+                        new JArray(4f, 0f, 0f))
+                }
+            }.ToString();
+
+            JArray sliced = JArray.Parse(KimodoConstraintWindow.SliceToLocalFrames(source, 3, 1).Json);
+            CollectionAssert.AreEqual(new[] { 0 }, sliced[0]["frame_indices"].Values<int>());
+            Assert.That((float)sliced[0]["root_positions"][0][0], Is.EqualTo(3f));
+
+            JObject malformed = new JObject
+            {
+                ["type"] = "fullbody",
+                ["frame_indices"] = new JArray(0, 1),
+                ["root_positions"] = new JArray(new JArray(0f, 0f, 0f))
+            };
+            Assert.Throws<System.InvalidOperationException>(() =>
+                KimodoConstraintWindow.FilterFrameAlignedRecord(malformed, frame => frame == 0));
+        }
+
+        [Test]
         public void StageRouting_ResolvesFullBodyConstraintWindowSpan()
         {
             const string json = "[{\"type\":\"left-hand\",\"frame_indices\":[12,18,21]},{\"type\":\"fullbody\",\"frame_indices\":[14,20]}]";
-            int span = KimodoPlayableClipGenerationExecutionService.ResolveConstraintFrameSpan(
-                json, out int firstFrame, out int lastFrame);
+            var window = new KimodoConstraintWindow { Json = json };
 
-            Assert.That(firstFrame, Is.EqualTo(12));
-            Assert.That(lastFrame, Is.EqualTo(21));
-            Assert.That(span, Is.EqualTo(10));
+            Assert.That(window.FirstSampleFrame, Is.EqualTo(12));
+            Assert.That(window.EffectiveModelFrameCount, Is.EqualTo(10));
         }
 
         [Test]
         public void StageRouting_PreservesConfiguredWindowWhenOnlyOneSampleIsExported()
         {
             const string json = "[{\"type\":\"fullbody\",\"frame_indices\":[12]}]";
-            int span = KimodoPlayableClipGenerationExecutionService.ResolveStage3WindowFrameCount(
-                windowModelFrameCount: 15,
-                constraintsJson: json,
-                out int firstFrame,
-                out int lastFrame);
+            var window = new KimodoConstraintWindow { ModelFrameCount = 15, Json = json };
 
-            Assert.That(firstFrame, Is.EqualTo(12));
-            Assert.That(lastFrame, Is.EqualTo(12));
-            Assert.That(span, Is.EqualTo(15));
+            Assert.That(window.FirstSampleFrame, Is.EqualTo(12));
+            Assert.That(window.EffectiveModelFrameCount, Is.EqualTo(15));
 
-            int inferredSpan = KimodoPlayableClipGenerationExecutionService.ResolveStage3WindowFrameCount(
-                windowModelFrameCount: 0,
-                constraintsJson: json,
-                out _,
-                out _);
+            window.ModelFrameCount = 0;
+            int inferredSpan = window.EffectiveModelFrameCount;
             Assert.That(inferredSpan, Is.EqualTo(1));
         }
 
@@ -414,7 +434,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void AppendConstraintsReplacingFullBodyFrameJson_ReplacesOnlyTheSharedSeamRow()
+        public void ConstraintWindow_ReplacesOnlyTheSharedSeamRow()
         {
             string existing = new JArray
             {
@@ -447,11 +467,11 @@ namespace KimodoUnityBridge.Command.Tests
                 }
             }.ToString();
 
-            JArray result = JArray.Parse(KimodoClipConstraintBakeUtility.AppendConstraintsReplacingFullBodyFrameJson(
-                existing,
-                loop,
-                replacedFrame: 2));
+            KimodoConstraintWindow combined = KimodoConstraintWindow.FromJson(existing, modelFrameCount: 3)
+                .AppendReplacingFullBodyFrame(KimodoConstraintWindow.FromJson(loop, modelFrameCount: 5), replacedFrame: 2);
+            JArray result = JArray.Parse(combined.Json);
 
+            Assert.That(combined.ModelFrameCount, Is.EqualTo(5));
             CollectionAssert.AreEqual(new[] { 1, 3 }, result[0]["frame_indices"].Values<int>());
             Assert.That(JToken.DeepEquals(
                 new JArray(new JArray(1f, 1f, 1f), new JArray(3f, 3f, 3f)),
