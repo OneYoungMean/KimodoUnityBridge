@@ -86,7 +86,7 @@ namespace KimodoUnityBridge.Command
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                KimodoDisableOnRuntime.Ensure(session?.SessionRoot)?.DisableForPlay();
+                KimodoSessionRuntimeGuard.DisableContextRoot(session?.SessionRoot);
                 return;
             }
             if (session?.SessionRoot != null) session.SessionRoot.SetActive(true);
@@ -128,7 +128,6 @@ namespace KimodoUnityBridge.Command
                 binding.sessionName = name;
                 binding.timelineAssetPath = assetPath;
                 binding.isAutomatic = isAutomatic;
-                KimodoDisableOnRuntime.Ensure(sessionRoot);
                 GameObject directorObject = new GameObject($"{KimodoRuntimeUtility.SessionDirectorPrefix}{safeName}");
                 directorObject.transform.SetParent(sessionRoot.transform, false);
                 PlayableDirector director = directorObject.AddComponent<PlayableDirector>();

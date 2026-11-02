@@ -17,7 +17,9 @@ namespace KimodoBridge.Editor
             settings.loopTime = false;
             settings.keepOriginalOrientation = true;
             settings.keepOriginalPositionY = true;
-            settings.keepOriginalPositionXZ = true;
+            settings.loopBlendPositionXZ = true;
+            // Use the humanoid center of mass as the XZ root transform basis.
+            settings.keepOriginalPositionXZ = false;
             settings.heightFromFeet = true;
             //settings.loopBlendPositionY = true;
             AnimationUtility.SetAnimationClipSettings(clip, settings);

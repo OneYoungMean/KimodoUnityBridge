@@ -17,21 +17,6 @@ using UnityEngine.Timeline;
 
 namespace KimodoUnityBridge.Command
 {
-    [Serializable]
-    internal sealed class KimodoCommandGenerationMetadata
-    {
-        public string requestId;
-        public string animationId;
-        public string character;
-        public string animation;
-        public string status;
-        public string stage;
-        public string message;
-        public string error;
-        public string startedAtUtc;
-        public string updatedAtUtc;
-    }
-
     internal static partial class command_context
     {
         private const string SessionJsonSchemaVersion = "vNext.transition_clip.1";
@@ -320,19 +305,7 @@ namespace KimodoUnityBridge.Command
                 {
                     JObject status = JObject.Parse(File.ReadAllText(path));
                     JObject clip = status["clip"] as JObject;
-                    records.Add(DescribeGeneration(new KimodoCommandGenerationMetadata
-                    {
-                        requestId = status.Value<string>("request_id") ?? string.Empty,
-                        animationId = status.Value<string>("animation_id") ?? string.Empty,
-                        character = clip?.Value<string>("character") ?? status.Value<string>("character") ?? string.Empty,
-                        animation = clip?.Value<string>("name") ?? status.Value<string>("animation") ?? string.Empty,
-                        status = status.Value<string>("status") ?? string.Empty,
-                        stage = status.Value<string>("stage") ?? string.Empty,
-                        message = status.Value<string>("message") ?? string.Empty,
-                        error = status.Value<string>("error") ?? string.Empty,
-                        startedAtUtc = status.Value<string>("started_at_utc") ?? string.Empty,
-                        updatedAtUtc = status.Value<string>("updated_at_utc") ?? string.Empty
-                    }));
+                    records.Add(DescribeGeneration(status, clip));
                 }
                 catch
                 {
@@ -342,18 +315,18 @@ namespace KimodoUnityBridge.Command
             return records;
         }
 
-        private static JObject DescribeGeneration(KimodoCommandGenerationMetadata value) => new JObject
+        private static JObject DescribeGeneration(JObject status, JObject clip) => new JObject
         {
-            ["request_id"] = value.requestId ?? string.Empty,
-            ["animation_id"] = value.animationId ?? string.Empty,
-            ["character"] = value.character ?? string.Empty,
-            ["animation"] = value.animation ?? string.Empty,
-            ["status"] = value.status ?? string.Empty,
-            ["stage"] = value.stage ?? string.Empty,
-            ["message"] = value.message ?? string.Empty,
-            ["error"] = value.error ?? string.Empty,
-            ["started_at_utc"] = value.startedAtUtc ?? string.Empty,
-            ["updated_at_utc"] = value.updatedAtUtc ?? string.Empty
+            ["request_id"] = status.Value<string>("request_id") ?? string.Empty,
+            ["animation_id"] = status.Value<string>("animation_id") ?? string.Empty,
+            ["character"] = clip?.Value<string>("character") ?? status.Value<string>("character") ?? string.Empty,
+            ["animation"] = clip?.Value<string>("name") ?? status.Value<string>("animation") ?? string.Empty,
+            ["status"] = status.Value<string>("status") ?? string.Empty,
+            ["stage"] = status.Value<string>("stage") ?? string.Empty,
+            ["message"] = status.Value<string>("message") ?? string.Empty,
+            ["error"] = status.Value<string>("error") ?? string.Empty,
+            ["started_at_utc"] = status.Value<string>("started_at_utc") ?? string.Empty,
+            ["updated_at_utc"] = status.Value<string>("updated_at_utc") ?? string.Empty
         };
 
     }

@@ -19,6 +19,24 @@ namespace KimodoBridge.Editor.Tests
         };
 
         [Test]
+        public void ApplyMuscleClipSettings_BakesHorizontalRootPositionFromCenterOfMass()
+        {
+            var clip = new AnimationClip();
+            try
+            {
+                KimodoEditorClipUtility.ApplyMuscleClipSettings(clip);
+
+                AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+                Assert.That(settings.loopBlendPositionXZ, Is.True);
+                Assert.That(settings.keepOriginalPositionXZ, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
         public void WriteMuscleClip_ExportsOnly49BodyMuscles()
         {
             var clip = new AnimationClip { frameRate = 30f };

@@ -39,7 +39,6 @@ namespace KimodoUnityBridge.Command
             binding.sessionName = sessionName;
             binding.timelineAssetPath = assetPath;
             binding.isAutomatic = false;
-            KimodoDisableOnRuntime.Ensure(sessionRoot);
             GameObject directorObject = new GameObject($"{KimodoRuntimeUtility.SessionDirectorPrefix}{safeName}");
             directorObject.transform.SetParent(sessionRoot.transform, false);
             PlayableDirector director = directorObject.AddComponent<PlayableDirector>();

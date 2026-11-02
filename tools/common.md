@@ -138,7 +138,7 @@ When a transition is short, increase the In/Out `window_frames` and, where usefu
 
 ## Prompt wording
 
-Write a concise natural-language action prompt from: action, phase, trajectory/direction, speed, body state, object/contact, and intended ending. Dataset-style labels often encode these as tokens such as `walk_ff_225_stop`, `jog_arc_cw_loop`, or `two_hands_walk_ff_start`.
+Write every Kimodo prompt as one concise natural-language sentence without commas. Build it from the action, phase, trajectory/direction, speed, body state, object/contact, and intended ending. Put additional constraints in supported structured fields. Dataset-style labels often encode these as tokens such as `walk_ff_225_stop`, `jog_arc_cw_loop`, or `two_hands_walk_ff_start`.
 
 ## Recognition contract
 

@@ -138,7 +138,7 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 
 ## Prompt 表述
 
-将动作、阶段、路径/方向、速度、身体状态、对象/接触和预期结束状态组成简洁的自然语言 Prompt。数据集式标签常用 `walk_ff_225_stop`、`jog_arc_cw_loop`、`two_hands_walk_ff_start` 这样的 token。
+Kimodo 提示词必须是一句不含逗号的简短自然语言句子。将动作、阶段、路径/方向、速度、身体状态、对象/接触和预期结束状态组织进这句话；其他约束写入受支持的结构化字段。数据集式标签常用 `walk_ff_225_stop`、`jog_arc_cw_loop`、`two_hands_walk_ff_start` 这样的 token。
 
 ## 识别约定
 
