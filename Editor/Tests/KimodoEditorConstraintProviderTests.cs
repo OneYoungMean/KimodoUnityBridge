@@ -416,11 +416,11 @@ namespace KimodoUnityBridge.Command.Tests
             }.ToString();
             var stage = new KimodoEditorGenerationStage(2, "Path overrides", request);
             stage.AddPass(new KimodoEditorGenerationPass("Path", constraints =>
-                KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                KimodoConstraintWindow.AppendConstraintsJson(
                     constraints,
                     new JArray(new JObject { ["pass"] = "path" }).ToString())));
             stage.AddPass(new KimodoEditorGenerationPass("Heading", constraints =>
-                KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                KimodoConstraintWindow.AppendConstraintsJson(
                     constraints,
                     new JArray(new JObject { ["pass"] = "heading" }).ToString())));
 
@@ -561,7 +561,7 @@ namespace KimodoUnityBridge.Command.Tests
                 }
             }.ToString();
 
-            JArray result = JArray.Parse(KimodoClipConstraintBakeUtility.ReplaceRoot2DConstraintsJson(
+            JArray result = JArray.Parse(KimodoConstraintWindow.ReplaceRoot2DConstraintsJson(
                 original,
                 replacement));
 

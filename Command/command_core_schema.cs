@@ -27,6 +27,7 @@ namespace KimodoUnityBridge.Command
             {
                 [HelpCommand] = GetCommandHelp,
                 [SceneContextCommand] = SceneContextGet,
+                [SessionHistoryCommand] = SessionHistoryGet,
                 [InstallServerCommand] = InstallServer,
                 [PoseFromVideoCommand] = arguments => StartMocapAnalysis(arguments, "video"),
                 [PoseFromPictureCommand] = arguments => StartMocapAnalysis(arguments, "picture"),
@@ -98,14 +99,21 @@ namespace KimodoUnityBridge.Command
                     new[] { "The command-specific form returns the full input and output schemas with usage examples." },
                     new[] { "Read-only, except section=models queries the configured local generation service." },
                     new[] { "The models section reports current availability and may change with runtime configuration." },
-                    SceneContextCommand, GenerateAnimationCommand),
+                    SceneContextCommand, SessionHistoryCommand, GenerateAnimationCommand),
                 SceneContextCommand => CommandDocumentation(
                     "Read the active Unity scene, its Kimodo Timeline, character handles, and current Session identity; optionally reload and open a Timeline asset.",
-                    new[] { "Use returned scene object references for later commands instead of guessing from names or asset paths.", "Set include_history only when the Session-wide animation, generation, and analysis index is needed.", "Set timeline_path to reload and open a historical Timeline; root tracks are bound to same-name scene characters when available." },
-                    new[] { "Without timeline_path, returns the current live scene context; if it is missing, emits a warning and creates one in the active scene.", "With timeline_path, runs the session.clear lifecycle for the transient context, reloads the asset, opens it in the Timeline window, and returns opened_timeline details. Missing same-name characters produce warnings while the Timeline remains open.", "When requested, history includes compact animation, generation, and analysis records." },
-                    new[] { "The automatic context is scoped to the active scene. The timeline_path form clears transient context objects, creates a new transient editor context, and does not modify the Timeline asset.", "History is read from the existing Session metadata and analysis index." },
-                    new[] { "Context reflects the active loaded scene and current Session; history is omitted by default.", "A Clip asset path is asset metadata and is not itself a scene Clip handle." },
+                    new[] { "Use returned scene object references for later commands instead of guessing from names or asset paths.", "Set timeline_path to open a Timeline in the active scene; root tracks are bound to same-name scene characters when available." },
+                    new[] { "Without timeline_path, returns the current live scene context; if it is missing, emits a warning and creates one in the active scene.", "With timeline_path, replaces the current scene binding with a complete context for the loaded Timeline, opens it in the Timeline window, and returns opened_timeline details. Missing same-name characters produce warnings while the context remains open." },
+                    new[] { "The context is scoped to the active scene and represented by its root, Timeline binding, and an explicit JSON write path. Commands rebuild their runtime view from the scene Timeline structure and write the resulting snapshot to that path; JSON is not used to restore or validate the context. The timeline_path form does not modify the Timeline asset." },
+                    new[] { "Context reflects the active loaded scene and current Session.", "A Clip asset path is asset metadata and is not itself a scene Clip handle." },
                     GenerateAnimationCommand, AnimationAnalysisCommand, PoseGetCommand),
+                SessionHistoryCommand => CommandDocumentation(
+                    "Read the compact generation and animation analysis indexes for the active scene Session.",
+                    new[] { "Use scene.context first when the active scene context identity or Timeline handles are needed.", "Use this command when history is needed without adding record indexes to the scene context response." },
+                    new[] { "Returns generation and analysis indexes built from the original record files, plus the active Session identity." },
+                    new[] { "Read-only with respect to Timeline and animation assets; malformed records are reported according to the history index rules." },
+                    new[] { "History does not select, restore, validate, or replace the active scene Context. It does not return full analysis keyframes or pictures; follow analysis_path when needed." },
+                    SceneContextCommand, GetGenerationCommand, AnimationAnalysisCommand),
                 InstallServerCommand => CommandDocumentation(
                     "Install or refresh the project-local QuickServer runtime before generation when it is unavailable or needs updating.",
                     new[] { "Starts an asynchronous install task; save the returned request_id and poll it with generation.get." },
@@ -187,8 +195,8 @@ namespace KimodoUnityBridge.Command
                     "Clear transient Kimodo context objects from the active scene Session.",
                     new[] { "Use when the current transient Session context must be reset." },
                     new[] { "Returns whether the context was cleared, how many context objects were destroyed, and lazy recreation information." },
-                    new[] { "Destroys transient context GameObjects; persisted Timeline and animation assets are retained." },
-                    new[] { "References to transient Session objects may no longer resolve after clearing; the next command recreates context lazily." },
+                    new[] { "Destroys scene-bound context GameObjects; persisted Timeline, Session JSON, and animation assets are retained." },
+                    new[] { "References to the cleared Session objects may no longer resolve; the next command creates a new context when needed." },
                     SceneContextCommand),
                 _ => throw new InvalidOperationException($"Unknown command '{command}'.")
             };
@@ -236,7 +244,8 @@ namespace KimodoUnityBridge.Command
             string[] fields = command switch
             {
                 HelpCommand => new[] { "manual", "usage", "execution_model", "routing", "handles", "workflow", "commands", "constraints", "constraint_rules", "configs", "count" },
-                SceneContextCommand => new[] { "session", "history", "scene", "scene_name", "director", "directors", "command_context_director", "playable_asset", "playable_asset_path", "duration_frames_60", "frame_rate", "current_frame_60", "characters", "warnings", "opened_timeline" },
+                SceneContextCommand => new[] { "session", "scene", "scene_name", "director", "directors", "command_context_director", "playable_asset", "playable_asset_path", "duration_frames_60", "frame_rate", "current_frame_60", "characters", "warnings", "opened_timeline" },
+                SessionHistoryCommand => new[] { "session", "history" },
                 InstallServerCommand => new[] { "request_id", "status" },
                 PoseFromVideoCommand or PoseFromPictureCommand => new[] { "request_id", "status" },
                 AnimationAnalysisCommand => new[] { "analysis_schema_version", "clip", "pictures" },
@@ -245,7 +254,7 @@ namespace KimodoUnityBridge.Command
                 GenerateAnimationCommand => new[] { "request_id", "status", "check", "warnings" },
                 PoseGetCommand => new[] { "pose", "source", "character_root", "data" },
                 PoseSetCommand => new[] { "pose", "data" },
-                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "animation_id", "seed", "analysis", "post_analysis", "analysis_schema_version", "source_type", "skeleton", "person", "fps", "source_frame_count", "frame_count", "joint_names", "pose_parameterization", "coordinate_spaces", "betas", "rest_joints_m", "poses", "constraints", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
+                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "animation_id", "seed", "analysis", "post_analysis", "source_type", "skeleton", "person", "fps", "source_frame_count", "frame_count", "joint_names", "pose_parameterization", "coordinate_spaces", "betas", "rest_joints_m", "poses", "constraints", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
                 CancelGenerationCommand => new[] { "request_id", "status", "stage", "message", "canceled", "clip" },
                 SessionClearCommand => new[] { "cleared", "name", "destroyed_context_count", "recreated_on_next_command" },
                 _ => Array.Empty<string>()
@@ -311,8 +320,7 @@ namespace KimodoUnityBridge.Command
                 }
                 case "history":
                 {
-                    JObject schema = ObjectSchema("animations", "generations", "analyses");
-                    schema["properties"]["animations"] = ArraySchema("object", "animation_id", "name", "character", "source", "kind", "start_timeline_frame_60", "duration_frames", "segments", "transition");
+                    JObject schema = ObjectSchema("generations", "analyses");
                     schema["properties"]["generations"] = ArraySchema("object", "request_id", "animation_id", "character", "animation", "status", "stage", "message", "error", "started_at_utc", "updated_at_utc");
                     schema["properties"]["analyses"] = ArraySchema("object", "analysis_id", "session_id", "character", "animation_id", "animation_name", "input_signature", "created_at_utc", "analysis_path", "picture_paths");
                     schema["properties"]["analyses"]["items"]["properties"]["picture_paths"] = ArraySchema("string");
@@ -684,6 +692,7 @@ namespace KimodoUnityBridge.Command
                     ["enabled"] = new JObject
                     {
                         ["type"] = "boolean",
+                        ["default"] = true,
                         ["description"] = "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
                     },
                     ["window_frames"] = new JObject
@@ -706,10 +715,10 @@ namespace KimodoUnityBridge.Command
             };
             return new PropertyDefinition("loop", new JObject
             {
-                ["description"] = "Enable loop preprocessing and configure its window, or provide per-axis endpoint locks with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}. The copied tail starts on the core content's terminal frame.",
-                ["oneOf"] = new JArray(
-                    new JObject { ["type"] = "boolean" },
-                    structured)
+                ["description"] = "Configure loop preprocessing with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}. The copied tail starts on the core content's terminal frame.",
+                ["type"] = "object",
+                ["additionalProperties"] = false,
+                ["properties"] = structured["properties"].DeepClone()
             }, false);
         }
 

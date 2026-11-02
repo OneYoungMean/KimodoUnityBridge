@@ -28,40 +28,29 @@ namespace KimodoUnityBridge.Command
 
             Scene scene = SceneManager.GetActiveScene();
             string safeName = KimodoRuntimeUtility.SanitizeName(timeline.name, "Timeline");
-            GameObject sessionRoot = new GameObject($"{KimodoRuntimeUtility.SessionRootPrefix}History_{safeName}")
+            GameObject sessionRoot = new GameObject($"{KimodoRuntimeUtility.SessionRootPrefix}{safeName}")
             {
-                layer = SessionCaptureLayer,
-                hideFlags = HideFlags.DontSaveInEditor
+                layer = SessionCaptureLayer
             };
+            Guid sessionId = Guid.NewGuid();
+            string sessionName = safeName;
+            KimodoSessionContextBinding binding = sessionRoot.AddComponent<KimodoSessionContextBinding>();
+            binding.sessionId = sessionId.ToString("D");
+            binding.sessionName = sessionName;
+            binding.timelineAssetPath = assetPath;
+            binding.isAutomatic = false;
             KimodoDisableOnRuntime.Ensure(sessionRoot);
-            GameObject directorObject = new GameObject($"{KimodoRuntimeUtility.SessionDirectorPrefix}History_{safeName}")
-            {
-                hideFlags = HideFlags.DontSaveInEditor
-            };
+            GameObject directorObject = new GameObject($"{KimodoRuntimeUtility.SessionDirectorPrefix}{safeName}");
             directorObject.transform.SetParent(sessionRoot.transform, false);
             PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
             director.playableAsset = timeline;
             director.time = 0.0;
             director.enabled = true;
 
-            var metadata = ScriptableObject.CreateInstance<KimodoCommandSessionMetadata>();
-            metadata.hideFlags = HideFlags.HideAndDontSave;
-            metadata.sessionId = Guid.NewGuid().ToString("D");
-            metadata.sessionName = $"History_{safeName}";
-            metadata.scenePath = scene.IsValid() ? scene.path : string.Empty;
-            metadata.schemaVersion = "history-open";
-
-            string sessionName = metadata.sessionName;
-            lock (TimelineSessionsLock)
-            {
-                for (int suffix = 1; TimelineSessions.ContainsKey(sessionName); suffix++)
-                {
-                    sessionName = $"{metadata.sessionName}_{suffix}";
-                }
-            }
             var session = new TimelineSessionRecord(
-                Guid.Parse(metadata.sessionId), sessionName, director, timeline, assetPath,
-                isAutomatic: false, metadata, sessionRoot);
+                sessionId, sessionName, director, timeline, assetPath,
+                isAutomatic: false, sessionRoot);
+            binding.sessionJsonPath = session.SessionJsonPath;
 
             var result = new JObject
             {
@@ -99,8 +88,10 @@ namespace KimodoUnityBridge.Command
                 director.SetGenericBinding(track, match);
                 AnimationTrack poseTrack = track.GetChildTracks().OfType<AnimationTrack>().FirstOrDefault() ?? track;
                 string characterRef = GetObjectReference(match.transform.root.gameObject);
-                session.Characters.Add(new TimelineCharacterRecord(
-                    characterRef, match.transform.root.gameObject, match, match.avatar, track, poseTrack, string.Empty));
+                var character = new TimelineCharacterRecord(
+                    characterRef, match.transform.root.gameObject, match, match.avatar, track, poseTrack, string.Empty);
+                PopulateTimelineCharacterAnimations(character);
+                session.Characters.Add(character);
                 boundCharacters.Add(new JObject
                 {
                     ["track"] = track.name,
@@ -110,13 +101,8 @@ namespace KimodoUnityBridge.Command
                 });
             }
 
-            lock (TimelineSessionsLock)
-            {
-                TimelineSessions[sessionName] = session;
-            }
             currentTimelineSession = session;
-            firstTimelineSession = session;
-            timelineSessionsRestored = true;
+            PersistTimelineSessionJson(session);
             ActivateTimelineSession(session);
             OpenTimelineWindow(session.Director);
             return result;
@@ -152,10 +138,10 @@ namespace KimodoUnityBridge.Command
 
         private static void ClearCurrentTimelineContext()
         {
-            // Historical Timeline loading follows the same lifecycle as an explicit
-            // session.clear: destroy the transient context, retain persisted assets,
-            // then create the new history context below. Do not archive or rename
-            // scene roots, because doing so leaves stale hidden sessions behind.
+            // Opening another Timeline replaces the current scene binding while
+            // retaining all serialized Timeline, Session, generation, and analysis
+            // data. The new binding is a complete scene context, not a temporary
+            // history object.
             ClearSession(new JObject());
         }
 

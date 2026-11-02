@@ -21,7 +21,7 @@ namespace KimodoBridge.Editor
         public string ModelName;
         public KimodoTextEncoderMode TextEncoderMode;
         public string ModelsRoot;
-        public string AnalysisOptionsJson;
+
     }
 
     internal static class KimodoPlayableClipGenerationExecutionService
@@ -120,10 +120,7 @@ namespace KimodoBridge.Editor
                     throw new InvalidOperationException("Analysis frame range is invalid.");
                 }
 
-                JObject options = string.IsNullOrWhiteSpace(input.AnalysisOptionsJson)
-                    ? new JObject()
-                    : JObject.Parse(input.AnalysisOptionsJson);
-                options["analysis_only"] = true;
+
                 KimodoGenerationResultDto response = KimodoBridgeService.Shared.GenerateAsync(
                     new KimodoGenerationRequestDto
                     {
@@ -132,7 +129,7 @@ namespace KimodoBridge.Editor
                         text_encoder_mode = KimodoTextEncoderModeProtocol.ToProtocolValue(input.TextEncoderMode),
                         models_root = input.ModelsRoot ?? string.Empty,
                         output_format = "kmb_attachments_v1",
-                        analysis_option_json = options.ToString(Formatting.None),
+                        analysis_option_json = new JObject { ["analysis_only"] = true }.ToString(Formatting.None),
                         analysis_clip_constraints = new List<KimodoKmbClipConstraint>
                         {
                             new KimodoKmbClipConstraint
@@ -1665,7 +1662,7 @@ namespace KimodoBridge.Editor
                                 pathConstraintJson,
                                 clip.headingDegrees);
                         }
-                        string combined = KimodoClipConstraintBakeUtility.ReplaceRoot2DConstraintsJson(
+                        string combined = KimodoConstraintWindow.ReplaceRoot2DConstraintsJson(
                             currentConstraints,
                             pathConstraintJson);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
@@ -1699,7 +1696,7 @@ namespace KimodoBridge.Editor
                                 pathConstraintJson,
                                 clip.headingDegrees);
                         }
-                        string combined = KimodoClipConstraintBakeUtility.ReplaceRoot2DConstraintsJson(
+                        string combined = KimodoConstraintWindow.ReplaceRoot2DConstraintsJson(
                             currentConstraints,
                             pathConstraintJson);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
@@ -1726,7 +1723,7 @@ namespace KimodoBridge.Editor
                             finalRequest.EffectiveRuntimeFrameCount,
                             finalRequest.TargetFrameRate,
                             currentConstraints);
-                        string combined = KimodoClipConstraintBakeUtility.ReplaceRoot2DConstraintsJson(
+                        string combined = KimodoConstraintWindow.ReplaceRoot2DConstraintsJson(
                             currentConstraints,
                             headingConstraintJson);
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
@@ -2015,7 +2012,7 @@ namespace KimodoBridge.Editor
                         debugConstraintPasses?.Add(new KimodoDebugConstraintPass
                         {
                             Name = "Stage 3 In/Out windows",
-                            AddedConstraintsJson = KimodoClipConstraintBakeUtility.AppendConstraintsJson(
+                            AddedConstraintsJson = KimodoConstraintWindow.AppendConstraintsJson(
                                 finalRequest.InConstraintWindow.Json,
                                 finalRequest.OutConstraintWindow.Json),
                             CombinedConstraintsJson = combined,

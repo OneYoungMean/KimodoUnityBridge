@@ -275,42 +275,21 @@ namespace KimodoUnityBridge.Command
 
         private static string BuildAnimationAnalysisSignature(
             TimelineCharacterRecord character,
-            TimelineAnimationRecord animation,
-            JObject effectiveOptions)
+            TimelineAnimationRecord animation)
         {
             var signature = new JObject
             {
-                // v5 aligns native KMB analysis frames to the fixed 60 FPS command
-                // time base before keyframe/contact extraction. Do not reuse
-                // v3 caches, whose markers are in the model's native FPS.
-                ["contract"] = "animation_analysis_picture_v7_force_line_command_60",
+                // v8 removes the disconnected empty-options field; older records
+                // no longer match this cache contract and are recalculated.
+                ["contract"] = "animation_analysis_picture_v8_force_line_command_60",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
                 ["rig_type"] = IsHumanoidCharacter(character) ? "humanoid" : "mesh",
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,
                 ["start_timeline_frame_60"] = animation?.StartFrame ?? 0,
                 ["end_frame_exclusive"] = animation?.EndFrameExclusive ?? 0,
-                ["authored_foot_contact_track"] = KimodoTimelineFootContactSampler.HasAuthoredTrack(animation?.Clip),
-                ["options"] = CanonicalizeJson(effectiveOptions ?? new JObject())
+                ["authored_foot_contact_track"] = KimodoTimelineFootContactSampler.HasAuthoredTrack(animation?.Clip)
             };
             return signature.ToString(Formatting.None);
-        }
-
-        private static JToken CanonicalizeJson(JToken value)
-        {
-            if (value is JObject source)
-            {
-                var result = new JObject();
-                foreach (JProperty property in source.Properties().OrderBy(property => property.Name, StringComparer.Ordinal))
-                {
-                    result[property.Name] = CanonicalizeJson(property.Value);
-                }
-                return result;
-            }
-            if (value is JArray array)
-            {
-                return new JArray(array.Select(CanonicalizeJson));
-            }
-            return value?.DeepClone() ?? JValue.CreateNull();
         }
 
         private static string ProjectRelativePathToAbsolute(string path)

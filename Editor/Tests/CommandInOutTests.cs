@@ -126,7 +126,9 @@ namespace KimodoUnityBridge.Command.Tests
                 unindexedOccupant.duration = 0.8;
                 unindexedOccupant.displayName = "UnindexedOccupant";
                 var sessionType = typeof(command_context).GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
-                var session = Activator.CreateInstance(sessionType, new object[] { Guid.NewGuid(), "InOutTest", director, timeline, "", false, null, directorObject });
+                var session = Activator.CreateInstance(sessionType, new object[] {
+                    Guid.NewGuid(), "InOutTest", director, timeline, "", false, directorObject, null, 0
+                });
                 ((List<command_context.TimelineCharacterRecord>)sessionType.GetProperty("Characters").GetValue(session)).Add(character);
                 character.NextStartSeconds = 8.0;
                 var traceType = typeof(command_context).GetNestedType("TimelineGenerationTrace", BindingFlags.NonPublic);
@@ -322,7 +324,7 @@ namespace KimodoUnityBridge.Command.Tests
 
                 var sessionType = typeof(command_context).GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
                 var session = Activator.CreateInstance(sessionType,
-                    new object[] { Guid.NewGuid(), "PoseGetWorldCoordinateTest", director, timeline, "", false, null, sessionRoot });
+                    new object[] { Guid.NewGuid(), "PoseGetWorldCoordinateTest", director, timeline, "", false, sessionRoot, null, 0 });
                 ((List<command_context.TimelineCharacterRecord>)sessionType.GetProperty("Characters").GetValue(session)).Add(character);
                 currentSessionField.SetValue(null, session);
 

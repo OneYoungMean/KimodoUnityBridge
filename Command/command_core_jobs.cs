@@ -201,6 +201,8 @@ namespace KimodoUnityBridge.Command
         private static JObject BuildStatus(JobRecord record, bool includeBackendRequestJson = false)
         {
             KimodoEditorGenerationJobSession session = record.Session;
+            TimelineGenerationTrace reservation = record.TimelineGenerationTrace;
+            string generatedAssetPath = string.Empty;
             var result = new JObject
             {
                 ["request_id"] = session.RequestId.ToString("D"),
@@ -250,7 +252,7 @@ namespace KimodoUnityBridge.Command
                         };
                     }
                 }
-                result["path"] = generated.GeneratedClip != null
+                generatedAssetPath = generated.GeneratedClip != null
                     ? AssetDatabase.GetAssetPath(generated.GeneratedClip) ?? string.Empty
                     : string.Empty;
                 result["post_analysis"] = BuildPostAnalysisStatus(
@@ -261,7 +263,6 @@ namespace KimodoUnityBridge.Command
             }
             else
             {
-                result["path"] = string.Empty;
                 if (record.TimelineGenerationTrace != null)
                 {
                     result["post_analysis"] = new JObject
@@ -288,18 +289,23 @@ namespace KimodoUnityBridge.Command
                 }
                 EditorUtility.SetDirty(placeholder);
             }
-            if (record.TimelineGenerationTrace != null)
+            if (reservation != null)
             {
-                TimelineGenerationTrace reservation = record.TimelineGenerationTrace;
-                result["start_timeline_frame_60"] = Mathf.RoundToInt((float)(reservation.StartSeconds * SessionFrameRate));
-                result["duration_frames"] = Mathf.RoundToInt((float)(reservation.DurationSeconds * SessionFrameRate));
                 if (reservation.InOutSampling != null) result["inout_sampling"] = reservation.InOutSampling.DeepClone();
                 if (reservation.Animation != null)
                 {
-                    result["animation"] = reservation.Animation.Name;
                     result["animation_id"] = reservation.Animation.Id.ToString("D");
-                    result["character"] = reservation.Character != null ? reservation.Character.Name : string.Empty;
                 }
+
+                JObject clip = new JObject
+                {
+                    ["start_timeline_frame_60"] = Mathf.RoundToInt((float)(reservation.StartSeconds * SessionFrameRate)),
+                    ["end_timeline_frame_60_exclusive"] = Mathf.RoundToInt((float)((reservation.StartSeconds + reservation.DurationSeconds) * SessionFrameRate))
+                };
+                if (reservation.Animation != null) clip["name"] = reservation.Animation.Name;
+                if (reservation.Character != null) clip["character"] = reservation.Character.Name;
+                if (!string.IsNullOrWhiteSpace(generatedAssetPath)) clip["asset_path"] = generatedAssetPath;
+                result["clip"] = clip;
             }
             return result;
         }
@@ -439,6 +445,7 @@ namespace KimodoUnityBridge.Command
         private static JObject NormalizeGenerationStatus(JObject source, string requestId, bool includeRequestJson = false)
         {
             JObject result = (JObject)source.DeepClone();
+            JObject persistedClip = source["clip"] as JObject;
             result["request_id"] = requestId;
             result.Remove("task_id");
             string progress = result.Value<string>("progress") ?? string.Empty;
@@ -457,6 +464,7 @@ namespace KimodoUnityBridge.Command
             result.Remove("animation");
             result.Remove("character");
             result.Remove("path");
+            result.Remove("generated_asset_path");
 
             if (!includeRequestJson) result.Remove("backend_request_json");
 
@@ -480,7 +488,7 @@ namespace KimodoUnityBridge.Command
             if (string.Equals(result.Value<string>("status"), "completed", StringComparison.OrdinalIgnoreCase))
             {
                 if (completedSeed != null) result["seed"] = completedSeed;
-                JObject clip = new JObject();
+                JObject clip = persistedClip != null ? (JObject)persistedClip.DeepClone() : new JObject();
                 if (source.Value<string>("animation") is string name) clip["name"] = name;
                 if (source.Value<string>("character") is string character) clip["character"] = character;
                 if (source.Value<int?>("start_timeline_frame_60") is int startFrame)
@@ -494,13 +502,12 @@ namespace KimodoUnityBridge.Command
                 if (!string.IsNullOrWhiteSpace(assetPath)) clip["asset_path"] = assetPath;
                 if (clip.HasValues) result["clip"] = clip;
             }
+            else
+            {
+                result.Remove("clip");
+            }
             result.Remove("start_timeline_frame_60");
             result.Remove("duration_frames");
-            result.Remove("inout_sampling");
-            if (source["inout_sampling"] is JObject inoutSampling)
-            {
-                result["inout_sampling"] = inoutSampling.DeepClone();
-            }
             return result;
         }
 
@@ -667,8 +674,7 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord timelineSession = record.TimelineGenerationTrace.Session;
             JObject status = BuildStatus(record, includeBackendRequestJson: true);
             WriteJsonAtomically(GenerationJobPath(timelineSession, jobSession.RequestId), status);
-            UpdateGenerationHistory(timelineSession, status);
-            PersistTimelineSessionMetadata(timelineSession);
+            PersistTimelineSessionJson(timelineSession);
             EditorUtility.SetDirty(timelineSession.TimelineAsset);
             AssetDatabase.SaveAssets();
         }
@@ -686,30 +692,10 @@ namespace KimodoUnityBridge.Command
 
         private static void EnsureGenerationBelongsToSession(JobRecord record, TimelineSessionRecord session)
         {
-            if (record?.TimelineGenerationTrace == null || !ReferenceEquals(record.TimelineGenerationTrace.Session, session))
+            if (record?.TimelineGenerationTrace == null || session == null ||
+                record.TimelineGenerationTrace.Session == null ||
+                record.TimelineGenerationTrace.Session.Id != session.Id)
                 throw new InvalidOperationException("request_id belongs to a different scene context.");
-        }
-
-        private static void UpdateGenerationHistory(TimelineSessionRecord session, JObject status)
-        {
-            if (session?.Metadata == null || status == null) return;
-            string requestId = status.Value<string>("request_id") ?? string.Empty;
-            KimodoCommandGenerationMetadata history = (session.Metadata.generations ??= new List<KimodoCommandGenerationMetadata>())
-                .FirstOrDefault(item => string.Equals(item.requestId, requestId, StringComparison.OrdinalIgnoreCase));
-            if (history == null)
-            {
-                history = new KimodoCommandGenerationMetadata { requestId = requestId };
-                session.Metadata.generations.Add(history);
-            }
-            history.character = status.Value<string>("character") ?? history.character ?? string.Empty;
-            history.animation = status.Value<string>("animation") ?? history.animation ?? string.Empty;
-            history.animationId = status.Value<string>("animation_id") ?? history.animationId ?? string.Empty;
-            history.status = status.Value<string>("status") ?? string.Empty;
-            history.stage = status.Value<string>("stage") ?? string.Empty;
-            history.message = status.Value<string>("message") ?? string.Empty;
-            history.error = status.Value<string>("error") ?? string.Empty;
-            history.startedAtUtc = status.Value<string>("started_at_utc") ?? history.startedAtUtc ?? string.Empty;
-            history.updatedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         }
 
         private static JObject EnsureRegisteredModel(string modelName, KimodoTextEncoderMode textEncoderMode)

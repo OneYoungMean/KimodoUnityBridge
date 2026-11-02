@@ -86,8 +86,7 @@ namespace KimodoUnityBridge.Command
             JObject cameraOptions = arguments["camera"] as JObject ?? new JObject();
             int pictureResolution = ResolveAnalysisPictureResolution(arguments["resolution"]);
             // Keep command-level analysis settings explicit and stable.
-            JObject analysisOptions = new JObject();
-            string inputSignature = BuildAnimationAnalysisSignature(character, animation, analysisOptions);
+            string inputSignature = BuildAnimationAnalysisSignature(character, animation);
             AnalysisCacheRecord record;
             if (!TryFindCachedAnimationAnalysis(session, character, animation, inputSignature, out record))
             {
@@ -101,7 +100,7 @@ namespace KimodoUnityBridge.Command
                 byte[] analysisMotionBytes;
                 if (IsHumanoidCharacter(character))
                 {
-                    analysis = AnalyzeAnimation(session, animation, analysisOptions, out analysisMotionBytes);
+                    analysis = AnalyzeAnimation(session, animation, out analysisMotionBytes);
                 }
                 else
                 {
@@ -521,7 +520,6 @@ namespace KimodoUnityBridge.Command
         private static JObject AnalyzeAnimation(
             TimelineSessionRecord session,
             TimelineAnimationRecord animation,
-            JObject analysisOptions,
             out byte[] analysisMotionBytes)
         {
             analysisMotionBytes = null;
@@ -592,8 +590,7 @@ namespace KimodoUnityBridge.Command
                 EndFrameExclusive = startFrame + frameCount,
                 ModelName = ResolveModelName(null),
                 TextEncoderMode = settings.DefaultTextEncoderMode,
-                ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty,
-                AnalysisOptionsJson = (analysisOptions ?? new JObject()).ToString(Formatting.None)
+                ModelsRoot = settings.LocalModelsPath?.Trim() ?? string.Empty
             };
             if (!KimodoPlayableClipGenerationExecutionService.Analysis(
                     input,

@@ -166,8 +166,7 @@ namespace KimodoUnityBridge.Command
             session = null;
             error = string.Empty;
             RefreshSceneContextBinding();
-            EnsureTimelineSessionsRestored();
-            session = currentTimelineSession ?? firstTimelineSession;
+            session = currentTimelineSession ?? BindLoadedSceneContext(SceneManager.GetActiveScene());
             if (!IsTimelineSessionValid(session))
             {
                 error = "Post-generation analysis skipped because no existing scene Timeline Session is available; an automatic context was not created.";

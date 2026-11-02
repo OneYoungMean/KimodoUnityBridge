@@ -6,12 +6,10 @@
       "documentation": {
         "when_to_use": "Discover the public command contract, inspect one command, list viable models, or review constraint rules.",
         "behavior": [
-          "Pass command to return its complete definition; otherwise section selects the command overview, model list, or constraint reference.",
-          "Set compact=true with section=models to return each configuration's model, text_encoder_model, and default fields; the full configuration is returned by default."
+          "Pass command to return its complete definition; otherwise section selects the command overview, model list, or constraint reference."
         ],
         "result_notes": [
-          "The command-specific form returns the full input and output schemas with usage examples.",
-          "The compact model response retains default, count, and configs."
+          "The command-specific form returns the full input and output schemas with usage examples."
         ],
         "scene_effects": [
           "Read-only, except section=models queries the configured local generation service."
@@ -21,6 +19,7 @@
         ],
         "related_commands": [
           "scene.context",
+          "session.history",
           "animation.generate"
         ]
       },
@@ -207,25 +206,22 @@
     },
     {
       "name": "scene.context",
-      "description": "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references. Set include_history=true to include the compact Session artifact index.",
+      "description": "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references.",
       "documentation": {
         "when_to_use": "Read the active Unity scene, its Kimodo Timeline, character handles, and current Session identity; optionally reload and open a Timeline asset.",
         "behavior": [
           "Use returned scene object references for later commands instead of guessing from names or asset paths.",
-          "Set include_history only when the Session-wide animation, generation, and analysis index is needed.",
-          "Set timeline_path to reload and open a historical Timeline; root tracks are bound to same-name scene characters when available."
+          "Set timeline_path to open a Timeline in the active scene; root tracks are bound to same-name scene characters when available."
         ],
         "result_notes": [
           "Without timeline_path, returns the current live scene context; if it is missing, emits a warning and creates one in the active scene.",
-              "With timeline_path, runs the session.clear lifecycle for the transient context, reloads the asset, opens it in the Timeline window, and returns opened_timeline details. Missing same-name characters produce warnings while the Timeline remains open.",
-          "When requested, history includes compact animation, generation, and analysis records."
+          "With timeline_path, replaces the current scene binding with a complete context for the loaded Timeline, opens it in the Timeline window, and returns opened_timeline details. Missing same-name characters produce warnings while the context remains open."
         ],
         "scene_effects": [
-              "The automatic context is scoped to the active scene. The timeline_path form clears transient context objects, creates a new transient editor context, and does not modify the Timeline asset.",
-          "History is read from the existing Session metadata and analysis index."
+          "The context is scoped to the active scene and represented by its root, Timeline binding, and an explicit JSON write path. Commands rebuild their runtime view from the scene Timeline structure and write the resulting snapshot to that path; JSON is not used to restore or validate the context. The timeline_path form does not modify the Timeline asset."
         ],
         "limits": [
-          "Context reflects the active loaded scene and current Session; history is omitted by default.",
+          "Context reflects the active loaded scene and current Session.",
           "A Clip asset path is asset metadata and is not itself a scene Clip handle."
         ],
         "related_commands": [
@@ -237,10 +233,6 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "include_history": {
-            "type": "boolean",
-            "description": "Include compact animation, generation, and analysis history; defaults to false."
-          },
           "timeline_path": {
             "type": "string",
             "description": "Reload and open an Assets/... or Packages/... Timeline asset, then bind root AnimationTracks to same-name scene characters when available."
@@ -287,126 +279,6 @@
               },
               "schema_version": {
                 "type": "string"
-              }
-            },
-            "additionalProperties": true
-          },
-          "history": {
-            "type": "object",
-            "properties": {
-              "animations": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "animation_id": {
-                      "type": "string"
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "character": {
-                      "type": "string"
-                    },
-                    "source": {
-                      "type": "string"
-                    },
-                    "kind": {
-                      "type": "string"
-                    },
-                    "start_timeline_frame_60": {
-                      "type": "integer"
-                    },
-                    "duration_frames": {
-                      "type": "integer"
-                    },
-                    "segments": {
-                      "type": "array"
-                    },
-                    "transition": {
-                      "type": "object"
-                    }
-                  },
-                  "additionalProperties": true
-                }
-              },
-              "generations": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "request_id": {
-                      "type": "string"
-                    },
-                    "animation_id": {
-                      "type": "string"
-                    },
-                    "character": {
-                      "type": "string"
-                    },
-                    "animation": {
-                      "type": "object"
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "stage": {
-                      "type": "string"
-                    },
-                    "message": {
-                      "type": "string"
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "started_at_utc": {
-                      "type": "string"
-                    },
-                    "updated_at_utc": {
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": true
-                }
-              },
-              "analyses": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "analysis_id": {
-                      "type": "string"
-                    },
-                    "session_id": {
-                      "type": "string"
-                    },
-                    "character": {
-                      "type": "string"
-                    },
-                    "animation_id": {
-                      "type": "string"
-                    },
-                    "animation_name": {
-                      "type": "string"
-                    },
-                    "input_signature": {
-                      "type": "string"
-                    },
-                    "created_at_utc": {
-                      "type": "string"
-                    },
-                    "analysis_path": {
-                      "type": "string"
-                    },
-                    "picture_paths": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": true
-                }
               }
             },
             "additionalProperties": true
@@ -595,12 +467,6 @@
         {
           "description": "Read the scene and current Session identity.",
           "arguments": {}
-        },
-        {
-          "description": "Include the compact Session artifact history when needed.",
-          "arguments": {
-            "include_history": true
-          }
         },
         {
           "description": "Reload and open a historical Timeline, binding same-name scene characters when available.",
@@ -2147,7 +2013,7 @@
     },
     {
       "name": "animation.generate",
-      "description": "Start asynchronous generation for a character in the current scene context. Root speed above 7 m/s produces a warning; above 10 m/s blocks generation. Root acceleration above 10 m/s² produces a warning; above 15 m/s² blocks generation. Full animation.analysis runs after generation by default; set analyze=false to skip it. When enabled, the result is written to a project-relative JSON file and exposed as post_analysis.analysis_path; analysis failure does not invalidate the generated Clip. Command-created Timeline Clips enable AutoBegin anchoring automatically; explicit first-frame or In/Out samples take precedence. The accepted response contains request_id, status, and request/constraint diagnostics. Pose/effector safety preflight runs for point constraints containing both pose and effector; use pose.analysis to capture sampled poses and measure joint positions. Map explicit path requirements to supported trajectory fields, use confirmed scene or analysis evidence to fill unspecified details, and leave other optional fields at their schema defaults.",
+      "description": "Start asynchronous generation for a character in the current scene context. Root speed above 7 m/s produces a warning; above 10 m/s blocks generation. Root acceleration above 10 m/s² produces a warning; above 15 m/s² blocks generation. Full animation.analysis runs after generation by default; set analyze=false to skip it. Analysis failure does not invalidate the generated Clip. Command-created Timeline Clips enable AutoBegin anchoring automatically; explicit first-frame or In/Out samples take precedence. The accepted response contains request_id, status, and request/constraint diagnostics. Pose/effector safety preflight runs for point constraints containing both pose and effector; use pose.analysis to capture sampled poses and measure joint positions. Map explicit path requirements to supported trajectory fields, use confirmed scene or analysis evidence to fill unspecified details, and leave other optional fields at their schema defaults.",
       "documentation": {
         "when_to_use": "Submit one animation generation request for a character in the current scene context.",
         "behavior": [
@@ -2157,8 +2023,8 @@
           "Save request_id and use generation.get to poll; do not resubmit a running request."
         ],
         "result_notes": [
-          "The accepted response contains request_id, status, preflight check results, and warnings. Root speed above 7 m/s warns; above 10 m/s blocks generation. Root acceleration above 10 m/s² warns; above 15 m/s² blocks generation. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.",
-          "On completion, generation.get returns the generated Clip metadata, asset path, animation_id, and generation diagnostics. When analyze=true, post_analysis.analysis_path points to the full animation.analysis JSON; with analyze=false, post_analysis.status is skipped. Analysis failure is reported separately and does not invalidate generation."
+          "The accepted response contains request_id, status, preflight check results, and warnings. Root speed above 7 m/s warns; above 10 m/s blocks generation. Root acceleration above 10 m/s² warns; above 15 m/s blocks generation. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.",
+          "On completion, generation.get returns the generated Clip metadata, asset path, animation_id, generation diagnostics, and post_analysis.analysis_path when full analysis is enabled. Set analyze=false to skip the post-generation animation.analysis pass; analysis failure is reported separately and does not invalidate the generated Clip."
         ],
         "scene_effects": [
           "A completed result is appended as a Timeline Clip; existing completed Clips are retained.",
@@ -2195,64 +2061,58 @@
             "description": "Duration in 60 FPS frames; defaults to 300 frames (5 seconds)."
           },
           "loop": {
-            "description": "Enable loop preprocessing and configure its window, or provide per-axis endpoint locks with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}. The copied tail starts on the core content's terminal frame.",
-            "oneOf": [
-              {
-                "type": "boolean"
+            "description": "Configure loop preprocessing with {enabled, window_frames, sample_count, lock_pos:{x,y,z}, lock_rot:{x,y,z}}. The copied tail starts on the core content's terminal frame.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
               },
-              {
+              "window_frames": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 30,
+                "description": "Loop window duration in 60 FPS command frames; converted to model frames when building the loop window. The copied tail starts on the core content's terminal frame, so the total extension is the window width minus one model frame."
+              },
+              "sample_count": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 2,
+                "description": "Number of FullBody samples in the loop window, including its endpoints when more than one sample is requested."
+              },
+              "lock_pos": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "enabled": {
-                    "type": "boolean",
-                    "description": "Enable bounded loop preprocessing; defaults to true when the loop object is supplied."
+                  "x": {
+                    "type": "boolean"
                   },
-                  "window_frames": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 30,
-                    "description": "Loop window duration in 60 FPS command frames; converted to model frames when building the loop window. The copied tail starts on the core content's terminal frame, so the total extension is the window width minus one model frame."
+                  "y": {
+                    "type": "boolean"
                   },
-                  "sample_count": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "default": 2,
-                    "description": "Number of FullBody samples in the loop window, including its endpoints when more than one sample is requested."
+                  "z": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "lock_rot": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "boolean"
                   },
-                  "lock_pos": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "x": {
-                        "type": "boolean"
-                      },
-                      "y": {
-                        "type": "boolean"
-                      },
-                      "z": {
-                        "type": "boolean"
-                      }
-                    }
+                  "y": {
+                    "type": "boolean"
                   },
-                  "lock_rot": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "x": {
-                        "type": "boolean"
-                      },
-                      "y": {
-                        "type": "boolean"
-                      },
-                      "z": {
-                        "type": "boolean"
-                      }
-                    }
+                  "z": {
+                    "type": "boolean"
                   }
                 }
               }
-            ]
+            }
           },
           "path": {
             "type": "object",
@@ -2281,7 +2141,7 @@
                 "description": "World-space target position for the generated Clip. Root X/Z are normalized into the initial facing frame before Humanoid conversion; the initial yaw is transferred to the Timeline Clip rotation, and the generated root Y curve is preserved with its final frame-zero value accounted for in the Clip offset."
               }
             },
-            "description": "Optional Root2D path and output placement settings. Map explicit path and direction requirements to these fields; relative_offset places the Clip in World space while preserving generated vertical root motion for Humanoid conversion and transferring initial yaw to the Clip rotation."
+            "description": "Optional Root2D path and output placement settings. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition; relative_offset places the Clip in World space while preserving generated vertical root motion for Humanoid conversion and transferring initial yaw to the Clip rotation."
           },
           "generation": {
             "type": "object",
@@ -2867,7 +2727,9 @@
             "character": "<character>",
             "prompt": "<short action for one Clip>",
             "duration_frames": 120,
-            "loop": false,
+            "loop": {
+              "enabled": false
+            },
             "constraints": [
               {
                 "inout": {
@@ -2890,7 +2752,9 @@
             "character": "<character>",
             "prompt": "<short action for one Clip>",
             "duration_frames": 120,
-            "loop": false,
+            "loop": {
+              "enabled": false
+            },
             "constraints": [
               {
                 "inout": {
@@ -2919,7 +2783,9 @@
             "character": "<character>",
             "prompt": "<short action for one Clip>",
             "duration_frames": 120,
-            "loop": false,
+            "loop": {
+              "enabled": false
+            },
             "constraints": [
               {
                 "inout": {
@@ -2975,7 +2841,9 @@
             "character": "<character>",
             "prompt": "<short action for one Clip>",
             "duration_frames": 180,
-            "loop": false,
+            "loop": {
+              "enabled": false
+            },
             "constraints": [
               {
                 "frame": 90,
@@ -3780,9 +3648,6 @@
             },
             "additionalProperties": true
           },
-          "analysis_schema_version": {
-            "type": "string"
-          },
           "source_type": {
             "type": "string"
           },
@@ -4065,7 +3930,7 @@
     },
     {
       "name": "session.clear",
-      "description": "Clear the active scene context by destroying its transient context GameObjects. Persisted Timeline and animation assets are retained, and one fresh context is recreated lazily by the next command.",
+      "description": "Clear the active scene context by destroying its scene-bound context GameObjects. Persisted Timeline, Session, and animation assets are retained, and one fresh context is recreated lazily by the next command.",
       "documentation": {
         "when_to_use": "Clear transient Kimodo context objects from the active scene Session.",
         "behavior": [
@@ -4075,10 +3940,10 @@
           "Returns whether the context was cleared, how many context objects were destroyed, and lazy recreation information."
         ],
         "scene_effects": [
-          "Destroys transient context GameObjects; persisted Timeline and animation assets are retained."
+          "Destroys scene-bound context GameObjects; persisted Timeline, Session JSON, and animation assets are retained."
         ],
         "limits": [
-          "References to transient Session objects may no longer resolve after clearing; the next command recreates context lazily."
+          "References to the cleared Session objects may no longer resolve; the next command creates a new context when needed."
         ],
         "related_commands": [
           "scene.context"
@@ -4138,6 +4003,175 @@
       "examples": [
         {
           "description": "Clear the current runtime session while retaining persisted assets.",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "name": "session.history",
+      "description": "Read the original generation and animation analysis record indexes for the active scene Session. Use scene.context to inspect the Session identity and current Timeline context.",
+      "documentation": {
+        "when_to_use": "Read the compact generation and animation analysis indexes for the active scene Session.",
+        "behavior": [
+          "Use scene.context first when the active scene context identity or Timeline handles are needed.",
+          "Use this command when history is needed without adding record indexes to the scene context response."
+        ],
+        "result_notes": [
+          "Returns generation and analysis indexes built from the original record files, plus the active Session identity."
+        ],
+        "scene_effects": [
+          "Read-only with respect to Timeline and animation assets; malformed records are reported according to the history index rules."
+        ],
+        "limits": [
+          "History does not select, restore, validate, or replace the active scene Context. It does not return full analysis keyframes or pictures; follow analysis_path when needed."
+        ],
+        "related_commands": [
+          "scene.context",
+          "generation.get",
+          "animation.analysis"
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Command responses keep domain fields at the top level. Success uses ok=true; command errors use ok=false and an error object. Async job failures are reported by status with an error object.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "description": "Optional command error. Command errors use {code, message, details?}; asynchronous job failures include this object while the poll command itself succeeds.",
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "session": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "session_revision": {
+                "type": "integer"
+              },
+              "schema_version": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "history": {
+            "type": "object",
+            "properties": {
+              "generations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "animation_id": {
+                      "type": "string"
+                    },
+                    "character": {
+                      "type": "string"
+                    },
+                    "animation": {
+                      "type": "object"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "started_at_utc": {
+                      "type": "string"
+                    },
+                    "updated_at_utc": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "analyses": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "analysis_id": {
+                      "type": "string"
+                    },
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "character": {
+                      "type": "string"
+                    },
+                    "animation_id": {
+                      "type": "string"
+                    },
+                    "animation_name": {
+                      "type": "string"
+                    },
+                    "input_signature": {
+                      "type": "string"
+                    },
+                    "created_at_utc": {
+                      "type": "string"
+                    },
+                    "analysis_path": {
+                      "type": "string"
+                    },
+                    "picture_paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "examples": [
+        {
+          "description": "Read the compact generation and analysis history for the active Session.",
           "arguments": {}
         }
       ]

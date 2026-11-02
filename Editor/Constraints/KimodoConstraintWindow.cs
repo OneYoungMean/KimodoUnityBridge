@@ -186,6 +186,45 @@ namespace KimodoBridge.Editor
             throw new InvalidOperationException("Constraint JSON must be an array or object.");
         }
 
+        internal static string AppendConstraintsJson(string baseJson, string additionalJson)
+        {
+            return Combine(FromJson(baseJson), FromJson(additionalJson)).Json;
+        }
+
+        internal static string ReplaceRoot2DConstraintsJson(string baseJson, string replacementJson)
+        {
+            var output = new JArray();
+            AppendJsonExceptRoot2D(output, baseJson);
+            AppendConstraints(output, replacementJson);
+            return output.Count == 0 ? string.Empty : output.ToString(Formatting.None);
+        }
+
+        private static void AppendJsonExceptRoot2D(JArray output, string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return;
+            JToken token = JToken.Parse(json);
+            if (token is JArray array)
+            {
+                foreach (JToken item in array)
+                {
+                    if (!IsRoot2DConstraint(item)) output.Add(item.DeepClone());
+                }
+                return;
+            }
+            if (token is JObject obj)
+            {
+                if (!IsRoot2DConstraint(obj)) output.Add(obj.DeepClone());
+                return;
+            }
+            throw new InvalidOperationException("Constraint JSON must be an array or object.");
+        }
+
+        private static bool IsRoot2DConstraint(JToken token)
+        {
+            return token is JObject constraint &&
+                string.Equals(constraint.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase);
+        }
+
         internal static bool FilterFrameAlignedRecord(
             JObject record,
             Func<int, bool> keepFrame)

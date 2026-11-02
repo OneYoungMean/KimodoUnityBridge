@@ -28,7 +28,6 @@ namespace KimodoUnityBridge.Command
         {
             if (state == PlayModeStateChange.ExitingEditMode)
             {
-                command_context.CapturePlayModeSessionRestoreMarker();
                 DisableLoadedContextRoots();
             }
             else if (state == PlayModeStateChange.EnteredPlayMode)
@@ -41,7 +40,6 @@ namespace KimodoUnityBridge.Command
                 {
                     guard.RestoreAfterPlay();
                 }
-                command_context.RestorePlayModeSessionAfterPlayMode();
             }
         }
 

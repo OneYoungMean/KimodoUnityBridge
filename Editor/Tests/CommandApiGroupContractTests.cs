@@ -36,6 +36,12 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(unknownProperty["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
             Assert.That(unknownProperty["error"]?.Value<string>("message"), Does.Contain("unexpected"));
 
+            JObject oldHistoryOption = JObject.Parse(command_dispatcher.Invoke(
+                "scene.context",
+                new JObject { ["include_history"] = true }.ToString()));
+            Assert.That(oldHistoryOption.Value<bool>("ok"), Is.False);
+            Assert.That(oldHistoryOption["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
+
             JObject unknownInOutProperty = JObject.Parse(command_dispatcher.Invoke(
                 "animation.generate",
                 new JObject
@@ -227,20 +233,29 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(videoAnalysis["outputSchema"]?["properties"]?["request_id"], Is.Not.Null);
             Assert.That(get["outputSchema"]?["properties"]?["poses"]?["items"]?["properties"]?["body_pose_axis_angle"], Is.Not.Null);
             Assert.That(get["outputSchema"]?["properties"]?["post_analysis"]?.Value<string>("type"), Is.EqualTo("object"));
+            Assert.That(get["outputSchema"]?["properties"]?["analysis_schema_version"], Is.Null);
+            Assert.That(get["outputSchema"]?["properties"]?["post_analysis"]?["properties"]?["analysis_path"]?.Value<string>("type"), Is.EqualTo("string"));
             JObject duration = (JObject)generate["inputSchema"]?["properties"]?["duration_frames"];
             Assert.That(duration?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(CommandInputSchemaValidator.TryValidate(duration, new JValue(0), out _), Is.False);
+            JObject path = (JObject)generate["inputSchema"]?["properties"]?["path"];
+            Assert.That(path?["properties"]?["distance"]?.Value<int>("minimum"), Is.EqualTo(0));
+            Assert.That(CommandInputSchemaValidator.TryValidate(path, JObject.Parse("{'distance':-1}"), out _), Is.False);
             Assert.That(duration?.Value<int>("default"), Is.EqualTo(300));
             JObject loop = (JObject)generate["inputSchema"]?["properties"]?["loop"];
-            JObject loopObjectSchema = loop?["oneOf"]?.Values<JObject>()
-                .SingleOrDefault(branch => branch.Value<string>("type") == "object");
-            Assert.That(loopObjectSchema?["properties"]?["window_frames"]?.Value<int>("default"), Is.EqualTo(30));
-            Assert.That(loopObjectSchema?["properties"]?["window_frames"]?.Value<int>("minimum"), Is.EqualTo(1));
-            Assert.That(loopObjectSchema?["properties"]?["sample_count"]?.Value<int>("default"), Is.EqualTo(2));
-            Assert.That(loopObjectSchema?["properties"]?["sample_count"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(loop?["type"]?.Value<string>(), Is.EqualTo("object"));
+            Assert.That(loop?["properties"]?["enabled"]?.Value<bool>("default"), Is.True);
+            Assert.That(loop?["oneOf"], Is.Null);
+            Assert.That(loop?["properties"]?["window_frames"]?.Value<int>("default"), Is.EqualTo(30));
+            Assert.That(loop?["properties"]?["window_frames"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(loop?["properties"]?["sample_count"]?.Value<int>("default"), Is.EqualTo(2));
+            Assert.That(loop?["properties"]?["sample_count"]?.Value<int>("minimum"), Is.EqualTo(1));
+            Assert.That(CommandInputSchemaValidator.TryValidate(loop, JObject.Parse("{}"), out _), Is.True,
+                "An empty loop object uses the documented enabled=true default.");
             Assert.That(CommandInputSchemaValidator.TryValidate(loop, JObject.Parse(
                 "{'enabled':true,'window_frames':12,'sample_count':3,'lock_pos':{'y':true}}"), out _), Is.True);
-            Assert.That(CommandInputSchemaValidator.TryValidate(loop, new JValue(true), out _), Is.True,
-                "The legacy boolean loop form remains supported.");
+            Assert.That(CommandInputSchemaValidator.TryValidate(loop, new JValue(true), out _), Is.False,
+                "The legacy boolean loop form is removed in the destructive protocol upgrade.");
             Assert.That(CommandInputSchemaValidator.TryValidate(loop, JObject.Parse(
                 "{'enabled':true,'window_frames':0}"), out _), Is.False);
             Assert.That(generate["inputSchema"]?["properties"]?["analyze"]?.Value<string>("type"), Is.EqualTo("boolean"));
@@ -318,6 +333,7 @@ namespace KimodoUnityBridge.Command.Tests
                 "kimodo.help",
                 "server.install",
                 "scene.context",
+                "session.history",
                 "session.clear",
                 "animation.analysis"
             };
@@ -333,7 +349,7 @@ namespace KimodoUnityBridge.Command.Tests
 
             JObject sceneContext = Tool(document, "scene.context");
             Assert.That(sceneContext["inputSchema"]?["additionalProperties"]?.Value<bool>(), Is.False);
-            Assert.That(sceneContext["inputSchema"]?["properties"]?["include_history"]?["type"]?.Value<string>(), Is.EqualTo("boolean"));
+            Assert.That(sceneContext["inputSchema"]?["properties"]?["include_history"], Is.Null);
             Assert.That(sceneContext["inputSchema"]?["properties"]?["timeline_path"]?["type"]?.Value<string>(), Is.EqualTo("string"));
             Assert.That(sceneContext["description"]?.Value<string>(), Does.Contain("authoritative source"));
             Assert.That(sceneContext["documentation"]?["result_notes"]?.Values<string>()
@@ -341,9 +357,15 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(sceneContext["outputSchema"]?["properties"]?["session"]?["properties"]?["session_id"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(sceneContext["outputSchema"]?["properties"]?["warnings"]?["items"]?["type"]?.Value<string>(), Is.EqualTo("string"));
             Assert.That(sceneContext["outputSchema"]?["properties"]?["session"]?["properties"]?["session_revision"]?.Value<string>("type"), Is.EqualTo("integer"));
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["history"]?["properties"]?["analyses"]?["items"]?["properties"]?["analysis_id"], Is.Not.Null);
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["history"]?["properties"]?["animations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["history"]?["properties"]?["generations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
+            Assert.That(sceneContext["outputSchema"]?["properties"]?["history"], Is.Null);
+            JObject sessionHistory = Tool(document, "session.history");
+            Assert.That(sessionHistory["inputSchema"]?["properties"]?.Children().Any(), Is.False);
+            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["analyses"]?["items"]?["properties"]?["analysis_id"], Is.Not.Null);
+            CollectionAssert.AreEquivalent(
+                new[] { "generations", "analyses" },
+                ((JObject)sessionHistory["outputSchema"]["properties"]["history"]["properties"]).Properties().Select(property => property.Name));
+            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["generations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
+            Assert.That(sceneContext["outputSchema"]?["properties"]?["characters"]?["items"]?["properties"]?["animations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
             Assert.That(sceneContext["outputSchema"]?["properties"]?["opened_timeline"]?["properties"]?["warnings"]?["items"]?["type"]?.Value<string>(), Is.EqualTo("string"));
             Assert.That(Tool(document, "session.clear")["inputSchema"]["required"], Is.Null.Or.Empty);
 
@@ -393,6 +415,7 @@ namespace KimodoUnityBridge.Command.Tests
                 ((JObject)cancel["outputSchema"]["properties"]).Properties().Select(property => property.Name));
 
             JObject analyze = Tool(document, "animation.analysis");
+            Assert.That(analyze["outputSchema"]?["properties"]?["analysis_schema_version"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["outputSchema"]?["properties"]?["picture"], Is.Null);
             Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["analysis_id"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["session_id"]?.Value<string>("type"), Is.EqualTo("string"));
@@ -584,6 +607,25 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(completed["clip"]?.Value<int>("end_timeline_frame_60_exclusive"), Is.EqualTo(360));
             Assert.That(completed["clip"]?["duration_frames"], Is.Null);
             Assert.That(completed["inout_sampling"]?["mode"]?.Value<string>(), Is.EqualTo("outside"));
+
+            var canonicalSource = new JObject
+            {
+                ["status"] = "completed",
+                ["clip"] = new JObject
+                {
+                    ["name"] = "Walk",
+                    ["character"] = "Ada",
+                    ["asset_path"] = "Assets/Walk.anim",
+                    ["start_timeline_frame_60"] = 240,
+                    ["end_timeline_frame_60_exclusive"] = 360
+                },
+                ["inout_sampling"] = new JObject { ["mode"] = "outside" }
+            };
+            JObject canonical = (JObject)generationNormalizer.Invoke(null, new object[] { canonicalSource, "request-789", false });
+            Assert.That(JToken.DeepEquals(canonical["clip"], canonicalSource["clip"]), Is.True);
+            Assert.That(canonical["path"], Is.Null);
+            Assert.That(canonical["animation"], Is.Null);
+            Assert.That(canonical["inout_sampling"]?["mode"]?.Value<string>(), Is.EqualTo("outside"));
 
             JObject canceled = (JObject)cancellationNormalizer.Invoke(null, new object[]
             {

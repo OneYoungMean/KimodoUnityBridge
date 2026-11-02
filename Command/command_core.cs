@@ -33,6 +33,7 @@ namespace KimodoUnityBridge.Command
         public const string GetGenerationCommand = "generation.get";
         public const string CancelGenerationCommand = "generation.cancel";
         public const string SessionClearCommand = "session.clear";
+        public const string SessionHistoryCommand = "session.history";
         internal const string HelpAssetPath = "Packages/com.unity.kimodo_unity_motion_tools/Command/help.json";
 
         private const int MaxRememberedJobs = 128;
@@ -119,9 +120,8 @@ namespace KimodoUnityBridge.Command
                                 ["description"] = "Select the command overview, currently viable models, or generation constraint reference; ignored when command is supplied."
                             }, false))),
                     CommandDefinition(SceneContextCommand,
-                        "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references. Set include_history=true to include the compact Session artifact index.",
+                        "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references.",
                         Properties(
-                            Optional("include_history", "boolean", "Include compact animation, generation, and analysis history; defaults to false."),
                             Optional("timeline_path", "string", "Reload and open an Assets/... or Packages/... Timeline asset, then bind root AnimationTracks to same-name scene characters when available."))),
                     CommandDefinition(InstallServerCommand,
                         "Start an asynchronous project-local QuickServer installation task. Returns only request_id and status; poll that request with generation.get. Models and the Python environment are preserved.",
@@ -232,7 +232,10 @@ namespace KimodoUnityBridge.Command
                             Required("request_id", "string", "Generation request id returned by animation.generate."),
                             Optional("reason", "string", "Optional cancellation reason."))),
                     CommandDefinition(SessionClearCommand,
-                        "Clear the active scene context by destroying its transient context GameObjects. Persisted Timeline and animation assets are retained, and one fresh context is recreated lazily by the next command.",
+                        "Clear the active scene context by destroying its scene-bound context GameObjects. Persisted Timeline, Session, and animation assets are retained, and one fresh context is recreated lazily by the next command.",
+                        Properties()),
+                    CommandDefinition(SessionHistoryCommand,
+                        "Read the original generation and animation analysis record indexes for the active scene Session. Use scene.context to inspect the Session identity and current Timeline context.",
                         Properties()),
                 }
             }.ToString(Formatting.None);
@@ -661,24 +664,12 @@ namespace KimodoUnityBridge.Command
                 }
                 float frameRate = ResolveFrameRate(modelName, modelConfiguration);
                 int durationFrames = arguments.Value<int?>("duration_frames") ?? 300;
-                if (durationFrames <= 0)
-                {
-                    throw new InvalidOperationException("duration_frames must be a positive integer at 60 FPS.");
-                }
+
                 JObject loopObject = arguments["loop"] as JObject;
-                bool loopRequested = loopObject != null
-                    ? loopObject.Value<bool?>("enabled") ?? true
-                    : arguments.Value<bool?>("loop") ?? false;
+                bool loopRequested = loopObject != null && (loopObject.Value<bool?>("enabled") ?? true);
                 int loopWindowFrames60 = loopObject?.Value<int?>("window_frames") ?? 30;
                 int loopWindowSampleCount = loopObject?.Value<int?>("sample_count") ?? 2;
-                if (loopWindowFrames60 <= 0)
-                {
-                    throw new InvalidOperationException("loop.window_frames must be a positive integer at 60 FPS.");
-                }
-                if (loopWindowSampleCount <= 0)
-                {
-                    throw new InvalidOperationException("loop.sample_count must be a positive integer.");
-                }
+
                 JObject lockPosition = loopObject?["lock_pos"] as JObject;
                 JObject lockRotation = loopObject?["lock_rot"] as JObject;
                 bool loopLockPositionX = lockPosition?.Value<bool?>("x") ?? false;
@@ -700,10 +691,7 @@ namespace KimodoUnityBridge.Command
                 float pathDistance = overridePathDistance
                     ? ReadFiniteFloat(pathOptions["distance"], "path.distance")
                     : 0f;
-                if (overridePathDistance && pathDistance < 0f)
-                {
-                    throw new InvalidOperationException("path.distance must be non-negative.");
-                }
+
                 if (overridePathDistance && !overridePathAngle)
                 {
                     throw new InvalidOperationException("path.distance requires a path angle override.");
@@ -908,52 +896,6 @@ namespace KimodoUnityBridge.Command
 
         }
 
-        private static async Task<KimodoEditorGenerationResult> ExecutePlayableClipGenerationAsync(
-            KimodoPlayableClip playableClip,
-            TimelineGenerationTrace trace,
-            KimodoExternalConstraintRequest inOutConstraints,
-            UnityEngine.Object target,
-            KimodoEditorGenerationJobSession session,
-            CancellationToken token)
-        {
-            KimodoEditorGenerationResult result = await KimodoPlayableClipGenerationExecutionService.GenerateAndFinalizeAsync(
-                playableClip,
-                externalConstraint: inOutConstraints,
-                (stage, message) => KimodoEditorGenerationJobService.UpdateProgress(target, session.RequestId, stage, message),
-                token,
-                trace.TimelineClip);
-            FinalizePlayableClipTrace(trace, result);
-            if (!playableClip.analyzeAfterGeneration)
-            {
-                result.PostAnalysisSkipped = true;
-                return result;
-            }
-            KimodoEditorGenerationJobService.UpdateProgress(
-                target,
-                session.RequestId,
-                KimodoBridgeCommandStage.Finalize,
-                "Running post-generation animation analysis.");
-            try
-            {
-                JObject analysisResponse = AnimationAnalysisCore(new JObject
-                {
-                    ["clips"] = new JArray(new JObject
-                    {
-                        ["character"] = trace.Character.Name,
-                        ["clip"] = trace.Animation.Name
-                    })
-                }, allowActiveGenerationRange: true);
-                result.PostAnalysisJson = analysisResponse.ToString(Formatting.None);
-            }
-            catch (Exception ex)
-            {
-                // Analysis is an additional quality signal. Preserve a successfully
-                // generated Clip when the analysis or picture render fails.
-                result.PostAnalysisError = ex.Message;
-                Debug.LogWarning($"[Kimodo][PostGenerationAnalysis] {ex}");
-            }
-            return result;
-        }
 
         private static KimodoGenerationOutputMode ParseGenerationOutputMode(string outputMode)
         {
