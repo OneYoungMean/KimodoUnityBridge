@@ -293,7 +293,8 @@ namespace KimodoBridge.Editor
             Action<KimodoEditorGenerationJobSession> finallyGenerate,
             Action<KimodoEditorGenerationJobSession> statusChanged,
             out KimodoEditorGenerationJobSession session,
-            out string error)
+            out string error,
+            string rawGenerateInstructionJson = null)
         {
             session = null;
             error = string.Empty;
@@ -320,7 +321,8 @@ namespace KimodoBridge.Editor
                                 stage,
                                 message),
                             token,
-                            timelineClipOverride);
+                            timelineClipOverride,
+                            rawGenerateInstructionJson: rawGenerateInstructionJson);
                         return afterGenerate != null
                             ? await afterGenerate(handle, result, token)
                             : result;
@@ -951,7 +953,8 @@ namespace KimodoBridge.Editor
             Action<KimodoBridgeCommandStage, string> progress,
             CancellationToken token,
             TimelineClip timelineClipOverride = null,
-            bool muteDebugTracksBeforeStart = true)
+            bool muteDebugTracksBeforeStart = true,
+            string rawGenerateInstructionJson = null)
         {
             if (clip == null)
             {
@@ -967,6 +970,8 @@ namespace KimodoBridge.Editor
             string prompt = clip.motionPrompt ?? string.Empty;
             if (RequiresStage2Generation(clip, externalConstraint, timelineClipOverride))
             {
+                if (!string.IsNullOrWhiteSpace(rawGenerateInstructionJson))
+                    throw new InvalidOperationException("Raw generate replay does not support loop, path override, or deferred multi-stage generation.");
                 return await GenerateStagedAndFinalizeAsync(
                     clip,
                     prompt,
@@ -981,7 +986,8 @@ namespace KimodoBridge.Editor
                 externalConstraint,
                 token,
                 timelineClipOverride: timelineClipOverride,
-                requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _));
+                requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _),
+                rawGenerateInstructionJson: rawGenerateInstructionJson);
             string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
 
             try
@@ -990,6 +996,8 @@ namespace KimodoBridge.Editor
                 KimodoEditorGenerationResult result;
                 if (request.EffectiveBackendRuntimeFrameCount > KimodoMotionModelProfiles.MaxGenerationFrames)
                 {
+                    if (!string.IsNullOrWhiteSpace(request.RawGenerateInstructionJson))
+                        throw new InvalidOperationException("Raw generate replay does not support long-clip window splitting.");
                     if (KimodoMotionModelProfiles.TryGetArdy(modelName, out _) ||
                         (request.Constraints?.clips?.Count ?? 0) > 0)
                     {

@@ -27,6 +27,10 @@ namespace KimodoUnityBridge.Command
                         @"{'clips':[{'character':'<character>','clip':'<clip>'}],'resolution':1920,'camera':{'resolution':[1280,720]}}"),
                     Example("Analyze another Clip separately, then map each result to its source for comparison.",
                         @"{'clips':[{'character':'<character>','clip':'<another clip>'}],'resolution':1920,'camera':{'resolution':[1280,720]}}"));
+                case ClipInspectCommand: return Examples("Inspect Clip settings, root motion, and static AnimatorController consumers.",
+                    @"{'clip':'<clip>'}");
+                case ClipSettingsSetCommand: return Examples("Set Loop Time or horizontal root motion behavior, then read back the applied values.",
+                    @"{'clip':'<clip>','settings':{'loop_time':true,'root_motion_enabled':true}}");
                 case PoseAnalysisCommand: return new JArray(
                     Example("Preview a point constraint when pose inspection will help assess the requested result.",
                         @"{'character':'<character>','constraints':[{'frame':90,'pose':{'track':'<track>','index':0},'root':{'position':[1.1,0,2.4]},'effector':{'right_hand':{'position':[1.2,0.9,2.4]}}}],'combine':false,'camera':{'resolution':[1280,720]}}"),
@@ -37,6 +41,8 @@ namespace KimodoUnityBridge.Command
                 case GenerateAnimationCommand: return new JArray(
                     Example("Submit one Clip request; use the returned request_id with generation.get.",
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120}"),
+                    Example("Replay the exact server generate JSON returned by generation.get(include_request_json=true).",
+                        @"{'character':'<character>','raw_instruction':{'role':'generate','text':'{""cmd"":""generate"",""prompt"":""walk forward"",""duration"":2.0,""output_format"":""kmb_v1""}'}}"),
                     Example("Continue a source Clip using its final half-second sampled five times. Names must come from the current scene context; inspect inout_sampling after generation completes.",
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120,'loop':{'enabled':false},'constraints':[{'inout':{'mode':'outside','in':{'source':{'clip':'<source clip>'},'window_frames':30,'sample_count':5}}}]}"),
                     Example("Use explicit previous/next Clips as context on both sides; crop context from the returned two-second output.",

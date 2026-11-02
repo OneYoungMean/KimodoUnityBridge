@@ -81,6 +81,34 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test, Timeout(5000)]
+        public void GenerateRequest_ReplaysRawInstructionWithFreshTaskId()
+        {
+            JObject request = SendSingleRequest(
+                new JObject { ["status"] = "done", ["output_format"] = "kmb_v1" },
+                (client, port) => client.GenerateAsync(
+                    "127.0.0.1",
+                    port,
+                    new KimodoGenerationRequestDto
+                    {
+                        task_id = "current-command-task",
+                        prompt = "ignored by replay",
+                        duration = 9f,
+                        steps = 99,
+                        model = KimodoMotionModelProfiles.DefaultModelName,
+                        raw_generate_instruction_json = "{\"cmd\":\"generate\",\"task_id\":\"old-task\",\"prompt\":\"captured walk\",\"duration\":2.0,\"diffusion_steps\":20,\"output_format\":\"kmb_v1\"}"
+                    },
+                    null,
+                    CancellationToken.None));
+
+            Assert.That(request.Value<string>("cmd"), Is.EqualTo("generate"));
+            Assert.That(request.Value<string>("task_id"), Is.EqualTo("current-command-task"));
+            Assert.That(request.Value<string>("task_id"), Is.Not.EqualTo("old-task"));
+            Assert.That(request.Value<string>("prompt"), Is.EqualTo("captured walk"));
+            Assert.That(request.Value<float?>("duration"), Is.EqualTo(2f));
+            Assert.That(request.Value<int?>("diffusion_steps"), Is.EqualTo(20));
+        }
+
+        [Test, Timeout(5000)]
         public void GenerateRequest_ReadsMotionPayloadAndMp4PathFromJsonHeader()
         {
             byte[] expectedPayload = { 1, 2, 3 };

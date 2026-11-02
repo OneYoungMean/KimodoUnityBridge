@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 using TimelineInject;
 using UnityEditor;
 using UnityEditor.Timeline;
@@ -775,6 +776,24 @@ namespace KimodoBridge.Editor
             if (animationClipProp != null)
             {
                 EditorGUILayout.PropertyField(animationClipProp, new GUIContent("Clip", "Baked Unity AnimationClip used by this playable clip."));
+                if (clip != null && clip.clip != null)
+                {
+                    // Keep the panel on the same asset mapping as clip.inspect. The
+                    // expensive static consumer graph is intentionally command-only.
+                    JObject inspection = AnimationClipInspector.InspectJson(clip.clip, includeConsumers: false);
+                    EditorGUILayout.LabelField(
+                        "Duration",
+                        $"{inspection.Value<float>("duration_seconds"):0.###} s @ {inspection.Value<float>("clip_frame_rate"):0.##} fps",
+                        EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField(
+                        "Loop Time",
+                        inspection.Value<bool>("loop_time") ? "On" : "Off",
+                        EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField(
+                        "Root Motion XZ",
+                        inspection.Value<bool>("root_motion_enabled") ? "Enabled" : "Lock Root",
+                        EditorStyles.miniLabel);
+                }
             }
             else
             {

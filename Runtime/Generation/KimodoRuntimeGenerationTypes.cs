@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace KimodoBridge
 {
@@ -7,6 +8,7 @@ namespace KimodoBridge
     public sealed class KimodoGenerationRequestDto
     {
         public string task_id;
+        [NonSerialized] public string raw_generate_instruction_json;
         public string prompt;
         public float? duration;
         public double time_as_double;
@@ -80,5 +82,43 @@ namespace KimodoBridge
         public int endFrameExclusive;
         public double? ardyPlaybackReserveSeconds;
         public string analysisJson;
+    }
+
+    public static class KimodoRawGenerateInstruction
+    {
+        public static JObject Parse(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                throw new InvalidOperationException("raw_instruction.text must contain a generate JSON object.");
+            JObject payload;
+            try { payload = JObject.Parse(json); }
+            catch (Exception ex) { throw new InvalidOperationException($"raw_instruction.text must be valid JSON: {ex.Message}"); }
+            if (!string.Equals(payload.Value<string>("cmd")?.Trim(), "generate", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("raw_instruction.text must contain cmd=generate.");
+            if (payload["kmb_attachments"] != null)
+                throw new InvalidOperationException("Raw generate replay cannot use kmb_attachments; the binary payload is not included in JSON.");
+            string constraints = payload.Value<string>("constraints_json");
+            if (!string.IsNullOrWhiteSpace(constraints) && constraints.IndexOf("kmb_attachment_v1", StringComparison.OrdinalIgnoreCase) >= 0)
+                throw new InvalidOperationException("Raw generate replay cannot use binary KMB constraints; the attachment bytes are not included in JSON.");
+            if (payload["analysis_option"] != null)
+                throw new InvalidOperationException("Raw generate replay does not support the removed analysis_option field.");
+            string outputFormat = payload.Value<string>("output_format")?.Trim();
+            if (!string.IsNullOrEmpty(outputFormat) && !string.Equals(outputFormat, "kmb_v1", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Raw generate replay requires output_format=kmb_v1.");
+            return payload;
+        }
+
+        public static float? ReadDuration(JObject payload)
+        {
+            JToken token = payload?["duration"];
+            if (token == null || token.Type == JTokenType.Null) return null;
+            if (!float.TryParse(token.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out float value) ||
+                float.IsNaN(value) || float.IsInfinity(value) || value <= 0f)
+                throw new InvalidOperationException("Raw generate duration must be a finite positive number.");
+            return value;
+        }
+
+        public static string ReadPrompt(JObject payload) => payload?.Value<string>("prompt")?.Trim() ?? string.Empty;
     }
 }

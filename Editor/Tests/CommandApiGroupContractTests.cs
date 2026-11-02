@@ -19,6 +19,53 @@ namespace KimodoUnityBridge.Command.Tests
     public sealed class CommandApiGroupContractTests
     {
         [Test]
+        public void AnimationClipInspectorApi_UsesOneTypedFactSourceAndReadsBackSettings()
+        {
+            Assert.That(typeof(AnimationClipInspector).IsAbstract && typeof(AnimationClipInspector).IsSealed, Is.True);
+            Assert.That(typeof(AnimationClipInspector).GetFields(
+                BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic), Is.Empty);
+            Assert.That(typeof(AnimationClipInspection).IsSerializable, Is.False,
+                "Inspector results must remain transient and must not become Unity asset data.");
+            AnimationClip clip = new AnimationClip { frameRate = 30f };
+            try
+            {
+                AnimationUtility.SetEditorCurve(
+                    clip,
+                    new EditorCurveBinding { path = string.Empty, type = typeof(Transform), propertyName = "RootT.x" },
+                    AnimationCurve.Linear(0f, 0f, 1f, 2f));
+
+                AnimationClipInspection before = AnimationClipInspector.Read(clip, includeConsumers: false);
+                Assert.That(before.FrameRate, Is.EqualTo(30f));
+                Assert.That(before.Curves.Count, Is.EqualTo(1));
+                Assert.That(before.RootMotionCurves.Count, Is.EqualTo(1));
+                Assert.That(before.RootDisplacementXZMeters, Is.EqualTo(2f).Within(0.001f));
+
+                AnimationClipSettingsSnapshot written = AnimationClipInspector.WriteSettings(
+                    clip,
+                    loopTime: true,
+                    rootMotionEnabled: true);
+                AnimationClipInspection after = AnimationClipInspector.Read(clip, includeConsumers: false);
+                Assert.That(written.LoopTime, Is.True);
+                Assert.That(after.Settings.LoopTime, Is.True);
+                Assert.That(after.Settings.RootMotionEnabled, Is.True);
+
+                Assert.Throws<InvalidOperationException>(() => AnimationClipInspector.WriteSettings(
+                    clip,
+                    keepOriginalPositionXZ: false,
+                    rootMotionEnabled: true));
+
+                JObject commandShape = AnimationClipInspector.InspectJson(clip, includeConsumers: false);
+                Assert.That(commandShape.Value<bool>("loop_time"), Is.True);
+                Assert.That(commandShape.Value<bool>("root_motion_enabled"), Is.True);
+                Assert.That(commandShape["consumers"], Is.Not.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
+        [Test]
         public void Invoke_ValidatesInputSchemaAndPreservesDateFormattedStrings()
         {
             JObject malformedJson = JObject.Parse(command_dispatcher.Invoke("scene.context", "{"));

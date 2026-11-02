@@ -31,6 +31,7 @@ namespace KimodoBridge.Editor
         }
 
         public string Prompt;
+        internal string RawGenerateInstructionJson;
         public string ModelName;
         public KimodoTextEncoderMode TextEncoderMode;
         public int TargetFrameCount;

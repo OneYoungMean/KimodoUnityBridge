@@ -31,7 +31,8 @@ namespace KimodoBridge.Editor
             bool deferInConstraint = false,
             double? targetDurationSecondsOverride = null,
             bool disableOutsideContextExpansion = false,
-            bool requestEndpointSample = false)
+            bool requestEndpointSample = false,
+            string rawGenerateInstructionJson = null)
         {
             if (clip == null)
             {
@@ -239,6 +240,7 @@ namespace KimodoBridge.Editor
                 outputPlanSnapshot)
             {
                 Prompt = settings.ResolvePrompt(prompt),
+                RawGenerateInstructionJson = rawGenerateInstructionJson,
                 ModelName = resolvedModelName,
                 TextEncoderMode = clip.textEncoderMode,
                 TargetFrameCount = targetFrameCount,
@@ -323,6 +325,9 @@ namespace KimodoBridge.Editor
             try
             {
                 clip.clip = result.GeneratedClip;
+                // The generation checkbox controls Unity's playback Loop Time as well
+                // as the bounded tail preprocessing performed by the generator.
+                KimodoEditorClipUtility.ApplyLoopTime(result.GeneratedClip, clip.generateLoop);
                 ApplyGeneratedMetadata(clip, result.Prompt, result.MotionJsonCompact);
                 EditorUtility.SetDirty(clip);
                 EditorUtility.SetDirty(result.GeneratedClip);

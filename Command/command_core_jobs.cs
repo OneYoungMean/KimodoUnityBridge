@@ -255,6 +255,8 @@ namespace KimodoUnityBridge.Command
                 generatedAssetPath = generated.GeneratedClip != null
                     ? AssetDatabase.GetAssetPath(generated.GeneratedClip) ?? string.Empty
                     : string.Empty;
+                if (generated.GeneratedClip != null)
+                    result["clip_settings"] = AnimationClipInspector.InspectJson(generated.GeneratedClip, includeConsumers: false);
                 result["post_analysis"] = BuildPostAnalysisStatus(
                     generated,
                     session.Status,

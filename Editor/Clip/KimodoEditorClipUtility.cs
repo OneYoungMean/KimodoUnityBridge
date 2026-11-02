@@ -25,6 +25,15 @@ namespace KimodoBridge.Editor
             AnimationUtility.SetAnimationClipSettings(clip, settings);
         }
 
+        internal static void ApplyLoopTime(AnimationClip clip, bool enabled)
+        {
+            if (clip == null) return;
+            AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+            settings.loopTime = enabled;
+            AnimationUtility.SetAnimationClipSettings(clip, settings);
+            EditorUtility.SetDirty(clip);
+        }
+
         public static bool CanApplyClipDirectlyToProfileSkeleton(
             AnimationClip clip,
             GameObject bindingObject,

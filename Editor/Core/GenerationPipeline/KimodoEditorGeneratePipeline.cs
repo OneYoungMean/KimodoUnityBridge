@@ -742,6 +742,8 @@ namespace KimodoBridge.Editor
                 ardy_history_weight = request.ArdyHistoryWeight
             };
 
+            generationRequest.raw_generate_instruction_json = request.RawGenerateInstructionJson;
+
             return generationRequest;
         }
 

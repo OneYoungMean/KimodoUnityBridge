@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -45,6 +46,15 @@ namespace KimodoUnityBridge.Command
                     $"elapsedMs={elapsedMilliseconds:F1} command=\"{safeCommandName}\" outcome={outcome} " +
                     $"scenesBefore={sceneStateBefore} scenesAfter={sceneStateAfter}");
             }
+        }
+
+        /// <summary>
+        /// Awaitable command entry for hosts that need the cooperative Editor wait window.
+        /// The synchronous Invoke entry remains immediate for existing editor scripts.
+        /// </summary>
+        public static Task<string> InvokeAsync(string commandName, string argumentsJson = "{}")
+        {
+            return command_context.InvokeAsync(commandName, argumentsJson);
         }
     }
 

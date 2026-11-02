@@ -110,3 +110,9 @@ The old three-second loop trajectory sampling rule is not part of this design an
 - Advanced Inspector settings `Window Frames (60 FPS)` and `Sample Count` configure the overlap retained when a long animation is split into multiple generation requests. The serialized default is `60` command frames (one second at 60 FPS, equivalent to the former 30 frames at the default 30 FPS model rate), converted to model frames before planning, with `2` evenly spaced FullBody samples.
 - The overlap duration is converted once to model frames; values that cannot fit the model request limit or the overlap are clamped with a warning. No even-frame normalization is applied.
 - The configured sample count is used to select evenly spaced FullBody frames from the previous window and map them to the current window's overlap. Existing callers of the helper retain the two-endpoint default.
+
+### AnimationClip Inspector API (2026-11-02)
+
+- `Editor/Clip/AnimationClipInspector.cs` is the single typed fact source for AnimationClip settings, curve metadata, root-motion displacement/speed, rig type, and static AnimatorController consumers.
+- `AnimationClipInspector.Read`, `ReadSettings`, `ReadCurves`, `ReadRootMotion`, `ReadConsumers`, and `WriteSettings` form the reusable editor API. `InspectJson` and `SetSettingsJson` are the command-facing mapping methods.
+- The Unity panel, `clip.inspect`, `clip.settings.set`, and `generation.get.clip_settings` all use this API. `KimodoClipInspector` remains only as a narrow compatibility adapter and contains no fact calculation.

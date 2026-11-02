@@ -2,20 +2,27 @@
   "tools": [
     {
       "name": "kimodo.help",
-      "description": "Return the command manual, detailed parameter documentation for one command, or currently viable model configurations.",
+      "description": "Return command schemas, shared usage guidance, detailed documentation for one command, or currently viable model configurations.",
       "documentation": {
-        "when_to_use": "Discover the public command contract, inspect one command, list viable models, or review constraint rules.",
+        "when_to_use": "Discover command schemas and shared rules, inspect one command, list viable models, or review generation constraints.",
         "behavior": [
-          "Pass command to return its complete definition; otherwise section selects the command overview, model list, or constraint reference."
+          "Set command for its full definition; otherwise section selects the command overview, model list, or constraint reference."
         ],
         "result_notes": [
-          "The command-specific form returns the full input and output schemas with usage examples."
+          "Command details include input/output schemas, examples, and applicable shared rules."
         ],
         "scene_effects": [
-          "Read-only, except section=models queries the configured local generation service."
+          "Overview and command details are read-only; section=models queries the configured generation service."
         ],
         "limits": [
           "The models section reports current availability and may change with runtime configuration."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "job_lifecycle",
+          "frame_coordinates",
+          "evidence",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",
@@ -33,7 +40,7 @@
           "compact": {
             "type": "boolean",
             "default": false,
-            "description": "For section=models, return only model, text_encoder_model, and default for each configuration."
+            "description": "For section=models, include model, text_encoder_model, and default for each configuration."
           },
           "section": {
             "type": "string",
@@ -43,7 +50,7 @@
               "constraints"
             ],
             "default": "commands",
-            "description": "Select the command overview, currently viable models, or generation constraint reference; ignored when command is supplied."
+            "description": "Select the command overview, currently viable models, or generation constraint reference. Set command for one detailed command entry."
           }
         },
         "required": [],
@@ -91,6 +98,21 @@
           },
           "execution_model": {
             "type": "array"
+          },
+          "shared_rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "guidance": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
           },
           "routing": {
             "type": "array"
@@ -142,6 +164,12 @@
                         "type": "string"
                       }
                     },
+                    "shared_rule_refs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
                     "related_commands": {
                       "type": "array",
                       "items": {
@@ -155,6 +183,7 @@
                     "result_notes",
                     "scene_effects",
                     "limits",
+                    "shared_rule_refs",
                     "related_commands"
                   ],
                   "additionalProperties": false
@@ -210,19 +239,22 @@
       "documentation": {
         "when_to_use": "Read the active Unity scene, its Kimodo Timeline, character handles, and current Session identity; optionally reload and open a Timeline asset.",
         "behavior": [
-          "Use returned scene object references for later commands instead of guessing from names or asset paths.",
-          "Set timeline_path to open a Timeline in the active scene; root tracks are bound to same-name scene characters when available."
+          "Use returned scene object references in later commands.",
+          "Set timeline_path to open an Assets/... or Packages/... Timeline; same-name root tracks bind to scene characters when available."
         ],
         "result_notes": [
-          "Without timeline_path, returns the current live scene context; if it is missing, emits a warning and creates one in the active scene.",
-          "With timeline_path, replaces the current scene binding with a complete context for the loaded Timeline, opens it in the Timeline window, and returns opened_timeline details. Missing same-name characters produce warnings while the context remains open."
+          "With no timeline_path, returns the current live scene context and creates its root when needed.",
+          "With timeline_path, binds the loaded Timeline, opens it in the Timeline window, and returns opened_timeline details. Same-name scene characters are bound when available."
         ],
         "scene_effects": [
-          "The context is scoped to the active scene and represented by its root, Timeline binding, and an explicit JSON write path. Commands rebuild their runtime view from the scene Timeline structure and write the resulting snapshot to that path; JSON is not used to restore or validate the context. The timeline_path form does not modify the Timeline asset."
+          "The context uses the active scene root, Timeline binding, and explicit JSON write path. Commands read the scene Timeline structure and write resulting snapshots through that path. Opening a Timeline asset preserves its asset data."
         ],
         "limits": [
-          "Context reflects the active loaded scene and current Session.",
-          "A Clip asset path is asset metadata and is not itself a scene Clip handle."
+          "Context reflects the active scene and current Session. Use scene handles for Timeline objects and asset paths for project assets."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "operation_scope"
         ],
         "related_commands": [
           "animation.generate",
@@ -478,20 +510,23 @@
     },
     {
       "name": "server.install",
-      "description": "Start an asynchronous project-local QuickServer installation task. Returns only request_id and status; poll that request with generation.get. Models and the Python environment are preserved.",
+      "description": "Start or refresh the project-local QuickServer runtime when generation needs it. Returns a request handle and status for progress tracking.",
       "documentation": {
         "when_to_use": "Install or refresh the project-local QuickServer runtime before generation when it is unavailable or needs updating.",
         "behavior": [
-          "Starts an asynchronous install task; save the returned request_id and poll it with generation.get."
+          "Starts an asynchronous install task."
         ],
         "result_notes": [
-          "The accepted response contains request_id and status; terminal progress and failure details come from polling."
+          "Returns the request handle and status; generation.get reports progress and completion details."
         ],
         "scene_effects": [
-          "Changes project-local runtime files; existing model files and the Python environment are preserved."
+          "Updates project-local runtime files while retaining existing model files and the Python environment."
         ],
         "limits": [
-          "Installation requests cannot be canceled with generation.cancel."
+          "Use this command when the local QuickServer runtime is unavailable or needs updating."
+        ],
+        "shared_rule_refs": [
+          "job_lifecycle"
         ],
         "related_commands": [
           "generation.get"
@@ -499,7 +534,14 @@
       },
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 10.0,
+            "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
@@ -554,23 +596,28 @@
     },
     {
       "name": "animation.analysis",
-      "description": "Analyze one animation clip at 60 FPS and render the fixed 20-tile SceneView picture evidence. Pass a clips array containing exactly one scene character and one loaded Clip name or Assets/Packages Clip path. The result contains one clip analysis and one pictures evidence object; temporal positions use absolute Timeline-global 60 FPS frames. External Clips are appended to the character's Kimodo Timeline and never modified.",
+      "description": "Analyze one scene character's loaded animation Clip and render structured motion measurements with a 20-tile SceneView image. An external Clip is added to that character's Kimodo Timeline for analysis; the source asset remains unchanged.",
       "documentation": {
-        "when_to_use": "Analyze one loaded animation Clip and produce structured motion data with the fixed 20-tile SceneView image evidence.",
+        "when_to_use": "Analyze one loaded animation Clip and produce structured motion data with a 20-tile SceneView image.",
         "behavior": [
-          "Use the scene character and a loaded Clip name or an Assets/Packages asset path. For multiple Clips, call animation.analysis once per Clip and map each result to its source.",
-          "Open returned pictures before making visual claims; use structured fields for measurements and temporal positions."
+          "Select a scene character and one loaded Clip name or Assets/Packages asset path; use one call per Clip.",
+          "Inspect returned pictures for visual observations and structured fields for measurements."
         ],
         "result_notes": [
-          "Returns one clip analysis and one 20-tile pictures object from the synchronous SceneView renderer; analysis frame positions use Timeline-global 60 FPS coordinates.",
-          "Accepts the same camera object as pose.analysis. SceneView lighting, skybox, gizmos, and grid keep their current state unless explicitly set."
+          "Returns one structured Clip analysis and one 20-tile pictures object from the synchronous SceneView renderer. Frame positions use absolute Timeline coordinates.",
+          "Accepts the same camera object as pose.analysis. Unspecified camera settings retain their current values."
         ],
         "scene_effects": [
-          "An external Clip asset is appended to the character's Kimodo Timeline for analysis; the source asset is not modified."
+          "An external Clip asset is added to the character's Kimodo Timeline for analysis; the original asset remains unchanged."
         ],
         "limits": [
-          "The clips array must contain exactly one Clip.",
-          "Static pictures do not establish playback continuity, velocity smoothness, foot sliding, or other time-continuous properties."
+          "Use temporal analysis fields for continuity, velocity, foot contact, and other time-based properties."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "frame_coordinates",
+          "evidence",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",
@@ -583,7 +630,7 @@
         "properties": {
           "clips": {
             "type": "array",
-            "description": "One animation clip reference per call. Use a loaded Clip name or an Assets/Packages path; call once per Clip when analyzing multiple sources. An external asset is appended to the character's Kimodo Timeline before analysis and is never modified.",
+            "description": "One animation Clip reference per call. Use a loaded Clip name or an Assets/Packages path. An external asset is appended to the character's Kimodo Timeline before analysis; the source asset remains unchanged.",
             "minItems": 1,
             "maxItems": 1,
             "items": {
@@ -675,7 +722,7 @@
                   "scene"
                 ],
                 "default": "targets",
-                "description": "Render only the requested objects, or include the active scene around the sampled pose."
+                "description": "Render the requested objects and optionally include the active scene around the sampled pose."
               }
             }
           }
@@ -1030,6 +1077,342 @@
       ]
     },
     {
+      "name": "clip.inspect",
+      "description": "Inspect one AnimationClip through the shared Clip Inspector mapping.",
+      "documentation": {
+        "when_to_use": "Inspect one AnimationClip using the shared Inspector mapping used by the Unity panel.",
+        "behavior": [
+          "Pass a unique Clip name or an Assets/Packages asset path."
+        ],
+        "result_notes": [
+          "Returns Clip settings, root-motion curves, measured XZ displacement, derived speed, rig type, curve count, and static AnimatorController consumers."
+        ],
+        "scene_effects": [
+          "Reports Clip data while leaving the selected assets and scene unchanged."
+        ],
+        "limits": [
+          "Consumers list static AnimatorController asset references."
+        ],
+        "shared_rule_refs": [
+          "operation_scope"
+        ],
+        "related_commands": [
+          "clip.settings.set",
+          "animation.analysis"
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip": {
+            "type": "string",
+            "description": "AnimationClip name or an Assets/Packages asset path."
+          }
+        },
+        "required": [
+          "clip"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Command responses keep domain fields at the top level. Success uses ok=true; command errors use ok=false and an error object. Async job failures are reported by status with an error object.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "description": "Optional command error. Command errors use {code, message, details?}; asynchronous job failures include this object while the poll command itself succeeds.",
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "clip": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": "number"
+          },
+          "clip_frame_rate": {
+            "type": "number"
+          },
+          "loop_time": {
+            "type": "boolean"
+          },
+          "keep_original_position_xz": {
+            "type": "boolean"
+          },
+          "keep_original_position_y": {
+            "type": "boolean"
+          },
+          "keep_original_orientation": {
+            "type": "boolean"
+          },
+          "root_motion_enabled": {
+            "type": "boolean"
+          },
+          "root_motion_curves": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "root_displacement_xz_m": {
+            "type": "number"
+          },
+          "root_displacement_xz": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "derived_speed_mps": {
+            "type": "number"
+          },
+          "rig_type": {
+            "type": "string"
+          },
+          "curve_count": {
+            "type": "object"
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "controller": {
+                  "type": "object"
+                },
+                "controller_path": {
+                  "type": "object"
+                },
+                "layer": {
+                  "type": "object"
+                },
+                "state": {
+                  "type": "object"
+                },
+                "blend_slot": {
+                  "type": "object"
+                },
+                "threshold": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "examples": [
+        {
+          "description": "Inspect Clip settings, root motion, and static AnimatorController consumers.",
+          "arguments": {
+            "clip": "<clip>"
+          }
+        }
+      ]
+    },
+    {
+      "name": "clip.settings.set",
+      "description": "Write supported AnimationClip settings and return the values read back from Unity.",
+      "documentation": {
+        "when_to_use": "Write supported AnimationClip settings and return Unity's values after the write.",
+        "behavior": [
+          "Pass settings.loop_time, settings.keep_original_position_xz, or settings.root_motion_enabled."
+        ],
+        "result_notes": [
+          "Returns the same shared inspection payload used by clip.inspect and the Inspector panel."
+        ],
+        "scene_effects": [
+          "Writes the selected AnimationClip asset settings and saves the serialized values."
+        ],
+        "limits": [
+          "Provide one or more supported settings; root_motion_enabled is the inverse of keep_original_position_xz."
+        ],
+        "shared_rule_refs": [
+          "operation_scope"
+        ],
+        "related_commands": [
+          "clip.inspect"
+        ]
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clip": {
+            "type": "string",
+            "description": "AnimationClip name or an Assets/Packages asset path."
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "loop_time": {
+                "type": "boolean"
+              },
+              "keep_original_position_xz": {
+                "type": "boolean"
+              },
+              "root_motion_enabled": {
+                "type": "boolean"
+              }
+            },
+            "minProperties": 1
+          }
+        },
+        "required": [
+          "clip",
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "description": "Command responses keep domain fields at the top level. Success uses ok=true; command errors use ok=false and an error object. Async job failures are reported by status with an error object.",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "description": "Optional command error. Command errors use {code, message, details?}; asynchronous job failures include this object while the poll command itself succeeds.",
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": true
+          },
+          "clip": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": "number"
+          },
+          "clip_frame_rate": {
+            "type": "number"
+          },
+          "loop_time": {
+            "type": "boolean"
+          },
+          "keep_original_position_xz": {
+            "type": "boolean"
+          },
+          "keep_original_position_y": {
+            "type": "boolean"
+          },
+          "keep_original_orientation": {
+            "type": "boolean"
+          },
+          "root_motion_enabled": {
+            "type": "boolean"
+          },
+          "root_motion_curves": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "root_displacement_xz_m": {
+            "type": "number"
+          },
+          "root_displacement_xz": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "derived_speed_mps": {
+            "type": "number"
+          },
+          "rig_type": {
+            "type": "string"
+          },
+          "curve_count": {
+            "type": "object"
+          },
+          "consumers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "controller": {
+                  "type": "object"
+                },
+                "controller_path": {
+                  "type": "object"
+                },
+                "layer": {
+                  "type": "object"
+                },
+                "state": {
+                  "type": "object"
+                },
+                "blend_slot": {
+                  "type": "object"
+                },
+                "threshold": {
+                  "type": "object"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": true
+      },
+      "examples": [
+        {
+          "description": "Set Loop Time or horizontal root motion behavior, then read back the applied values.",
+          "arguments": {
+            "clip": "<clip>",
+            "settings": {
+              "loop_time": true,
+              "root_motion_enabled": true
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "pose.analysis",
       "description": "Preview one or more animation point constraints as Humanoid poses through the real SceneView camera and return measured joint positions.",
       "documentation": {
@@ -1048,6 +1431,12 @@
         ],
         "limits": [
           "Requires a valid Humanoid character. If no Scene View is active, the command opens one before capture. This command previews point constraints; use animation.generate for inout and root_path constraints."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "frame_coordinates",
+          "evidence",
+          "operation_scope"
         ],
         "related_commands": [
           "pose.get",
@@ -1303,7 +1692,7 @@
               "required": [
                 "frame"
               ],
-              "description": "Use the explicit External Pose, or the Avatar skeleton rest pose when pose is omitted; never implicitly sample the Timeline. Select concrete type from explicit inputs, then overlay data. root is Root2D; pose with optional root/effector is FullBody after IK; root + effector without pose is Effector. effector alone is invalid. Transforms accept position and/or Euler rotation; omitted channels retain sampled values. Empty transforms are invalid.",
+              "description": "Use the explicit External Pose, or the Avatar skeleton rest pose when pose is omitted. Select the point mode from root, pose, and effector inputs, then overlay data. root is Root2D; pose with optional root/effector is FullBody after IK; root with effector is Effector. Transforms accept position and/or Euler rotation; omitted channels retain sampled values.",
               "oneOf": [
                 {
                   "required": [
@@ -1446,7 +1835,7 @@
                   "scene"
                 ],
                 "default": "targets",
-                "description": "Render only the requested objects, or include the active scene around the sampled pose."
+                "description": "Render the requested objects and optionally include the active scene around the sampled pose."
               }
             }
           }
@@ -1655,26 +2044,30 @@
     },
     {
       "name": "pose.fromvideo",
-      "description": "Estimate a per-frame SMPL-X pose sequence from a local video. This starts an asynchronous analysis job; poll generation.get with its request_id. The result includes raw SMPL-X poses and matching FullBody constraints in the existing raw constraint format; it does not create or apply a Unity animation.",
+      "description": "Estimate an ordered SMPL-X pose sequence from a local video. Returns raw poses and matching FullBody constraints for downstream commands.",
       "documentation": {
         "when_to_use": "Use when a video file should be converted into a time-ordered SMPL-X pose array for downstream retargeting or analysis.",
         "behavior": [
-          "Pass an absolute video_path that the QuickServer machine can read. Supported formats are MP4, MOV, M4V, AVI, and MKV; the file must not exceed 2 GiB.",
-          "The command returns immediately with status=accepted and a request_id. Poll generation.get using that exact id until status is completed, failed, or canceled; do not submit the video again just to check progress.",
-          "For a two-person video, optionally set person to left or right to select the performer by screen position. Omit person for the default selection."
+          "Pass an absolute video_path readable by QuickServer. Supported formats are MP4, MOV, M4V, AVI, and MKV; maximum file size is 2 GiB.",
+          "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
+          "For two people, set person to left or right to select the performer by screen position."
         ],
         "result_notes": [
           "A completed request returns poses in source-video order plus one top-level constraints array, fps, frame_count, source_frame_count, joint_names, betas, and rest_joints_m.",
           "Each pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The top-level constraints array uses the same merged raw FullBody constraint format accepted by animation generation.",
           "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.",
-          "The result does not create a clip, Playable track, character binding, or timeline edit."
+          "The result is pose data for downstream retargeting and constraint use."
         ],
         "scene_effects": [
-          "Read-only; does not create, modify, or clear Unity scene objects or animation assets."
+          "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged."
         ],
         "limits": [
-          "The top-level constraints array groups the whole sequence into the existing raw FullBody payload; the command still does not return a rendered animation or create a Unity Humanoid muscle track.",
-          "The request can fail if QuickServer's GVHMR runtime, checkpoints, or the SMPL-X Avatar asset are unavailable."
+          "The top-level constraints array groups the sequence in the raw FullBody format for animation.generate.",
+          "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset."
+        ],
+        "shared_rule_refs": [
+          "job_lifecycle",
+          "operation_scope"
         ],
         "related_commands": [
           "pose.frompicture",
@@ -1688,6 +2081,12 @@
           "video_path": {
             "type": "string",
             "description": "Absolute path to a local video readable by QuickServer."
+          },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 10.0,
+            "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
           },
           "person": {
             "type": "string",
@@ -1761,26 +2160,30 @@
     },
     {
       "name": "pose.frompicture",
-      "description": "Estimate one SMPL-X pose from a local still image. This starts an asynchronous analysis job; poll generation.get with its request_id. The result includes raw SMPL-X pose data and a FullBody constraint in the existing raw constraint format; it does not create or apply a Unity animation.",
+      "description": "Estimate one SMPL-X pose from a local still image. Returns raw pose data and a matching FullBody constraint for downstream commands.",
       "documentation": {
         "when_to_use": "Use when a still image should be converted into a single SMPL-X pose sample for downstream retargeting or analysis.",
         "behavior": [
-          "Pass an absolute image_path for a PNG, JPG, or JPEG file that the QuickServer machine can read. The file must not exceed 2 GiB.",
-          "The command returns immediately with status=accepted and a request_id. Poll generation.get using that exact id until status is completed, failed, or canceled; do not submit the image again just to check progress.",
-          "The estimator temporarily treats the still image as a one-second clip and returns one pose sample from it."
+          "Pass an absolute image_path for a PNG, JPG, or JPEG file readable by QuickServer; maximum file size is 2 GiB.",
+          "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
+          "The estimator treats the still image as a one-second clip and returns one pose sample."
         ],
         "result_notes": [
           "A completed request returns one raw SMPL-X pose plus a top-level constraints array containing the matching raw FullBody constraint, along with joint_names, betas, and rest_joints_m.",
           "The pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The constraints array uses the same format accepted by animation generation.",
           "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.",
-          "The result does not create a clip, Playable track, character binding, or timeline edit."
+          "The result is pose data for downstream retargeting and constraint use."
         ],
         "scene_effects": [
-          "Read-only; does not create, modify, or clear Unity scene objects or animation assets."
+          "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged."
         ],
         "limits": [
-          "The constraints array is a raw FullBody payload with one frame; the command still does not return a rendered animation or create a Unity Humanoid muscle track.",
-          "The request can fail if QuickServer's GVHMR runtime, checkpoints, or the SMPL-X Avatar asset are unavailable."
+          "The constraints array contains one raw FullBody frame for animation.generate.",
+          "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset."
+        ],
+        "shared_rule_refs": [
+          "job_lifecycle",
+          "operation_scope"
         ],
         "related_commands": [
           "pose.fromvideo",
@@ -1794,6 +2197,12 @@
           "image_path": {
             "type": "string",
             "description": "Absolute path to a local PNG or JPEG readable by QuickServer."
+          },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 10.0,
+            "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
           }
         },
         "required": [
@@ -1871,7 +2280,11 @@
           "Appends a derived animation to the target character; the source Clip remains available."
         ],
         "limits": [
-          "Source and target must be supported scene characters; Session preview objects are rejected."
+          "Source and target resolve to supported scene characters from scene.context."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",
@@ -1883,7 +2296,7 @@
         "properties": {
           "source_character": {
             "type": "string",
-            "description": "Source scene character name or object_ref. Session preview objects are rejected."
+            "description": "Source scene character name or object_ref from scene.context."
           },
           "animation": {
             "type": "string",
@@ -1891,7 +2304,7 @@
           },
           "target_character": {
             "type": "string",
-            "description": "Target scene character name or object_ref. Session preview objects are rejected."
+            "description": "Target scene character name or object_ref from scene.context."
           },
           "output": {
             "type": "object",
@@ -2013,18 +2426,18 @@
     },
     {
       "name": "animation.generate",
-      "description": "Start asynchronous generation for a character in the current scene context. Root speed above 7 m/s produces a warning; above 10 m/s blocks generation. Root acceleration above 10 m/s² produces a warning; above 15 m/s² blocks generation. Full animation.analysis runs after generation by default; set analyze=false to skip it. Analysis failure does not invalidate the generated Clip. Command-created Timeline Clips enable AutoBegin anchoring automatically; explicit first-frame or In/Out samples take precedence. The accepted response contains request_id, status, and request/constraint diagnostics. Pose/effector safety preflight runs for point constraints containing both pose and effector; use pose.analysis to capture sampled poses and measure joint positions. Map explicit path requirements to supported trajectory fields, use confirmed scene or analysis evidence to fill unspecified details, and leave other optional fields at their schema defaults.",
+      "description": "Generate one animation Clip for a scene character. Use prompt for semantic motion or raw_instruction to replay an exact captured server payload; use structured constraint and trajectory fields for explicit requirements. Returns a request handle and preflight diagnostics; generation.get returns the completed Clip and analysis details.",
       "documentation": {
         "when_to_use": "Submit one animation generation request for a character in the current scene context.",
         "behavior": [
-          "Describe one simple semantic action in prompt; aim for 25 words or fewer.",
-          "Represent exact body pose, root position, effector targets, duration, path, loop, and Clip windows in their explicit fields when required.",
-          "Point constraints without an explicit pose use the Avatar skeleton rest pose, as in pose.get mode=skeleton_rest_pose; they never implicitly sample the Timeline. Explicit Pose references and In/Out source Clip sampling are preserved.",
-          "Save request_id and use generation.get to poll; do not resubmit a running request."
+          "Describe one semantic action in prompt, or supply raw_instruction.role=generate with the exact JSON returned by generation.get(include_request_json=true).",
+          "Use structured fields for exact pose, root, effector, duration, trajectory, loop, and Clip-window requirements; see kimodo.help(section=constraints) for constraint selection.",
+          "Use point constraints and source Clip windows as documented in kimodo.help(section=constraints).",
+          "Use wait_seconds for cooperative Editor waiting; generation.get continues a running task."
         ],
         "result_notes": [
           "The accepted response contains request_id, status, preflight check results, and warnings. Root speed above 7 m/s warns; above 10 m/s blocks generation. Root acceleration above 10 m/s² warns; above 15 m/s blocks generation. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.",
-          "On completion, generation.get returns the generated Clip metadata, asset path, animation_id, generation diagnostics, and post_analysis.analysis_path when full analysis is enabled. Set analyze=false to skip the post-generation animation.analysis pass; analysis failure is reported separately and does not invalidate the generated Clip."
+          "On completion, generation.get returns Clip metadata, asset path, animation_id, generation diagnostics, and post_analysis.analysis_path when analysis is enabled. Set analyze=false to omit the post-generation analysis pass."
         ],
         "scene_effects": [
           "A completed result is appended as a Timeline Clip; existing completed Clips are retained.",
@@ -2034,6 +2447,13 @@
           "Map explicit path and direction requirements to supported trajectory fields; use confirmed scene/analysis evidence to resolve details the prompt leaves unspecified. Leave other optional fields at their schema defaults.",
           "analyze controls the full post-generation animation.analysis pass and defaults to true.",
           "Command checks validate supported request boundaries. Evaluate semantic and artistic quality with the task's acceptance criteria and analysis evidence."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "job_lifecycle",
+          "frame_coordinates",
+          "evidence",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",
@@ -2048,11 +2468,32 @@
         "properties": {
           "character": {
             "type": "string",
-            "description": "Scene character name or object_ref. Session preview objects are rejected; use the source scene character."
+            "description": "Scene character name or object_ref from scene.context."
           },
           "prompt": {
             "type": "string",
-            "description": "Short semantic description of the current Clip's action; aim for 25 words or fewer. Express exact FullBody, position, and effector anchors through structured constraints."
+            "description": "Short semantic description of the current Clip's action, aim for 25 words or fewer; use raw_instruction to replay a captured payload."
+          },
+          "raw_instruction": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "generate"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Exact JSON returned by generation.get(include_request_json=true)."
+              }
+            },
+            "required": [
+              "role",
+              "text"
+            ]
           },
           "duration_frames": {
             "type": "integer",
@@ -2192,9 +2633,15 @@
             "default": true,
             "description": "Run the full animation.analysis command after generation; defaults to true."
           },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 10.0,
+            "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
+          },
           "constraints": {
             "type": "array",
-            "description": "Point constraints resolve to Root2D (root alone), FullBody (pose, optionally root/effector, after IK), or Effector (root + effector without pose). effector alone is invalid. Transforms accept World position and/or Euler rotation in degrees; omitted channels retain sampled values. Pose/effector safety preflight runs when the point explicitly contains both pose and effector. root_path and inout remain separate constraint forms; duplicate frames are rejected; command frames use 60 FPS.",
+            "description": "Point constraints use Root2D for root, FullBody for pose with optional root/effector, or Effector for root with effector and no pose. Transforms accept World position and/or Euler rotation in degrees; omitted channels retain sampled values. Pose/effector preflight runs when both fields appear in one point. root_path and inout are separate forms; use unique command frames at 60 FPS.",
             "items": {
               "oneOf": [
                 {
@@ -2435,7 +2882,7 @@
                   "required": [
                     "frame"
                   ],
-                  "description": "Use the explicit External Pose, or the Avatar skeleton rest pose when pose is omitted; never implicitly sample the Timeline. Select concrete type from explicit inputs, then overlay data. root is Root2D; pose with optional root/effector is FullBody after IK; root + effector without pose is Effector. effector alone is invalid. Transforms accept position and/or Euler rotation; omitted channels retain sampled values. Empty transforms are invalid.",
+                  "description": "Use the explicit External Pose, or the Avatar skeleton rest pose when pose is omitted. Select the point mode from root, pose, and effector inputs, then overlay data. root is Root2D; pose with optional root/effector is FullBody after IK; root with effector is Effector. Transforms accept position and/or Euler rotation; omitted channels retain sampled values.",
                   "oneOf": [
                     {
                       "required": [
@@ -2543,7 +2990,7 @@
                                 },
                                 "character": {
                                   "type": "string",
-                                  "description": "Defaults to the generation character; cross-character sources are not supported."
+                                  "description": "Source character; defaults to the generation character. Use the generation character for source Clip sampling."
                                 },
                                 "frame": {
                                   "type": "integer",
@@ -2560,7 +3007,7 @@
                               "type": "integer",
                               "minimum": 1,
                               "default": 1,
-                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; never silently shortened."
+                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; the requested coverage is preserved."
                             },
                             "sample_count": {
                               "type": "integer",
@@ -2591,7 +3038,7 @@
                                 },
                                 "character": {
                                   "type": "string",
-                                  "description": "Defaults to the generation character; cross-character sources are not supported."
+                                  "description": "Source character; defaults to the generation character. Use the generation character for source Clip sampling."
                                 },
                                 "frame": {
                                   "type": "integer",
@@ -2608,7 +3055,7 @@
                               "type": "integer",
                               "minimum": 1,
                               "default": 1,
-                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; never silently shortened."
+                              "description": "Coverage at 60 FPS. Converted to model frames by ceil(window_frames * model_fps / 60), minimum 1; the requested coverage is preserved."
                             },
                             "sample_count": {
                               "type": "integer",
@@ -2654,8 +3101,7 @@
           }
         },
         "required": [
-          "character",
-          "prompt"
+          "character"
         ],
         "additionalProperties": false
       },
@@ -2705,6 +3151,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "wait_seconds": {
+            "type": "number"
           }
         },
         "required": [
@@ -2719,6 +3168,16 @@
             "character": "<character>",
             "prompt": "<short action for one Clip>",
             "duration_frames": 120
+          }
+        },
+        {
+          "description": "Replay the exact server generate JSON returned by generation.get(include_request_json=true).",
+          "arguments": {
+            "character": "<character>",
+            "raw_instruction": {
+              "role": "generate",
+              "text": "{\"cmd\":\"generate\",\"prompt\":\"walk forward\",\"duration\":2.0,\"output_format\":\"kmb_v1\"}"
+            }
           }
         },
         {
@@ -2892,11 +3351,16 @@
           "character_root is the bound scene GameObject root; data.root is the sampled Pose root channel."
         ],
         "scene_effects": [
-          "Every call creates an External Pose slot in the current scene context."
+          "Each call creates an External Pose slot in the current scene context."
         ],
         "limits": [
-          "A Timeline frame and scene_pose/skeleton_rest_pose mode are alternative source forms.",
-          "Use full_data only when all muscle and TQ channels are needed."
+          "Choose one source form: Timeline frame, scene_pose, or skeleton_rest_pose.",
+          "Set full_data=true to include all muscle and TQ channels."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "frame_coordinates",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",
@@ -2910,7 +3374,7 @@
         "properties": {
           "source": {
             "type": "object",
-            "description": "Select exactly one source form: a Timeline-global frame, the current scene Animator pose, or the Avatar skeleton rest pose.",
+            "description": "Select one source form: a Timeline-global frame, the current scene Animator pose, or the Avatar skeleton rest pose.",
             "additionalProperties": false,
             "properties": {
               "character": {
@@ -3126,12 +3590,12 @@
     },
     {
       "name": "pose.set",
-      "description": "Modify an External Pose slot. Supply root, muscles, effector, or any combination.",
+      "description": "Update an existing External Pose slot by supplying root, muscles, effector, or any combination.",
       "documentation": {
         "when_to_use": "Update the root transform, muscle channels, or effector targets of an existing External Pose slot.",
         "behavior": [
-          "Use only a {track,index} reference returned by pose.get or another Pose editing command.",
-          "Supply at least one of root, muscles, or effector; multiple supplied channels are updated together."
+          "Use a {track,index} reference returned by pose.get or another Pose editing command.",
+          "Supply one or more of root, muscles, or effector; multiple supplied channels are updated together."
         ],
         "result_notes": [
           "Returns the Pose reference and the updated Pose data."
@@ -3140,7 +3604,11 @@
           "Mutates the referenced External Pose slot in the current scene context."
         ],
         "limits": [
-          "This edits Pose data; it does not generate an animation Clip."
+          "The command edits Pose data; animation generation is handled by animation.generate."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "operation_scope"
         ],
         "related_commands": [
           "pose.get",
@@ -3448,22 +3916,24 @@
     },
     {
       "name": "generation.get",
-      "description": "Get status and results for install, generation, or Mocap analysis requests. A completed generation includes post_analysis.analysis_path pointing to the full animation.analysis JSON for the generated Timeline Clip; analysis failure is reported separately and does not invalidate generation. A completed Mocap analysis returns poses and SMPL-X coordinate metadata at the top level. include_request_json explicitly opts into the submitted generation payload.",
+      "description": "Read progress and results for installation, generation, and Mocap analysis. Completed generation returns Clip metadata and a post-analysis path; completed Mocap analysis returns poses and coordinate metadata. include_request_json returns the submitted generation payload.",
       "documentation": {
         "when_to_use": "Read progress, terminal status, and results for an installation or generation request.",
         "behavior": [
-          "Pass the exact request_id returned by server.install or animation.generate.",
-          "Poll until a terminal status; a successful command response can still report task status failed or canceled."
+          "Pass the request_id returned by a task submission."
         ],
         "result_notes": [
           "Returns lifecycle status, stage, progress, and error details; completed generation includes Clip metadata and available diagnostics.",
-          "Set include_request_json=true only when the exact backend payload is needed."
+          "Set include_request_json=true to read the exact submitted backend payload."
         ],
         "scene_effects": [
-          "Read-only; does not resubmit or alter the task."
+          "The command reads task state and results."
         ],
         "limits": [
-          "Request records are retained for a bounded number of recent jobs; an unknown or expired id returns an error."
+          "Recent task records are retained up to the configured job limit."
+        ],
+        "shared_rule_refs": [
+          "job_lifecycle"
         ],
         "related_commands": [
           "server.install",
@@ -3481,6 +3951,13 @@
           "include_request_json": {
             "type": "boolean",
             "description": "Include the exact JSON payload sent to QuickServer; defaults to false."
+          },
+          "wait_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 10.0,
+            "description": "Editor-side cooperative wait window in seconds. The maximum is 10 seconds; if the task is still running, return its request_id.",
+            "maximum": 10.0
           }
         },
         "required": [
@@ -3569,6 +4046,26 @@
           "backend_progress": {
             "type": "string"
           },
+          "waited_seconds": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "poll_after_seconds": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "runtime_root": {
             "type": "string"
           },
@@ -3598,6 +4095,60 @@
               },
               "end_timeline_frame_60_exclusive": {
                 "type": "integer"
+              }
+            },
+            "additionalProperties": true
+          },
+          "clip_settings": {
+            "type": "object",
+            "properties": {
+              "clip": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "duration_seconds": {
+                "type": "object"
+              },
+              "clip_frame_rate": {
+                "type": "object"
+              },
+              "loop_time": {
+                "type": "object"
+              },
+              "keep_original_position_xz": {
+                "type": "object"
+              },
+              "keep_original_position_y": {
+                "type": "object"
+              },
+              "keep_original_orientation": {
+                "type": "object"
+              },
+              "root_motion_enabled": {
+                "type": "object"
+              },
+              "root_motion_curves": {
+                "type": "object"
+              },
+              "root_displacement_xz_m": {
+                "type": "object"
+              },
+              "root_displacement_xz": {
+                "type": "object"
+              },
+              "derived_speed_mps": {
+                "type": "object"
+              },
+              "rig_type": {
+                "type": "object"
+              },
+              "curve_count": {
+                "type": "object"
+              },
+              "consumers": {
+                "type": "object"
               }
             },
             "additionalProperties": true
@@ -3805,7 +4356,7 @@
     },
     {
       "name": "generation.cancel",
-      "description": "Request cancellation of an active animation generation and return its compact lifecycle result. Installation requests cannot be canceled; use generation.get for detailed progress and diagnostics.",
+      "description": "Request cancellation of an active animation generation and return its compact lifecycle result. Use generation.get for detailed progress and diagnostics.",
       "documentation": {
         "when_to_use": "Request cancellation of an active animation generation.",
         "behavior": [
@@ -3815,11 +4366,14 @@
           "Returns the compact cancellation/lifecycle result and any completed Clip metadata."
         ],
         "scene_effects": [
-          "May stop generation work that has not already completed; it does not undo a completed Clip."
+          "May stop active generation work; completed Clips remain available."
         ],
         "limits": [
-          "Installation tasks cannot be canceled with this command.",
-          "A cancellation request is not proof of a canceled terminal state; check the returned status."
+          "Use generation.get for installation task status.",
+          "Read the returned status to confirm the cancellation state."
+        ],
+        "shared_rule_refs": [
+          "job_lifecycle"
         ],
         "related_commands": [
           "generation.get",
@@ -3930,7 +4484,7 @@
     },
     {
       "name": "session.clear",
-      "description": "Clear the active scene context by destroying its scene-bound context GameObjects. Persisted Timeline, Session, and animation assets are retained, and one fresh context is recreated lazily by the next command.",
+      "description": "Clear the active scene context objects. The Timeline, Session data, and animation assets remain available; the next command creates a fresh scene context when needed.",
       "documentation": {
         "when_to_use": "Clear transient Kimodo context objects from the active scene Session.",
         "behavior": [
@@ -3943,7 +4497,10 @@
           "Destroys scene-bound context GameObjects; persisted Timeline, Session JSON, and animation assets are retained."
         ],
         "limits": [
-          "References to the cleared Session objects may no longer resolve; the next command creates a new context when needed."
+          "Call scene.context after clearing to obtain fresh scene references."
+        ],
+        "shared_rule_refs": [
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context"
@@ -4013,17 +4570,21 @@
       "documentation": {
         "when_to_use": "Read the compact generation and animation analysis indexes for the active scene Session.",
         "behavior": [
-          "Use scene.context first when the active scene context identity or Timeline handles are needed.",
-          "Use this command when history is needed without adding record indexes to the scene context response."
+          "Use scene.context for active Session identity and Timeline handles.",
+          "Use this command when generation or analysis record indexes are needed."
         ],
         "result_notes": [
           "Returns generation and analysis indexes built from the original record files, plus the active Session identity."
         ],
         "scene_effects": [
-          "Read-only with respect to Timeline and animation assets; malformed records are reported according to the history index rules."
+          "Reads the recorded indexes for the active scene Session."
         ],
         "limits": [
-          "History does not select, restore, validate, or replace the active scene Context. It does not return full analysis keyframes or pictures; follow analysis_path when needed."
+          "For full analysis keyframes and pictures, follow analysis_path. Use scene.context for current Timeline handles."
+        ],
+        "shared_rule_refs": [
+          "scene_references",
+          "operation_scope"
         ],
         "related_commands": [
           "scene.context",

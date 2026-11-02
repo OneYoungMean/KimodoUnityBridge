@@ -251,6 +251,13 @@ namespace KimodoBridge
             string constraintsJson = constraints.Count > 0
                 ? constraints.ToString(Formatting.None)
                 : baseConstraintsJson;
+            JObject replayPayload = null;
+            if (!string.IsNullOrWhiteSpace(request.raw_generate_instruction_json))
+            {
+                if (attachments.Count > 0)
+                    throw new InvalidOperationException("Raw generate replay cannot combine with binary KMB constraints.");
+                replayPayload = KimodoRawGenerateInstruction.Parse(request.raw_generate_instruction_json);
+            }
             var payload = new JObject
             {
                 ["cmd"] = "generate",
@@ -334,6 +341,23 @@ namespace KimodoBridge
             {
                 AddOptional(payload, "ardy_history_weight", request.ardy_history_weight);
                 AddOptional(payload, "ardy_playback_reserve_seconds", request.ardy_playback_reserve_seconds);
+            }
+
+            if (replayPayload != null)
+            {
+                // Replay the captured server payload while replacing only the
+                // lifecycle-owned fields. Missing protocol fields are filled
+                // from the current command request so older captures remain
+                // usable without changing the local generation pipeline.
+                replayPayload["cmd"] = "generate";
+                replayPayload["task_id"] = taskId;
+                if (replayPayload["time_as_double"] == null)
+                    replayPayload["time_as_double"] = request.time_as_double;
+                if (replayPayload["output_format"] == null)
+                    replayPayload["output_format"] = "kmb_v1";
+                if (replayPayload["constraints_json"] == null && !string.IsNullOrWhiteSpace(constraintsJson))
+                    replayPayload["constraints_json"] = constraintsJson;
+                payload = replayPayload;
             }
 
             byte[] binaryPayload = null;
