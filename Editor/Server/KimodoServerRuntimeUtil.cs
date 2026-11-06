@@ -774,7 +774,7 @@ namespace KimodoBridge.Editor
         {
             if (string.IsNullOrWhiteSpace(modelName))
             {
-                modelName = "Kimodo-SOMA-RP-v1";
+                modelName = KimodoMotionModelProfiles.DefaultModelName;
             }
             string modelsRoot = string.IsNullOrWhiteSpace(modelsRootOverride)
                 ? Path.Combine(runtimeRoot, "models")

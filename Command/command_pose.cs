@@ -317,7 +317,7 @@ namespace KimodoUnityBridge.Command
                 Track = character.Track,
                 Director = session.Director,
                 Animator = character.Animator,
-                ModelName = KimodoMotionModelProfiles.NormalizeName("Kimodo-SOMA-RP-v1")
+                ModelName = KimodoMotionModelProfiles.DefaultModelName
             };
             if (!KimodoTimelineConstraintSampler.TrySampleMarker(
                     context,

@@ -37,7 +37,7 @@ namespace KimodoBridge.Editor
             if (baseModelChanged)
             {
                 current = selectedArdy
-                    ? KimodoMotionModelProfiles.ArdyCoreModelName
+                    ? KimodoMotionModelProfiles.ArdySomaModelName
                     : KimodoMotionModelProfiles.DefaultModelName;
                 modelName.stringValue = current;
                 diffusionSteps.intValue = selectedArdy ? 10 : 100;

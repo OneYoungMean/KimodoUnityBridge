@@ -19,7 +19,7 @@ namespace KimodoBridge
 
         [Header("Bridge Runtime")]
         [SerializeField] private string modelsRoot = string.Empty;
-        [SerializeField] private string modelName = "Kimodo-SOMA-RP-v1";
+        [SerializeField] private string modelName = KimodoMotionModelProfiles.DefaultModelName;
         [SerializeField] private KimodoTextEncoderMode textEncoderMode = KimodoTextEncoderMode.HighPerformance;
         [SerializeField] private bool forceCpu;
 

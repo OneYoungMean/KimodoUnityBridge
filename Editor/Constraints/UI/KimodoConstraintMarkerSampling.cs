@@ -11,7 +11,7 @@ namespace KimodoBridge.Editor
 {
     internal static class KimodoConstraintMarkerSampling
     {
-        private const string DefaultBridgeModelName = "Kimodo-SOMA-RP-v1";
+        private const string DefaultBridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
         public static bool TryUpdateAutoSampleMarkerData(KimodoConstraintMarker marker, out string error)
         {
             error = string.Empty;

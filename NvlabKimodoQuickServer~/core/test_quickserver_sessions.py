@@ -116,7 +116,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
         result = quickserver_cli._build_model_configurations(
             "C:/runtime",
-            {"model": "Kimodo-SOMA-RP-v1", "text_encoder_mode": "high_performance"},
+            {"model": "Kimodo-SOMA-RP-v1.2", "text_encoder_mode": "high_performance"},
             runtime_profile,
         )
 
@@ -125,7 +125,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             2 * (len(quickserver_cli.assets.MAIN_MODELS) + len(quickserver_cli.assets.MOTION_MODEL_PROFILES)),
         )
         default = next(item for item in result["configs"] if item["default"])
-        self.assertEqual(default["model"], "Kimodo-SOMA-RP-v1")
+        self.assertEqual(default["model"], "Kimodo-SOMA-RP-v1.2")
         self.assertEqual(default["text_encoder_model"], "high_performance")
         self.assertEqual(default["text_encoder_route"], "nf4")
         self.assertEqual(default["source_fps"], 30.0)

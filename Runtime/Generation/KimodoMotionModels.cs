@@ -19,7 +19,7 @@ namespace KimodoBridge
 
     internal static class KimodoMotionModelProfiles
     {
-        internal const string DefaultModelName = "Kimodo-SOMA-RP-v1";
+        internal const string DefaultModelName = "Kimodo-SOMA-RP-v1.2";
         internal const float DefaultFrameRate = 30f;
         internal const int MinGenerationFrames = 1;
         internal const int MaxGenerationFrames = 300;
@@ -87,6 +87,7 @@ namespace KimodoBridge
         private static readonly KimodoMotionModelProfile[] Profiles =
         {
             CreateKimodo(DefaultModelName, 77),
+            CreateKimodo("Kimodo-SOMA-RP-v1", 77),
             CreateKimodo("Kimodo-SOMA-RP-v1.1", 77),
             CreateKimodo("Kimodo-SMPLX-RP-v1", 22),
             CreateKimodo("Kimodo-G1-RP-v1", 34),
@@ -263,13 +264,20 @@ namespace KimodoBridge
 
         private static string[] BuildModelNames()
         {
-            var names = new string[Profiles.Length];
+            var names = new System.Collections.Generic.List<string>(Profiles.Length);
             for (int i = 0; i < Profiles.Length; i++)
             {
-                names[i] = Profiles[i].ModelName;
+                string modelName = Profiles[i].ModelName;
+                if (string.Equals(modelName, "Kimodo-SOMA-RP-v1", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(modelName, "Kimodo-SOMA-RP-v1.1", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                names.Add(modelName);
             }
 
-            return names;
+            return names.ToArray();
         }
     }
 }

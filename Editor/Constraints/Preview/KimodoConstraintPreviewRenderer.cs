@@ -41,7 +41,7 @@ namespace KimodoBridge.Editor
             ClipId = clipId;
             AnimatorId = animatorId;
             TrackId = trackId;
-            ModelName = string.IsNullOrWhiteSpace(modelName) ? "Kimodo-SOMA-RP-v1" : modelName.Trim();
+            ModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
             RigType = rigType;
             SourceAvatar = sourceAvatar;
             PreviewKey = KimodoConstraintMarkerEditorUtility.GetCachedIntString(clipId) + ":" +

@@ -17,7 +17,7 @@ import time
 from typing import Protocol
 
 
-DEFAULT_MODEL_NAME = "Kimodo-SOMA-RP-v1"
+DEFAULT_MODEL_NAME = "Kimodo-SOMA-RP-v1.2"
 INT8_LOCAL_DIR = "KIMODO-Meta3_llm2vec_INT8"
 NF4_LOCAL_DIR = "KIMODO-Meta3_llm2vec_NF4"
 FP16_LOCAL_DIR = "KIMODO-Meta3_llm2vec_FP16"
@@ -277,6 +277,11 @@ PURGED_RUNTIME_ENV_VARS: tuple[str, ...] = (
 
 
 MAIN_MODELS: tuple[ModelSpec, ...] = (
+    ModelSpec(
+        model_name="Kimodo-SOMA-RP-v1.2",
+        modelscope_repo="nv-community/Kimodo-SOMA-RP-v1.2",
+        huggingface_repo="nvidia/Kimodo-SOMA-RP-v1.2",
+    ),
     ModelSpec(
         model_name="Kimodo-SOMA-RP-v1",
         modelscope_repo="nv-community/Kimodo-SOMA-RP-v1.1",

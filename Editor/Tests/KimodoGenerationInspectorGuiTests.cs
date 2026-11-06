@@ -12,6 +12,19 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoGenerationInspectorGuiTests
     {
         [Test]
+        public void ModelOptionsUseCurrentKimodoDefaultAndHideLegacySomaRpVersions()
+        {
+            string[] options = KimodoGenerationInspectorGui.GetModelOptions(ardy: false);
+
+            Assert.That(KimodoMotionModelProfiles.DefaultModelName, Is.EqualTo("Kimodo-SOMA-RP-v1.2"));
+            Assert.That(options, Does.Contain("Kimodo-SOMA-RP-v1.2"));
+            Assert.That(options, Does.Not.Contain("Kimodo-SOMA-RP-v1"));
+            Assert.That(options, Does.Not.Contain("Kimodo-SOMA-RP-v1.1"));
+            Assert.That(KimodoMotionModelProfiles.TryGet("Kimodo-SOMA-RP-v1", out _), Is.True);
+            Assert.That(KimodoMotionModelProfiles.TryGet("Kimodo-SOMA-RP-v1.1", out _), Is.True);
+        }
+
+        [Test]
         public void FootContactTrackDetectionRequiresAllGeneratedChannels()
         {
             AnimationClip clip = new AnimationClip { name = "FootContactTrackDetection" };

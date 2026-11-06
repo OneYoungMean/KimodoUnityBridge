@@ -13,6 +13,7 @@ from typing import Optional
 # Canonical list: repo IDs in the same syntax as Hugging Face (org/Model-Name-v1).
 # Parser expects: org/Family-SKELETON-DATASET-version (e.g. Kimodo-SOMA-RP-v1).
 KIMODO_REPO_IDS = [
+    "nvidia/Kimodo-SOMA-RP-v1.2",
     "nvidia/Kimodo-SOMA-RP-v1",
     "nvidia/Kimodo-SOMA-RP-v1.1",
     "nvidia/Kimodo-SMPLX-RP-v1",
