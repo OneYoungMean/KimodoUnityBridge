@@ -130,7 +130,7 @@ namespace KimodoUnityBridge.Command
             KimodoConstraintMarker marker = RequirePoseMarker(reference, out TimelineCharacterRecord character);
             JObject root = arguments["root"] as JObject;
             JObject muscles = arguments["muscles"] as JObject;
-            JObject effectors = arguments["effector"] as JObject;
+            JArray effectors = arguments["effector"] as JArray;
             if (root == null && muscles == null && effectors == null)
             {
                 throw new InvalidOperationException("pose.set requires root, muscles, or effector.");
@@ -159,16 +159,19 @@ namespace KimodoUnityBridge.Command
             }
             if (effectors != null)
             {
-                if (!effectors.Properties().Any())
+                if (effectors.Count == 0)
                     throw new InvalidOperationException("effector must contain at least one end effector.");
-                foreach (JProperty property in effectors.Properties())
+                var seenJoints = new HashSet<string>(StringComparer.Ordinal);
+                foreach (JObject value in effectors.OfType<JObject>())
                 {
-                    JObject value = property.Value as JObject ?? throw new InvalidOperationException($"effector.{property.Name} must be an object.");
-                    KimodoRigidTransform target = GetEndEffector(sample, property.Name);
-                    if (value["position"] is JArray position) target.t = ReadVector3(position, $"effector.{property.Name}.position");
+                    string joint = value.Value<string>("joint");
+                    if (string.IsNullOrWhiteSpace(joint) || !seenJoints.Add(joint))
+                        throw new InvalidOperationException($"effector contains duplicate or missing joint '{joint}'.");
+                    KimodoRigidTransform target = GetEndEffector(sample, joint);
+                    if (value["position"] is JArray position) target.t = ReadVector3(position, $"effector[{joint}].position");
                     if (value["rotation"] is JArray rotation)
                     {
-                        target.q = ReadQuaternion(rotation, $"effector.{property.Name}.rotation");
+                        target.q = ReadQuaternion(rotation, $"effector[{joint}].rotation");
                         target.enableRotation = true;
                     }
                     else if (value["position"] != null)
@@ -176,15 +179,15 @@ namespace KimodoUnityBridge.Command
                         target.enableRotation = false;
                     }
                     if (value["position"] == null && value["rotation"] == null)
-                        throw new InvalidOperationException($"effector.{property.Name} must contain position or rotation.");
+                        throw new InvalidOperationException($"effector[{joint}] must contain position or rotation.");
                     target.space = KimodoConstraintSpace.World;
-                    switch (property.Name)
+                    switch (joint)
                     {
                         case "left_hand": sample.effectors.leftHand = target; sample.enableMask.leftHand = true; break;
                         case "right_hand": sample.effectors.rightHand = target; sample.enableMask.rightHand = true; break;
                         case "left_foot": sample.effectors.leftFoot = target; sample.enableMask.leftFoot = true; break;
                         case "right_foot": sample.effectors.rightFoot = target; sample.enableMask.rightFoot = true; break;
-                        default: throw new InvalidOperationException($"Unsupported end effector '{property.Name}'.");
+                        default: throw new InvalidOperationException($"Unsupported end effector '{joint}'.");
                     }
                 }
             }

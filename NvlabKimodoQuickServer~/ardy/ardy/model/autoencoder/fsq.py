@@ -79,7 +79,6 @@ class FSQVAETransformer(nn.Module):
         }
         encoder_state_dim = dim_dict[self.encoder_input_feature_mode]
         decoder_state_dim = dim_dict[self.decoder_output_feature_mode]
-        decoder_target_cond_dim = dim_dict[self.decoder_target_cond_feature_mode]
         decoder_external_cond_dim = dim_dict[self.decoder_external_cond_feature_mode]
 
         latent_embedding_dim = num_fsq_levels
@@ -110,7 +109,9 @@ class FSQVAETransformer(nn.Module):
             num_layers,
             pe_dropout,
             causal_decoder,
-            target_cond_dim=decoder_target_cond_dim,
+            # Target conditioning is never used at inference and newer checkpoints no longer
+            # carry its (never-trained) weights; build without it so both generations load.
+            target_cond_dim=-1,
             external_cond_dim=decoder_external_cond_dim,
         )
 
@@ -144,6 +145,10 @@ class FSQVAETransformer(nn.Module):
         state_dict = {
             key.removeprefix("pose_net."): val for key, val in state_dict.items() if key.startswith("pose_net")
         }
+        # Checkpoints from before the target-cond removal carry the (never-trained,
+        # never-used-at-inference) target-cond block weights; drop them so strict loading
+        # works for old and new checkpoints alike.
+        state_dict = {key: val for key, val in state_dict.items() if "target_cond_blocks" not in key}
         self.load_state_dict(state_dict)
 
         ckpt_path = str(ckpt_path)

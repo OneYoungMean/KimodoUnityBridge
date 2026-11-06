@@ -112,13 +112,11 @@ namespace KimodoUnityBridge.Command.Tests
                                 ["position"] = new JArray(10.0, 0.95, 0.0),
                                 ["rotation"] = new JArray(0.0, 0.0, 0.0)
                             },
-                            ["effector"] = new JObject
+                            ["effector"] = new JArray(new JObject
                             {
-                                ["right_hand"] = new JObject
-                                {
-                                    ["position"] = new JArray(10.0, 1.0, 1.0)
-                                }
-                            }
+                                ["joint"] = "right_hand",
+                                ["position"] = new JArray(10.0, 1.0, 1.0)
+                            })
                         }
                     }
                 };

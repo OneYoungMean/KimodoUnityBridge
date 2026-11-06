@@ -81,7 +81,7 @@
 | `root + pose + effector`、`pose + effector` | IK 求解后的 FullBody |
 
 - 点约束公开字段为 `frame`、`root`、`pose`、`effector`。拒绝旧 `root2d`、`effect` 和显式 `type` 输入；空约束与单独 `effector` 非法。
-- `root` 与每个 effector 接收 World `position:[x,y,z]` 和欧拉角度 `rotation:[x,y,z]`；允许只给其中一个，省略通道保留采样值，空 transform 非法。完整 root 映射到 UI 数据，由底层决定各类型的求解/导出行为。
+- `root` 与 `effector` 数组中的每个 `{joint, position, rotation}` 项接收 World `position:[x,y,z]` 和欧拉角度 `rotation:[x,y,z]`；允许只给其中一个，省略通道保留采样值，空 transform 非法。完整 root 映射到 UI 数据，由底层决定各类型的求解/导出行为。
 - command 拒绝重复帧；`root_path`、`inout` 仍是独立输入形式。不在 Timeline/runtime 增加全局重复帧拒绝。
 - exporter 保留各样本的具体类型。用户确认保留 `KimodoConstraintProtocolNormalizer` 在最终协议序列化时将同帧 Root2D 折入 FullBody/Effector 的行为；不要把这一协议步骤当作 command 类型推断或恢复旧 composer 的理由。
 - `sampleValid` 校验整份样本；四个 effector enabled 位和 `rootHeading` 表达当前意图。旧序列化 mask 字段只用于读取旧资产，不用于推断类型或逐通道 validity fallback。
@@ -170,5 +170,6 @@
 - [x] **整理残留约束 JSON helper 命名。** 通用 append/root 替换逻辑已并入 `KimodoConstraintWindow`；旧 `KimodoClipConstraintBakeUtility` 文件与 meta 已按仓库规则移出活动路径并保留归档文本快照。
 - [x] **拆分历史索引 API。** `session.history` 只读取活动场景已有 Session Binding 对应的 Generation/Analysis 原始记录索引，不创建或重绑 Context；`scene.context` 只返回当前场景与 Timeline 结构，不再接受 `include_history` 或返回历史索引。原始记录、完整分析 JSON 与图片文件继续保留。
 - [x] **复核约束面板 Auto Sample 文案。** `autoSample=true` 当前确实以标记时间的 Timeline pose 覆盖手动 effectors/motion，因此现有提醒与行为一致；此项不列为清理任务，也不重命名序列化字段。
+- [x] **收敛 Window 与分析帧语义。** In/Out 的 60 FPS 秒数与模型帧换算继续由 `KimodoFrameTimeUtility`/`KimodoConstraintWindowSpec` 负责；散落的 60 常量改用共享命令帧率。公开分析的 phase、足部接触和 Root trajectory 时长/位置均明确使用 `_60` 字段；生成完成时不再向内部分析缓存补写模型帧 `duration_frames`。
 
 审查中未发现需要普遍重构 `generation.get`、`pose.get/set`、调试 Timeline 输出或统一长 Clip 的 Root2D/FullBody 采样算法的证据。它们继续保留各自职责和已经统一的 Window 执行入口。

@@ -238,6 +238,20 @@ def seed_everything(seed: int, deterministic: bool = False) -> None:
         torch.backends.cudnn.benchmark = False  # if you want to make the behavior deterministic.
 
 
+def disable_tf32() -> None:
+    """Run float32 matmuls and convolutions in full fp32 precision instead of TF32.
+
+    PyTorch defaults to full fp32 for matmuls, but some environments (e.g. NGC PyTorch containers,
+    which set ``TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1``) enable TF32 on Ampere+ GPUs. TF32 rounding
+    adds small frame-to-frame jitter to generated motions that inflates foot-skate metrics, so
+    benchmark scripts call this to make results independent of the environment.
+    """
+    if torch.get_float32_matmul_precision() != "highest":
+        print(f"Disabling TF32: float32 matmul precision '{torch.get_float32_matmul_precision()}' -> 'highest'")
+    torch.set_float32_matmul_precision("highest")
+    torch.backends.cudnn.allow_tf32 = False
+
+
 def load_json(path: Union[str, Path]) -> Any:
     """Load a JSON file and return its contents.
 

@@ -704,7 +704,7 @@ namespace KimodoUnityBridge.Command
                     ["end_frame"] = segment.EndFrame,
                     ["start_frame_60"] = subject.Subject.StartFrame + segment.StartFrame,
                     ["end_frame_60"] = subject.Subject.StartFrame + segment.EndFrame,
-                    ["duration_frames"] = duration,
+                    ["duration_frames_60"] = duration,
                     ["duration_seconds"] = duration / SessionFrameRate,
                     ["anchor_frame"] = segment.AnchorFrame,
                     ["anchor_frame_60"] = subject.Subject.StartFrame + segment.AnchorFrame,

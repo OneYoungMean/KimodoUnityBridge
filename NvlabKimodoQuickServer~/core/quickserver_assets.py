@@ -323,6 +323,14 @@ MAIN_MODELS: tuple[ModelSpec, ...] = (
         joint_count=34,
         aliases=("g1-seed", "kimodo-g1-seed"),
     ),
+    ModelSpec(
+        model_name="Kimodo-SOMA-RP-ArdyRep-v1.2",
+        modelscope_repo="nv-community/Kimodo-SOMA-RP-ArdyRep-v1.2",
+        huggingface_repo="nvidia/Kimodo-SOMA-RP-ArdyRep-v1.2",
+        rig_profile="somaskel30",
+        joint_count=30,
+        aliases=("soma-ardyrep", "kimodo-soma-ardyrep"),
+    ),
 )
 
 
@@ -416,11 +424,53 @@ ARDY_G18_PROFILE = ModelSpec(
     supports_streaming=True,
     aliases=("ardy-g18",),
 )
+ARDY_SOMA_PROFILE = ModelSpec(
+    model_name="ARDY-SOMA-RP-30FPS-Horizon60",
+    modelscope_repo="nv-community/ARDY-SOMA-RP-30FPS-Horizon60",
+    huggingface_repo="nvidia/ARDY-SOMA-RP-30FPS-Horizon60",
+    backend="ardy",
+    source_fps=30.0,
+    horizon_frames=60,
+    frames_per_token=4,
+    max_context_frames=240,
+    rig_profile="somaskel30",
+    joint_count=30,
+    max_diffusion_steps=10,
+    default_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-soma-rp-30fps-h60:nfpt4:motionrep-v1",
+    postprocess=True,
+    supports_streaming=True,
+    aliases=("ardy-soma", "ardy-soma60"),
+)
+ARDY_SOMA_KIMODO_PROFILE = ModelSpec(
+    model_name="ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
+    modelscope_repo="nv-community/ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
+    huggingface_repo="nvidia/ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
+    backend="ardy",
+    source_fps=30.0,
+    horizon_frames=60,
+    frames_per_token=4,
+    max_context_frames=240,
+    rig_profile="somaskel30",
+    joint_count=30,
+    max_diffusion_steps=10,
+    default_diffusion_steps=10,
+    cfg_text_weight=2.0,
+    cfg_constraint_weight=2.0,
+    motion_rep_fingerprint="ardy-soma-rp-30fps-kimodorep-h60:nfpt4:motionrep-v1",
+    postprocess=True,
+    supports_streaming=True,
+    aliases=("ardy-soma-kimodo", "ardy-soma-kimodorep", "ardy-soma-kimodorep60"),
+)
 MOTION_MODEL_PROFILES: tuple[ModelSpec, ...] = (
     ARDY_CORE_PROFILE,
     ARDY_CORE8_PROFILE,
     ARDY_G1_PROFILE,
     ARDY_G18_PROFILE,
+    ARDY_SOMA_PROFILE,
+    ARDY_SOMA_KIMODO_PROFILE,
 )
 ALL_MODEL_SPECS = MAIN_MODELS + MOTION_MODEL_PROFILES
 MODEL_SPEC_REGISTRY = {

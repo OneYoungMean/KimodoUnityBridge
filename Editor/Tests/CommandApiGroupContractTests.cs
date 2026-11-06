@@ -220,6 +220,8 @@ namespace KimodoUnityBridge.Command.Tests
             AssertPosePropertyUsesTrackIndex(point["properties"]?["pose"]);
             Assert.That(point["properties"]?["root"], Is.Not.Null);
             Assert.That(point["properties"]?["effector"], Is.Not.Null);
+            Assert.That(point["properties"]?["effector"]?["type"]?.Value<string>(), Is.EqualTo("array"));
+            Assert.That(point["properties"]?["effector"]?["items"]?["properties"]?["joint"]?["enum"], Is.Not.Null);
             Assert.That(point["properties"]?["type"], Is.Null);
         }
 
@@ -350,16 +352,16 @@ namespace KimodoUnityBridge.Command.Tests
             AssertPointShapeValid(new JObject { ["frame"] = 0, ["pose"] = new JObject { ["track"] = "P", ["index"] = 0 } });
             AssertPointShapeValid(new JObject { ["frame"] = 0, ["root"] = Position() });
             InvalidOperationException effectOnly = Assert.Throws<InvalidOperationException>(() =>
-                ValidatePointShape(new JObject { ["frame"] = 0, ["effector"] = new JObject { ["right_hand"] = Position() } }));
+                ValidatePointShape(new JObject { ["frame"] = 0, ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) }) }));
             Assert.That(effectOnly.Message, Does.Contain("explicit root context"));
-            AssertPointShapeValid(new JObject { ["frame"] = 0, ["root"] = Position(), ["effector"] = new JObject { ["right_hand"] = Position() } });
-            AssertPointShapeValid(new JObject { ["frame"] = 0, ["pose"] = new JObject(), ["effector"] = new JObject { ["right_hand"] = Position() } });
+            AssertPointShapeValid(new JObject { ["frame"] = 0, ["root"] = Position(), ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) }) });
+            AssertPointShapeValid(new JObject { ["frame"] = 0, ["pose"] = new JObject(), ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) }) });
             AssertPointShapeValid(new JObject
             {
                 ["frame"] = 0,
                 ["pose"] = new JObject { ["track"] = "P", ["index"] = 0 },
                 ["root"] = Position(),
-                ["effector"] = new JObject { ["right_hand"] = Position() }
+                ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) })
             });
 
             InvalidOperationException empty = Assert.Throws<InvalidOperationException>(
@@ -423,6 +425,17 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        [Category("Generation")]
+        public void DirectApi_ExposesNamespaceOperationsWithoutCommandLookup()
+        {
+            Assert.That(typeof(KimodoUnityBridge.Api.Animation).GetMethod("Generate"), Is.Not.Null);
+            Assert.That(typeof(KimodoUnityBridge.Api.Animation).GetMethod("GenerateAsync"), Is.Not.Null);
+            Assert.That(typeof(KimodoUnityBridge.Api.Generation).GetMethod("Get"), Is.Not.Null);
+            Assert.That(typeof(KimodoUnityBridge.Api.Pose).GetMethod("Set"), Is.Not.Null);
+            Assert.That(typeof(KimodoUnityBridge.Api.Clip).GetMethod("Inspect"), Is.Not.Null);
+        }
+
+        [Test]
         [Category("Other")]
         public void EveryCommand_PublishesItsTopLevelOutputContract()
         {
@@ -467,6 +480,19 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["analysis_id"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["session_id"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["analysis_schema_version"], Is.Null);
+            JObject rootTrajectorySchema = analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["root_trajectory"] as JObject;
+            Assert.That(rootTrajectorySchema?["properties"]?["duration_frames_60"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(rootTrajectorySchema?["properties"]?["sample_span_frames_60"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(rootTrajectorySchema?["properties"]?["duration_frames"], Is.Null);
+            Assert.That(rootTrajectorySchema?["properties"]?["sample_span_frames"], Is.Null);
+            JObject phaseProperties = analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["phase_track"]?["items"]?["properties"] as JObject;
+            Assert.That(phaseProperties?["duration_frames_60"]?.Value<string>("type"), Is.EqualTo("integer"));
+            Assert.That(phaseProperties?["duration_frames"], Is.Null);
+            JObject footContactProperties = analyze["outputSchema"]?["properties"]?["clip"]?["properties"]?["foot_contacts"]?["items"]?["properties"] as JObject;
+            Assert.That(footContactProperties?["timeline_frame_60"], Is.Not.Null);
+            Assert.That(footContactProperties?["duration_frames_60"], Is.Not.Null);
+            Assert.That(footContactProperties?["frame"], Is.Null);
+            Assert.That(footContactProperties?["duration_frames"], Is.Null);
             Assert.That(analyze["outputSchema"]?["properties"]?["pictures"]?["properties"]?["title"], Is.Not.Null);
             Assert.That(analyze["outputSchema"]?["properties"]?["pictures"]?["properties"]?["header_height"], Is.Not.Null);
 

@@ -30,10 +30,12 @@ def translate_normalized_root_motion(root_motion, translation, motion_rep):
     """The y coords of the input translation are zero."""
     assert (translation[:, 1] == 0).all(), "the y coords of the input translation are zero"
 
+    # root_pos_name: "root_pos" (ardy rep) or "smooth_root_pos" (kimodo rep) -- both are the
+    # 3D position block the local joint features are relative to, so a rigid translation of
+    # that block alone is correct for either layout
+    root_pos_slice = motion_rep.slice_dict[motion_rep.root_pos_name]
     root_motion = motion_rep.global_root_stats.unnormalize(root_motion)
-    root_motion[:, :, motion_rep.slice_dict["root_pos"]] = (
-        root_motion[:, :, motion_rep.slice_dict["root_pos"]] + translation[:, None, :]
-    )
+    root_motion[:, :, root_pos_slice] = root_motion[:, :, root_pos_slice] + translation[:, None, :]
     root_motion = motion_rep.global_root_stats.normalize(root_motion)
     return root_motion
 
@@ -622,7 +624,7 @@ class Ardy(nn.Module):
         else:
             history_sequence = None
             global_transl = torch.zeros(
-                (batch_size, self.motion_rep.nfeats_dict["root_pos"]),
+                (batch_size, self.motion_rep.nfeats_dict[self.motion_rep.root_pos_name]),
                 device=self.device,
             )
 
@@ -760,7 +762,7 @@ class Ardy(nn.Module):
                 init_global_translation
                 if init_global_translation is not None
                 else torch.zeros(
-                    (batch_size, self.motion_rep.nfeats_dict["root_pos"]),
+                    (batch_size, self.motion_rep.nfeats_dict[self.motion_rep.root_pos_name]),
                     device=self.device,
                 )
             )

@@ -29,10 +29,17 @@ MODELS_BY_SKELETON = {
         52: "ARDY-G1-RP-25FPS-Horizon52",
         8: "ARDY-G1-RP-25FPS-Horizon8",
     },
+    "soma": {
+        60: "ARDY-SOMA-RP-30FPS-Horizon60",
+    },
+    # SOMA variant trained on the Kimodo (smooth-root) motion representation.
+    "soma-kimodo": {
+        60: "ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60",
+    },
 }
 
 # Horizon a bare skeleton nickname resolves to ("core" -> "core40").
-DEFAULT_HORIZON = {"core": 40, "g1": 52, "soma": 60}
+DEFAULT_HORIZON = {"core": 40, "g1": 52, "soma": 60, "soma-kimodo": 60}
 
 # nickname -> released folder name: "core8"/"core40"/... plus the bare
 # skeleton names, which map to their DEFAULT_HORIZON variant.
@@ -43,7 +50,7 @@ MODELS = {
 }
 MODELS.update({skeleton: MODELS_BY_SKELETON[skeleton][DEFAULT_HORIZON[skeleton]] for skeleton in MODELS_BY_SKELETON})
 
-DEFAULT_MODEL = "core"
+DEFAULT_MODEL = "soma"
 DEFAULT_TEXT_ENCODER_URL = "http://127.0.0.1:9550/"
 
 # --- Aliases kept for imports elsewhere (ardy.model.loading re-exports these) --
@@ -68,7 +75,12 @@ def parse_model_name(folder: str):
     m = _NAME_PATTERN.match(folder)
     if not m:
         return None
-    return m.group(1).lower(), int(m.group(2))
+    skeleton = m.group(1).lower()
+    # representation variants are their own family ("soma-kimodo"), so they don't
+    # shadow the default model of the same skeleton + horizon
+    if "kimodorep" in folder.lower():
+        skeleton = f"{skeleton}-kimodo"
+    return skeleton, int(m.group(2))
 
 
 def resolve_model_name(name: str, default_family=None, checkpoints_dir=None) -> str:

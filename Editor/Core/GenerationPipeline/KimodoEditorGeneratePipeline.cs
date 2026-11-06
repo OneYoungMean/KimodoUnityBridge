@@ -452,12 +452,13 @@ namespace KimodoBridge.Editor
             int trimStartFrame,
             int targetFrameCount,
             float sourceFrameRate,
-            out string error)
+            out string error,
+            bool appendCoverageHoldFrame = false)
         {
             error = string.Empty;
             if (clip == null ||
                 !KimodoRetargetCoreUtility.IsValidHumanoid(samplingAvatar) ||
-                trimStartFrame <= 0 ||
+                trimStartFrame < 0 ||
                 targetFrameCount <= 0 ||
                 sourceFrameRate <= 0f ||
                 float.IsNaN(sourceFrameRate) ||
@@ -486,12 +487,13 @@ namespace KimodoBridge.Editor
                     if (!TryCollectMuscleSamplesFromClipRange(
                             clip,
                             cache,
-                            targetFrameCount,
+                            targetFrameCount + (appendCoverageHoldFrame ? 1 : 0),
                             startTime,
                             sourceFrameRate,
                             KimodoRetargetClipSamplingUtility.ClipSamplingMode.Humanoid,
                             out MuscleSample[] samples,
-                            out error) ||
+                            out error,
+                            appendCoverageHoldFrame) ||
                         !KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
                             samples,
                             sourceFrameRate,
@@ -506,12 +508,13 @@ namespace KimodoBridge.Editor
                     if (!TryCollectBoneSamplesFromClipRange(
                             clip,
                             cache,
-                            targetFrameCount,
+                            targetFrameCount + (appendCoverageHoldFrame ? 1 : 0),
                             startTime,
                             sourceFrameRate,
                             KimodoRetargetClipSamplingUtility.ResolveClipSamplingMode(clip),
                             out BoneSample[] samples,
-                            out error) ||
+                            out error,
+                            appendCoverageHoldFrame) ||
                         !KimodoRetargetSamplingUtility.TryCreateTransientBoneClip(
                             samples,
                             sourceFrameRate,
@@ -540,6 +543,59 @@ namespace KimodoBridge.Editor
             }
         }
 
+        internal static void TrimGeneratedMotionForOutputRange(
+            KimodoEditorGenerationResult result,
+            int trimStartFrame,
+            int targetFrameCount,
+            string modelName)
+        {
+            if (result == null || trimStartFrame < 0 || targetFrameCount <= 0)
+            {
+                throw new InvalidOperationException("Generated motion trim inputs are invalid.");
+            }
+
+            KimodoRawMotionData sourceMotion;
+            string parseError;
+            bool hadMotionBytes = result.MotionBytes != null && result.MotionBytes.Length > 0;
+            if (hadMotionBytes)
+            {
+                if (!KimodoRawMotionUtility.TryParseFlatBuffer(result.MotionBytes, out sourceMotion, out parseError))
+                {
+                    throw new InvalidOperationException($"Generated motion trim parsing failed: {parseError}");
+                }
+            }
+            else if (!KimodoRawMotionUtility.TryParse(result.MotionJsonCompact, out sourceMotion, out parseError))
+            {
+                throw new InvalidOperationException($"Generated motion trim parsing failed: {parseError}");
+            }
+
+            if (!KimodoRawMotionUtility.TrySlice(
+                    sourceMotion,
+                    trimStartFrame,
+                    targetFrameCount,
+                    out KimodoRawMotionData trimmedMotion,
+                    out string sliceError))
+            {
+                throw new InvalidOperationException($"Generated motion trim failed: {sliceError}");
+            }
+
+            result.MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(trimmedMotion);
+            if (hadMotionBytes)
+            {
+                result.MotionBytes = KimodoRawMotionUtility.ToFlatBuffer(trimmedMotion, modelName);
+            }
+            result.AnalysisJson = TrimAnalysisForOutput(
+                result.AnalysisJson,
+                trimStartFrame,
+                trimmedMotion.FrameRate,
+                trimmedMotion.FrameCount);
+            if (result.EndFrameExclusive > result.StartFrame)
+            {
+                result.StartFrame += trimStartFrame;
+                result.EndFrameExclusive = result.StartFrame + trimmedMotion.FrameCount;
+            }
+        }
+
         private static bool TryCollectBoneSamplesFromClipRange(
             AnimationClip clip,
             RetargetSkeleton cache,
@@ -548,7 +604,8 @@ namespace KimodoBridge.Editor
             double sampleFrameRate,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out BoneSample[] samples,
-            out string error)
+            out string error,
+            bool appendCoverageHoldFrame = false)
         {
             samples = null;
             if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
@@ -567,7 +624,10 @@ namespace KimodoBridge.Editor
                 samples = new BoneSample[frameCount];
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    double sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    int sourceFrame = appendCoverageHoldFrame && frame == frameCount - 1
+                        ? frame - 1
+                        : frame;
+                    double sampleTime = sampleStartTime + sourceFrame / sampleFrameRate;
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             context,
                             sampleTime,
@@ -594,7 +654,8 @@ namespace KimodoBridge.Editor
             double sampleFrameRate,
             KimodoRetargetClipSamplingUtility.ClipSamplingMode samplingMode,
             out MuscleSample[] samples,
-            out string error)
+            out string error,
+            bool appendCoverageHoldFrame = false)
         {
             samples = null;
             if (!KimodoRetargetClipSamplingUtility.TryBuildClipSamplingContext(
@@ -613,7 +674,10 @@ namespace KimodoBridge.Editor
                 samples = new MuscleSample[frameCount];
                 for (int frame = 0; frame < frameCount; frame++)
                 {
-                    double sampleTime = sampleStartTime + frame / sampleFrameRate;
+                    int sourceFrame = appendCoverageHoldFrame && frame == frameCount - 1
+                        ? frame - 1
+                        : frame;
+                    double sampleTime = sampleStartTime + sourceFrame / sampleFrameRate;
                     if (!KimodoRetargetClipSamplingUtility.TryEvaluateClipSamplingContext(
                             context,
                             sampleTime,
@@ -803,7 +867,7 @@ namespace KimodoBridge.Editor
             float frameRate,
             int frameCount)
         {
-            if (string.IsNullOrWhiteSpace(analysisJson) || trimStartFrame <= 0)
+            if (string.IsNullOrWhiteSpace(analysisJson) || trimStartFrame < 0 || frameCount <= 0)
             {
                 return analysisJson;
             }

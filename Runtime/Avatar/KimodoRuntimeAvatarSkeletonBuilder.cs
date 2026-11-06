@@ -30,6 +30,14 @@ namespace KimodoBridge
                 return "SOMA_cskel27Avatar";
             }
 
+            // The compact SOMA30/ArdyRep streams use the same humanoid bone names
+            // available in the standard SOMA avatar; playback binds only the
+            // 30 named joints and leaves the optional SOMA77 detail at rest.
+            if (normalized.Contains("ardy-soma") || normalized.Contains("soma30") || normalized.Contains("ardyrep"))
+            {
+                return "SOMAAvatar";
+            }
+
             return "SOMAAvatar";
         }
 

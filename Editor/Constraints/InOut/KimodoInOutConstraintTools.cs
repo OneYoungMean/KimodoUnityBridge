@@ -132,7 +132,9 @@ namespace KimodoBridge.Editor
             }
         }
 
-        // Window lengths and sampling positions use the model's FPS, independent of Timeline's UI FPS.
+        // Window lengths enter as 60 FPS command frames and are resolved once
+        // into model frames by KimodoConstraintWindowSpec. Timeline FPS is not
+        // part of this contract.
         internal static int ResolveWindowFrameCount(KimodoInOutConstraintRequest request, bool isBegin)
         {
             if (request == null || request.Mode == KimodoInOutConstraintMode.None ||
@@ -209,7 +211,7 @@ namespace KimodoBridge.Editor
             int explicitFrame = isBegin ? request.BeginSourceFrame : request.EndSourceFrame;
             if (explicitFrame >= 0)
             {
-                double relativeTime = explicitFrame / KimodoTimelineConstraintSampler.DefaultSessionFrameRate;
+                double relativeTime = KimodoFrameTimeUtility.CommandFrameIndexToSeconds(explicitFrame);
                 return sourceClip.start + Math.Max(0.0, Math.Min(
                     Math.Max(0.0, sourceDuration - frameDuration),
                     relativeTime));

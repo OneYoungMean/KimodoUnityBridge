@@ -6,6 +6,21 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoClipConstraintProtocolTests
     {
         [Test]
+        public void ArdyOutsideBeginBoundary_UsesHistoryInsteadOfSyntheticSingleFrameClip()
+        {
+            Assert.That(
+                KimodoTimelineClipConstraintBuilder.ShouldBuildArdyBeginBoundary(
+                    KimodoMotionModelProfiles.ArdyCoreModelName,
+                    KimodoInOutConstraintMode.Outside),
+                Is.False);
+            Assert.That(
+                KimodoTimelineClipConstraintBuilder.ShouldBuildArdyBeginBoundary(
+                    KimodoMotionModelProfiles.ArdyCoreModelName,
+                    KimodoInOutConstraintMode.Inside),
+                Is.True);
+        }
+
+        [Test]
         public void Serialize_UsesTargetTimeAndNamedMask()
         {
             byte[] kmb = CreateKmb(

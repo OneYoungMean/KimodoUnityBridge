@@ -20,6 +20,54 @@ namespace KimodoUnityBridge.Command.Tests
     {
         private const BindingFlags PrivateStatic = BindingFlags.Static | BindingFlags.NonPublic;
 
+        [Test]
+        public void CommandWindowFrameConversion_UsesSharedSixtyFpsUtility()
+        {
+            Assert.That(KimodoFrameTimeUtility.CommandFramesToSeconds(30), Is.EqualTo(0.5).Within(1e-9));
+            Assert.That(KimodoFrameTimeUtility.CommandFramesToModelFrameCount(30, 30f), Is.EqualTo(15));
+            Assert.That(KimodoFrameTimeUtility.CommandFrameIndexToSeconds(60), Is.EqualTo(1.0).Within(1e-9));
+            Assert.That(KimodoFrameTimeUtility.ConvertFrameIndex(30, 30, 60), Is.EqualTo(60));
+            Assert.That(KimodoFrameTimeUtility.ConvertFrameCount(12, 30, 60), Is.EqualTo(24));
+        }
+
+        [Test]
+        public void IncompleteGenerationClip_ReservesNextAppendPositionAcrossProjectionReload()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "IncompleteGenerationCharacter");
+            TimelineClip incomplete = track.CreateClip<KimodoPlayableClip>();
+            incomplete.start = 12.0;
+            incomplete.duration = 2.0;
+            incomplete.displayName = "CanceledAttempt";
+            var character = new command_context.TimelineCharacterRecord(
+                "test", null, null, null, track, track, string.Empty);
+
+            try
+            {
+                MethodInfo refreshAppendPosition = typeof(command_context).GetMethod(
+                    "RefreshCharacterTimelineAppendPosition", PrivateStatic);
+                refreshAppendPosition.Invoke(null, new object[] { character });
+                Assert.That(character.NextStartSeconds,
+                    Is.EqualTo(incomplete.end + command_context.ClipSafeZoneSeconds).Within(1e-8));
+
+                character.NextStartSeconds = 0.0;
+                MethodInfo populateProjection = typeof(command_context).GetMethod(
+                    "PopulateTimelineCharacterAnimations", PrivateStatic);
+                populateProjection.Invoke(null, new object[] { character });
+                Assert.That(character.NextStartSeconds,
+                    Is.EqualTo(incomplete.end + command_context.ClipSafeZoneSeconds).Within(1e-8));
+            }
+            finally
+            {
+                foreach (TimelineClip clip in track.GetClips())
+                {
+                    if (clip.asset != null) Object.DestroyImmediate(clip.asset);
+                }
+                Object.DestroyImmediate(track);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
         [TestCase(false, true, -15, -1, 1.5)]
         [TestCase(false, false, 60, 74, 0.0)]
         [TestCase(true, true, 0, 14, 0.0)]
@@ -492,10 +540,10 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(string.Join(" ", manual["documentation"]?["result_notes"]?.Values<string>() ?? Enumerable.Empty<string>()), Does.Contain("joint").IgnoreCase);
         }
 
-        [TestCase("{'pose':{'track':'poses','index':0},'effector':{'right_hand':{'position':[1,2,3]}}}", true)]
-        [TestCase("{'effector':{'right_hand':{'position':[1,2,3]}}}", false)]
+        [TestCase("{'pose':{'track':'poses','index':0},'effector':[{'joint':'right_hand','position':[1,2,3]}]}", true)]
+        [TestCase("{'effector':[{'joint':'right_hand','position':[1,2,3]}]}", false)]
         [TestCase("{'pose':{'track':'poses','index':0}}", false)]
-        [TestCase("{'root':{'position':[0,1,0],'rotation':[0,0,0]},'effector':{'right_hand':{'position':[1,2,3]}}}", false)]
+        [TestCase("{'root':{'position':[0,1,0],'rotation':[0,0,0]},'effector':[{'joint':'right_hand','position':[1,2,3]}]}", false)]
         public void PoseEffectorSafetyPreflight_RequiresExplicitPoseAndEffector(string json, bool expected)
         {
             Assert.That(command_context.HasPoseAndEffector(JObject.Parse(json)), Is.EqualTo(expected));

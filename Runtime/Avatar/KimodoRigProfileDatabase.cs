@@ -37,6 +37,20 @@ namespace KimodoBridge
             0, 67, 68, 69, 70, 0, 72, 73, 74, 75
         };
 
+        private static readonly string[] Soma30Names =
+        {
+            "Hips", "Spine1", "Spine2", "Chest", "Neck1", "Neck2", "Head", "Jaw", "LeftEye", "RightEye",
+            "LeftShoulder", "LeftArm", "LeftForeArm", "LeftHand", "LeftHandThumbEnd", "LeftHandMiddleEnd",
+            "RightShoulder", "RightArm", "RightForeArm", "RightHand", "RightHandThumbEnd", "RightHandMiddleEnd",
+            "LeftLeg", "LeftShin", "LeftFoot", "LeftToeBase", "RightLeg", "RightShin", "RightFoot", "RightToeBase"
+        };
+
+        private static readonly int[] Soma30Parents =
+        {
+            -1, 0, 1, 2, 3, 4, 5, 6, 6, 6, 3, 10, 11, 12, 13, 13,
+            3, 16, 17, 18, 19, 19, 0, 22, 23, 24, 0, 26, 27, 28
+        };
+
         private static readonly string[] G1Skel34Names =
         {
             "pelvis_skel",
@@ -111,6 +125,11 @@ namespace KimodoBridge
                 return KimodoConstraintRigType.Core27;
             }
 
+            if (normalized.Contains("ardy-soma") || normalized.Contains("soma30") || normalized.Contains("ardyrep"))
+            {
+                return KimodoConstraintRigType.Soma30;
+            }
+
             if (normalized.Contains("g1"))
             {
                 return KimodoConstraintRigType.G1;
@@ -162,6 +181,10 @@ namespace KimodoBridge
                 case KimodoConstraintRigType.Smplx:
                     jointNames = Smplx22Names;
                     parentIndices = Smplx22Parents;
+                    return;
+                case KimodoConstraintRigType.Soma30:
+                    jointNames = Soma30Names;
+                    parentIndices = Soma30Parents;
                     return;
                 case KimodoConstraintRigType.Soma77:
                 default:

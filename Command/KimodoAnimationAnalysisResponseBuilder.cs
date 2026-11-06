@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using KimodoBridge;
 using Newtonsoft.Json.Linq;
 
 namespace KimodoUnityBridge.Command
@@ -139,12 +140,14 @@ namespace KimodoUnityBridge.Command
                 item.Remove("end_frame");
                 item.Remove("start_frame_60");
                 item.Remove("end_frame_60");
+                item.Remove("duration_frames");
                 item.Remove("duration_seconds");
                 item.Remove("anchor_frame");
                 item.Remove("anchor_frame_60");
                 item.Remove("anchor_time_seconds");
                 item["start_timeline_frame_60"] = data.StartFrame + localStart;
                 item["end_timeline_frame_60_exclusive"] = data.StartFrame + localEnd + 1;
+                item["duration_frames_60"] = Math.Max(0, localEnd - localStart + 1);
                 item["anchor_timeline_frame_60"] = data.StartFrame + anchor;
                 result.Add(item);
             }
@@ -154,12 +157,39 @@ namespace KimodoUnityBridge.Command
         private static JArray BuildPublicFootContacts(KimodoAnimationAnalysisResponseData data)
         {
             var result = new JArray();
+            double sourceFrameRate = data?.Analysis?.Value<double?>("frame_rate")
+                ?? data?.Analysis?.Value<double?>("fps")
+                ?? KimodoFrameTimeUtility.CommandFrameRate;
+            if (sourceFrameRate <= 0.0 || double.IsNaN(sourceFrameRate) || double.IsInfinity(sourceFrameRate))
+                sourceFrameRate = KimodoFrameTimeUtility.CommandFrameRate;
             foreach (JObject contact in (data.Analysis?["foot_contacts"] as JArray ?? new JArray()).OfType<JObject>())
             {
                 JObject item = (JObject)contact.DeepClone();
                 int localFrame = item.Value<int?>("frame") ?? 0;
+                int timelineFrame = item.Value<int?>("timeline_frame_60") ??
+                    data.StartFrame + KimodoFrameTimeUtility.ConvertFrameIndex(
+                        localFrame,
+                        sourceFrameRate,
+                        KimodoFrameTimeUtility.CommandFrameRate);
+                int durationFrames60;
+                if (item.Value<int?>("duration_frames") is int modelDuration)
+                {
+                    durationFrames60 = modelDuration <= 0
+                        ? 0
+                        : KimodoFrameTimeUtility.ConvertFrameCount(
+                            modelDuration,
+                            sourceFrameRate,
+                            KimodoFrameTimeUtility.CommandFrameRate);
+                }
+                else
+                {
+                    durationFrames60 = Math.Max(0, item.Value<int?>("duration_frames_60") ?? 0);
+                }
                 item.Remove("frame");
-                item["timeline_frame_60"] = data.StartFrame + localFrame;
+                item.Remove("duration_frames");
+                item.Remove("duration_frames_60");
+                item["timeline_frame_60"] = timelineFrame;
+                item["duration_frames_60"] = durationFrames60;
                 result.Add(item);
             }
             return result;
@@ -173,8 +203,14 @@ namespace KimodoUnityBridge.Command
             int frameCount = result.Value<int?>("frame_count") ?? Math.Max(1, data.EndFrameExclusive - data.StartFrame);
             result.Remove("duration_seconds");
             result.Remove("sample_span_seconds");
-            result["duration_frames"] = frameCount;
-            result["sample_span_frames"] = Math.Max(0, frameCount - 1);
+            // Public analysis uses the command/session timeline basis. Never
+            // expose an unqualified model-frame duration here.
+            result.Remove("duration_frames");
+            result.Remove("sample_span_frames");
+            result.Remove("duration_frames_60");
+            result.Remove("sample_span_frames_60");
+            result["duration_frames_60"] = frameCount;
+            result["sample_span_frames_60"] = Math.Max(0, frameCount - 1);
             if (result["samples"] is JArray samples)
             {
                 foreach (JObject sample in samples.OfType<JObject>())

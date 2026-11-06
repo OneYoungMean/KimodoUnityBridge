@@ -126,7 +126,7 @@ namespace KimodoUnityBridge.Command
                 AnimationAnalysisCommand => CommandDocumentation(
                     "Analyze one loaded animation Clip and produce structured motion data with a 20-tile SceneView image.",
                     new[] { "Select a scene character and one loaded Clip name or Assets/Packages asset path; use one call per Clip.", "Inspect returned pictures for visual observations and structured fields for measurements." },
-                    new[] { "Returns one structured Clip analysis and one 20-tile pictures object from the synchronous SceneView renderer. Frame positions use absolute Timeline coordinates.", "Accepts the same camera object as pose.analysis. Unspecified camera settings retain their current values." },
+                    new[] { "Returns one structured Clip analysis and one 20-tile pictures object from the synchronous SceneView renderer. Frame positions use absolute Timeline coordinates.", "Phase and foot-contact durations use duration_frames_60; foot contacts expose timeline_frame_60. These frame values use the 60 FPS command/session basis.", "Root trajectory uses duration_frames_60 and sample_span_frames_60 on the 60 FPS command/session basis.", "Accepts the same camera object as pose.analysis. Unspecified camera settings retain their current values." },
                     new[] { "An external Clip asset is added to the character's Kimodo Timeline for analysis; the original asset remains unchanged." },
                     new[] { "Use temporal analysis fields for continuity, velocity, foot contact, and other time-based properties." },
                     SceneContextCommand, PoseGetCommand, PoseAnalysisCommand),
@@ -244,7 +244,7 @@ namespace KimodoUnityBridge.Command
             {
                 new JObject { ["id"] = "scene_references", ["guidance"] = "Use scene.context as the source for active-scene character, Clip, Timeline, and object references. Pass returned handles to later commands." },
                 new JObject { ["id"] = "job_lifecycle", ["guidance"] = "Submission commands return request_id and status. Pass request_id to generation.get for progress and results; submission calls support cooperative Editor waiting, and generation.get waits at most 10 seconds per call." },
-                new JObject { ["id"] = "frame_coordinates", ["guidance"] = "Frame positions use absolute Timeline coordinates at 60 FPS. duration_frames values express 60 FPS durations." },
+                new JObject { ["id"] = "frame_coordinates", ["guidance"] = "Frame positions use absolute Timeline coordinates at 60 FPS. duration_frames_60 values express 60 FPS durations; generation input duration_frames is documented separately." },
                 new JObject { ["id"] = "evidence", ["guidance"] = "Use structured result fields for measurements and returned images for visual observations. Use temporal analysis results for motion properties across time." },
                 new JObject { ["id"] = "operation_scope", ["guidance"] = "Use each command's named target and scene_effects as its operation scope; the result describes changes made by that call." }
             };
@@ -401,6 +401,16 @@ namespace KimodoUnityBridge.Command
                         : ObjectSchema("name", "character", "asset_path", "start_timeline_frame_60", "end_timeline_frame_60_exclusive");
                     if (command == AnimationAnalysisCommand)
                     {
+                        JObject footContacts = ArraySchema(
+                            "object",
+                            "clip_index",
+                            "foot",
+                            "timeline_frame_60",
+                            "contact",
+                            "transition",
+                            "duration_frames_60");
+                        schema["properties"]["foot_contacts"] = footContacts;
+                        schema["properties"]["phase_track"] = PhaseTrackSchema();
                         JObject motionProfile = schema["properties"]?["motion_profile"] as JObject;
                         if (motionProfile != null)
                         {
@@ -410,6 +420,7 @@ namespace KimodoUnityBridge.Command
                             };
                             motionProfile["additionalProperties"] = true;
                         }
+                        schema["properties"]["root_trajectory"] = RootTrajectorySchema();
                     }
                     return schema;
                 }
@@ -654,6 +665,47 @@ namespace KimodoUnityBridge.Command
             return result;
         }
 
+        private static JObject RootTrajectorySchema()
+        {
+            JObject schema = ObjectSchema(
+                "path", "coordinate_space", "frame_rate", "frame_count", "duration_frames_60",
+                "sample_span_frames_60", "path_length_xz", "net_displacement_xz", "net_distance_xz",
+                "average_speed_xz", "heading_change_degrees", "root_pitch_delta_range_degrees",
+                "root_roll_delta_range_degrees", "source_human_scale", "samples");
+            schema["properties"]["path"] = ObjectSchema("track", "index");
+            schema["properties"]["coordinate_space"] = new JObject { ["type"] = "string" };
+            schema["properties"]["frame_rate"] = new JObject { ["type"] = "number" };
+            schema["properties"]["duration_frames_60"] = new JObject { ["type"] = "integer" };
+            schema["properties"]["sample_span_frames_60"] = new JObject { ["type"] = "integer" };
+            foreach (string name in new[] { "path_length_xz", "net_distance_xz", "average_speed_xz", "heading_change_degrees", "source_human_scale" })
+                schema["properties"][name] = new JObject { ["type"] = "number" };
+            schema["properties"]["net_displacement_xz"] = NumberArraySchema();
+            schema["properties"]["root_pitch_delta_range_degrees"] = NumberArraySchema();
+            schema["properties"]["root_roll_delta_range_degrees"] = NumberArraySchema();
+            schema["properties"]["samples"] = ArraySchema("object", "timeline_frame_60", "position_xz", "heading_xz", "root_rotation_delta_euler_degrees");
+            JObject sampleProperties = schema["properties"]["samples"]?["items"]?["properties"] as JObject;
+            sampleProperties["position_xz"] = NumberArraySchema();
+            sampleProperties["heading_xz"] = NumberArraySchema();
+            sampleProperties["root_rotation_delta_euler_degrees"] = NumberArraySchema();
+            return schema;
+        }
+
+        private static JObject PhaseTrackSchema()
+        {
+            JObject schema = ArraySchema(
+                "object", "phase_index", "start_timeline_frame_60", "end_timeline_frame_60_exclusive",
+                "duration_frames_60", "anchor_timeline_frame_60", "kind", "confidence",
+                "mean_feature_change", "mean_root_speed", "upper_body_activity", "foot_event_count");
+            JObject properties = schema["items"]?["properties"] as JObject;
+            foreach (string name in new[] { "phase_index", "foot_event_count", "start_timeline_frame_60", "end_timeline_frame_60_exclusive", "duration_frames_60", "anchor_timeline_frame_60" })
+                properties[name] = new JObject { ["type"] = "integer" };
+            properties["kind"] = new JObject { ["type"] = "string" };
+            properties["confidence"] = new JObject { ["type"] = "string" };
+            foreach (string name in new[] { "mean_feature_change", "mean_root_speed", "upper_body_activity" })
+                properties[name] = new JObject { ["type"] = "number" };
+            return schema;
+        }
+
         private static JObject CommandDocumentationSchema()
         {
             return new JObject
@@ -891,20 +943,28 @@ namespace KimodoUnityBridge.Command
             };
             JObject effectors = new JObject
             {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = new JObject
+                ["type"] = "array",
+                ["minItems"] = 1,
+                ["items"] = new JObject
                 {
-                    ["left_hand"] = effectTarget.DeepClone(),
-                    ["right_hand"] = effectTarget.DeepClone(),
-                    ["left_foot"] = effectTarget.DeepClone(),
-                    ["right_foot"] = effectTarget.DeepClone()
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["joint"] = new JObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JArray("left_hand", "right_hand", "left_foot", "right_foot")
+                        },
+                        ["position"] = effectTarget["properties"]["position"].DeepClone(),
+                        ["rotation"] = effectTarget["properties"]["rotation"].DeepClone()
+                    },
+                    ["required"] = new JArray("joint"),
+                    ["anyOf"] = new JArray(
+                        new JObject { ["required"] = new JArray("position") },
+                        new JObject { ["required"] = new JArray("rotation") })
                 },
-                ["anyOf"] = new JArray(
-                    new JObject { ["required"] = new JArray("left_hand") },
-                    new JObject { ["required"] = new JArray("right_hand") },
-                    new JObject { ["required"] = new JArray("left_foot") },
-                    new JObject { ["required"] = new JArray("right_foot") })
+                ["description"] = "World-space targets for one or more hands or feet. Each item names a joint and supplies position and/or Euler rotation."
             };
             var pointItem = new JObject
             {
@@ -1051,21 +1111,29 @@ namespace KimodoUnityBridge.Command
             };
             JObject effectors = new JObject
             {
-                ["type"] = "object",
-                ["additionalProperties"] = false,
-                ["properties"] = new JObject
+                ["type"] = "array",
+                ["minItems"] = 1,
+                ["items"] = new JObject
                 {
-                    ["left_hand"] = transform.DeepClone(), ["right_hand"] = transform.DeepClone(),
-                    ["left_foot"] = transform.DeepClone(), ["right_foot"] = transform.DeepClone()
-                },
-                ["minProperties"] = 1
+                    ["type"] = "object",
+                    ["additionalProperties"] = false,
+                    ["properties"] = new JObject
+                    {
+                        ["joint"] = new JObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = new JArray("left_hand", "right_hand", "left_foot", "right_foot")
+                        },
+                        ["position"] = transform["properties"]["position"].DeepClone(),
+                        ["rotation"] = transform["properties"]["rotation"].DeepClone()
+                    },
+                    ["required"] = new JArray("joint"),
+                    ["anyOf"] = new JArray(
+                        new JObject { ["required"] = new JArray("position") },
+                        new JObject { ["required"] = new JArray("rotation") })
+                }
             };
-            foreach (string key in new[] { "left_hand", "right_hand", "left_foot", "right_foot" })
-            {
-                JObject value = (JObject)effectors["properties"][key];
-                value["description"] = "Effector target position and/or rotation.";
-            }
-            effectors["description"] = "World-space targets for one or more hands or feet. Supply position and/or rotation for each target.";
+            effectors["description"] = "World-space targets for one or more hands or feet. Each item names a joint and supplies position and/or rotation.";
             return new JObject
             {
                 ["type"] = "object",

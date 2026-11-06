@@ -59,7 +59,8 @@ namespace KimodoBridge.Editor
             // still receive context frames below, but are no longer expanded to
             // a separate minimum generation duration.
             int generationFrameCount = targetFrameCount;
-            int sourceSessionFrameCount = Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * 60.0)));
+            int sourceSessionFrameCount = Mathf.Max(1, Mathf.RoundToInt(
+                (float)(timelineClip.duration * KimodoFrameTimeUtility.CommandFrameRate)));
             bool isLoopGeneration = (generateLoopOverride ?? clip.generateLoop) && sourceSessionFrameCount <= 300;
             int loopPaddingFrames = isLoopGeneration ? generationFrameCount / 2 : 0;
             bool useOutsideGuardFrame = !disableOutsideContextExpansion && ShouldUseOutsideGuardFrame(
@@ -305,7 +306,7 @@ namespace KimodoBridge.Editor
             TimelineClip resolved = timelineClip ?? KimodoTimelineClipResolver.FindTimelineClipForAsset(clip);
             return resolved != null &&
                 resolved.duration > 0.0 &&
-                Mathf.RoundToInt((float)(resolved.duration * 60.0)) <= 300;
+                Mathf.RoundToInt((float)(resolved.duration * KimodoFrameTimeUtility.CommandFrameRate)) <= 300;
         }
 
         public static void FinalizeGeneration(

@@ -294,6 +294,44 @@ namespace KimodoUnityBridge.Generation.Tests
         }
 
         [Test]
+        public void TrimGeneratedMotionForOutputRange_RemovesStageThreeWindowsAndLoopTail()
+        {
+            const int bodyFrames = 90;
+            const int inWindowFrames = 12;
+            const int outWindowFrames = 15;
+            const int loopTailFrames = 29;
+            KimodoRawMotionData stage3Motion = CreateMotion(
+                inWindowFrames + bodyFrames + outWindowFrames + loopTailFrames,
+                1,
+                30f);
+            var result = new KimodoEditorGenerationResult
+            {
+                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(stage3Motion),
+                MotionBytes = KimodoRawMotionUtility.ToFlatBuffer(
+                    stage3Motion,
+                    KimodoMotionModelProfiles.DefaultModelName),
+                AnalysisJson = "{\"keyframes\":[{\"frame\":11},{\"frame\":12},{\"frame\":101},{\"frame\":102}]}"
+            };
+
+            KimodoEditorGeneratePipeline.TrimGeneratedMotionForOutputRange(
+                result,
+                inWindowFrames,
+                bodyFrames,
+                KimodoMotionModelProfiles.DefaultModelName);
+
+            Assert.That(KimodoRawMotionUtility.TryParse(result.MotionJsonCompact, out KimodoRawMotionData trimmed, out string jsonError), Is.True, jsonError);
+            Assert.That(trimmed.FrameCount, Is.EqualTo(bodyFrames));
+            Assert.That(trimmed.DurationSeconds, Is.EqualTo(3f).Within(1e-6f));
+            Assert.That(trimmed.rootPositions[0].x, Is.EqualTo(inWindowFrames));
+            Assert.That(trimmed.rootPositions[bodyFrames - 1].x, Is.EqualTo(inWindowFrames + bodyFrames - 1));
+            Assert.That(KimodoRawMotionUtility.TryParseFlatBuffer(result.MotionBytes, out KimodoRawMotionData trimmedBytes, out string bytesError), Is.True, bytesError);
+            Assert.That(trimmedBytes.FrameCount, Is.EqualTo(bodyFrames));
+            Assert.That(result.AnalysisJson, Does.Contain("\"frame\":0"));
+            Assert.That(result.AnalysisJson, Does.Contain("\"frame\":89"));
+            Assert.That(result.AnalysisJson, Does.Not.Contain("\"frame\":90"));
+        }
+
+        [Test]
         public void BridgeCommand_RejectsNullRequestBeforeInvokingBackend()
         {
             var command = new KimodoBridgeCommand(new FakeBridgeTransport());

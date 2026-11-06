@@ -480,6 +480,10 @@ namespace KimodoUnityBridge.Command
             // The renderer later replaces Humanoid anchors with phase anchors.
             analysis["keyframes"] = keyframes;
             analysis["foot_contacts"] = normalizedContacts;
+            // Clip duration is already represented by the public Timeline
+            // range. Do not persist an unqualified model-frame duration in the
+            // analysis record.
+            analysis.Remove("duration_frames");
             analysis["source"] = "quickserver_analysis_only";
             analysis["command_fps"] = SessionFrameRate;
         }

@@ -139,7 +139,7 @@ namespace KimodoUnityBridge.Command
                         sceneCharacterRoot, sourceCharacter, poseWarnings);
                     if (HasPoseAndEffector(canonical))
                     {
-                        JObject effect = (JObject)canonical["effector"];
+                        JArray effect = (JArray)canonical["effector"];
                         if (!KimodoConstraintPosePipeline.TryApplyCanonical(
                             sample, frameRate, targetCache, out _, out _, out string validationError))
                         {
@@ -217,7 +217,7 @@ namespace KimodoUnityBridge.Command
         private static void ValidateSolvedRootEffectors(
             KimodoMarkerSampleResult result,
             RetargetSkeleton targetCache,
-            JObject effect,
+            JArray effect,
             int constraintIndex)
         {
             string[] names = { "left_hand", "right_hand", "left_foot", "right_foot" };
@@ -228,19 +228,18 @@ namespace KimodoUnityBridge.Command
                 HumanBodyBones.LeftFoot,
                 HumanBodyBones.RightFoot
             };
-            for (int i = 0; i < names.Length; i++)
+            foreach (JObject entry in effect.OfType<JObject>())
             {
-                if (effect[names[i]] is not JObject)
-                {
-                    continue;
-                }
+                string joint = entry.Value<string>("joint");
+                int i = Array.IndexOf(names, joint);
+                if (i < 0) continue;
                 if (!targetCache.GetBonePose(bones[i], out Vector3 solvedPosition, out Quaternion solvedRotation))
                 {
                     throw new InvalidOperationException(
-                        $"constraints[{constraintIndex}].effector.{names[i]} could not be read after IK preflight.");
+                        $"constraints[{constraintIndex}].effector[{joint}] could not be read after IK preflight.");
                 }
 
-                KimodoRigidTransform target = names[i] switch
+                KimodoRigidTransform target = joint switch
                 {
                     "left_hand" => result.effectors.leftHand,
                     "right_hand" => result.effectors.rightHand,
@@ -255,7 +254,7 @@ namespace KimodoUnityBridge.Command
                 if (positionError > 0.03f || rotationError > 15f)
                 {
                     throw new InvalidOperationException(
-                        $"constraints[{constraintIndex}].effector.{names[i]} is unreachable " +
+                        $"constraints[{constraintIndex}].effector[{joint}] is unreachable " +
                         $"(position_error={positionError.ToString("0.####", CultureInfo.InvariantCulture)}, " +
                         $"rotation_error_degrees={rotationError.ToString("0.##", CultureInfo.InvariantCulture)}).");
                 }
@@ -307,19 +306,20 @@ namespace KimodoUnityBridge.Command
                 OverlayConstraintTransform(root, sample.rootOverride, $"constraints[{index}].root");
                 if (root["rotation"] != null) sample.enableMask.rootHeading = true;
             }
-            if (value["effector"] is not JObject effectors) return;
-            foreach (JProperty property in effectors.Properties())
+            if (value["effector"] is not JArray effectors) return;
+            foreach (JObject entry in effectors.OfType<JObject>())
             {
+                string joint = entry.Value<string>("joint");
                 KimodoRigidTransform target;
-                switch (property.Name)
+                switch (joint)
                 {
                     case "left_hand": target = sample.effectors.leftHand; sample.enableMask.leftHand = true; break;
                     case "right_hand": target = sample.effectors.rightHand; sample.enableMask.rightHand = true; break;
                     case "left_foot": target = sample.effectors.leftFoot; sample.enableMask.leftFoot = true; break;
                     case "right_foot": target = sample.effectors.rightFoot; sample.enableMask.rightFoot = true; break;
-                    default: throw new InvalidOperationException($"Unsupported effector '{property.Name}'.");
+                    default: throw new InvalidOperationException($"Unsupported effector joint '{joint}'.");
                 }
-                OverlayConstraintTransform((JObject)property.Value, target, $"constraints[{index}].effector.{property.Name}");
+                OverlayConstraintTransform(entry, target, $"constraints[{index}].effector[{joint}]");
             }
         }
 
@@ -336,7 +336,7 @@ namespace KimodoUnityBridge.Command
 
         internal static bool HasPoseAndEffector(JObject constraint)
         {
-            return constraint?["pose"] is JObject && constraint["effector"] is JObject;
+            return constraint?["pose"] is JObject && constraint["effector"] is JArray;
         }
 
         private static void ValidatePointConstraintShape(JObject constraint, int index)
@@ -349,30 +349,39 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException(property.Name == "type"
                         ? $"{path}.type is not used; select the type with root, pose, and effector data."
                         : $"{path} field '{property.Name}' is not valid for a point constraint.");
-                if (property.Name != "frame" && property.Value is not JObject)
+                if (property.Name != "frame" &&
+                    property.Name != "effector" &&
+                    property.Value is not JObject)
                     throw new InvalidOperationException($"{path}.{property.Name} must be an object.");
             }
             if (constraint["pose"] == null && constraint["root"] == null)
                 throw new InvalidOperationException($"{path} must include pose or root; effector requires explicit root context.");
             if (constraint["root"] is JObject root) ValidateConstraintTransform(root, path + ".root");
-            if (constraint["effector"] is not JObject effectors) return;
-            if (!effectors.HasValues) throw new InvalidOperationException($"{path}.effector requires at least one end effector.");
-            foreach (JProperty property in effectors.Properties())
+            if (constraint["effector"] == null) return;
+            if (constraint["effector"] is not JArray effectors)
+                throw new InvalidOperationException($"{path}.effector must be an array.");
+            if (effectors.Count == 0) throw new InvalidOperationException($"{path}.effector requires at least one end effector.");
+            var seenJoints = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < effectors.Count; i++)
             {
-                if (property.Name != "left_hand" && property.Name != "right_hand" &&
-                    property.Name != "left_foot" && property.Name != "right_foot")
-                    throw new InvalidOperationException($"{path}.effector has unsupported target '{property.Name}'.");
-                if (property.Value is not JObject target)
-                    throw new InvalidOperationException($"{path}.effector.{property.Name} must be an object.");
-                ValidateConstraintTransform(target, path + ".effector." + property.Name);
+                if (effectors[i] is not JObject target)
+                    throw new InvalidOperationException($"{path}.effector[{i}] must be an object.");
+                string joint = target.Value<string>("joint");
+                if (joint != "left_hand" && joint != "right_hand" &&
+                    joint != "left_foot" && joint != "right_foot")
+                    throw new InvalidOperationException($"{path}.effector[{i}].joint '{joint}' is unsupported.");
+                if (!seenJoints.Add(joint))
+                    throw new InvalidOperationException($"{path}.effector contains duplicate joint '{joint}'.");
+                ValidateConstraintTransform(target, path + ".effector[" + i + "]", allowJoint: true);
             }
         }
 
-        private static void ValidateConstraintTransform(JObject value, string path)
+        private static void ValidateConstraintTransform(JObject value, string path, bool allowJoint = false)
         {
             if (!value.HasValues) throw new InvalidOperationException($"{path} requires position or rotation.");
             foreach (JProperty property in value.Properties())
             {
+                if (allowJoint && property.Name == "joint") continue;
                 if (property.Name != "position" && property.Name != "rotation")
                     throw new InvalidOperationException($"{path} has unsupported field '{property.Name}'.");
                 ReadVector3(property.Value as JArray, path + "." + property.Name);

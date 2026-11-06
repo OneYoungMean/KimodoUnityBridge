@@ -21,7 +21,7 @@ namespace KimodoBridge.Editor.Tests
             var input = new JObject { ["frame"] = 30 };
             if (root) input["root"] = JObject.Parse("{position:[3,2,1]}");
             if (pose) input["pose"] = JObject.Parse("{track:'Pose',index:0}");
-            if (effector) input["effector"] = JObject.Parse("{right_hand:{position:[4,3,2]}}");
+            if (effector) input["effector"] = JArray.Parse("[{joint:'right_hand',position:[4,3,2]}]");
             var sample = CreateFullBody(1, 0.75f, true);
             EnableAllEffectors(sample);
 
@@ -36,13 +36,13 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [TestCase("{}")]
-        [TestCase("{effector:{right_hand:{position:[1,2,3]}}}")]
+        [TestCase("{effector:[{joint:'right_hand',position:[1,2,3]}]}")]
         [TestCase("{root:{}}")]
-        [TestCase("{root:{position:[1,2,3]},effector:{}}")]
-        [TestCase("{root:{position:[1,2,3]},effector:{right_hand:{}}}")]
+        [TestCase("{root:{position:[1,2,3]},effector:[]}")]
+        [TestCase("{root:{position:[1,2,3]},effector:[{joint:'right_hand'}]}")]
         [TestCase("{root:{rotation:[0,0,0,1]}}")]
         [TestCase("{root:{position:[1,2]}}")]
-        [TestCase("{root:{position:[1,2,3]},effector:{head:{position:[1,2,3]}}}")]
+        [TestCase("{root:{position:[1,2,3]},effector:[{joint:'head',position:[1,2,3]}]}")]
         [TestCase("{root2d:{position:[1,2]}}")]
         [TestCase("{root:{position:[1,2,3]},effect:{right_hand:{position:[1,2,3]}}}")]
         [TestCase("{root:{position:[1,2,3]},type:'root2d'}")]
@@ -62,7 +62,7 @@ namespace KimodoBridge.Editor.Tests
             sample.effectors.rightHand.space = KimodoConstraintSpace.Local;
             Vector3 handWorld = KimodoConstraintSpaceUtility.ToWorldPosition(
                 sample.effectors.rightHand.t, sample.effectors.rightHand.space, sample.rootOverride);
-            var input = JObject.Parse("{root:{rotation:[10,80,30]},effector:{right_hand:{rotation:[20,40,60]}}}");
+            var input = JObject.Parse("{root:{rotation:[10,80,30]},effector:[{joint:'right_hand',rotation:[20,40,60]}]}");
 
             KimodoUnityBridge.Command.command_context.ApplyPointConstraintData(input, sample, 0, 0);
 
@@ -81,7 +81,7 @@ namespace KimodoBridge.Editor.Tests
             sample.rootOverride.q = Quaternion.Euler(10, 30, 20);
             sample.effectors.rightHand.q = Quaternion.Euler(40, 20, 10);
             sample.effectors.rightHand.space = KimodoConstraintSpace.World;
-            var input = JObject.Parse("{root:{position:[4,5,6]},effector:{right_hand:{position:[7,8,9]}}}");
+            var input = JObject.Parse("{root:{position:[4,5,6]},effector:[{joint:'right_hand',position:[7,8,9]}]}");
 
             KimodoUnityBridge.Command.command_context.ApplyPointConstraintData(input, sample, 0, 0);
 
@@ -445,7 +445,7 @@ namespace KimodoBridge.Editor.Tests
             var input = new JObject
             {
                 ["root"] = new JObject { ["position"] = new JArray(4f, 0.9f, 5f), ["rotation"] = new JArray(0f, 90f, 0f) },
-                ["effector"] = new JObject { ["right_hand"] = new JObject { ["position"] = new JArray(4f, 1.1f, 6f) } },
+                ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(4f, 1.1f, 6f) }),
             };
             if (withPose) input["pose"] = new JObject { ["track"] = "P", ["index"] = 0 };
             KimodoUnityBridge.Command.command_context.ApplyPointConstraintData(input, support, 0, 0);

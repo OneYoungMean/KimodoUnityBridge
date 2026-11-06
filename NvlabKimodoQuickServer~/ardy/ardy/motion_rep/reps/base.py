@@ -71,6 +71,43 @@ class MotionRepBase:
                 + (self.global_root_dim + self.local_root_dim + np.arange(self.body_dim)).tolist(),
             )
 
+    def recenter_root_motion(
+        self,
+        root_motion: torch.Tensor,
+        center_frame_index: torch.Tensor,
+        is_normalized: bool,
+        to_normalize: bool,
+        return_center_pos: bool = False,
+    ):
+        """Translate root x/z so a selected frame becomes the local origin.
+
+        Rep-agnostic: every representation starts its root block with a 3D position
+        (``root_pos`` or ``smooth_root_pos``).
+        """
+        if is_normalized:
+            root_motion = self.global_root_stats.unnormalize(root_motion)
+
+        batch_idx = torch.arange(root_motion.shape[0], device=root_motion.device)
+        center_pos = root_motion[batch_idx, center_frame_index.long(), :3].clone()
+        center_pos[:, 1] = 0
+        root_motion = root_motion.clone()
+        root_motion[:, :, [0, 2]] -= center_pos[:, None, [0, 2]]
+
+        if to_normalize:
+            root_motion = self.global_root_stats.normalize(root_motion)
+        if return_center_pos:
+            return root_motion, center_pos
+        return root_motion
+
+    @property
+    def root_pos_name(self) -> str:
+        """Name of the 3D root-position feature block (``root_pos`` or ``smooth_root_pos``)."""
+        if "root_pos" in self.slice_dict:
+            return "root_pos"
+        if "smooth_root_pos" not in self.slice_dict:
+            raise TypeError("This motion rep should have either a root_pos or smooth_root_pos field")
+        return "smooth_root_pos"
+
     def get_root_pos(self, features: torch.Tensor, fallback_to_smooth: bool = True):
         """Extract root positions from a feature tensor.
 

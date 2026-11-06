@@ -136,7 +136,7 @@ namespace KimodoBridge.Editor.Tests
                 skeleton.animator.GetBoneTransform(HumanBodyBones.RightUpperArm).localRotation *= Quaternion.Euler(0, 0, 45);
                 var input = JObject.Parse(@"{'root':{'rotation':[0,35,0]}}");
                 if (withEffector)
-                    input["effector"] = JObject.Parse(@"{'right_hand':{'position':[1,1.2,0.5]}}");
+                    input["effector"] = JArray.Parse(@"[{'joint':'right_hand','position':[1,1.2,0.5]}]");
                 var support = (KimodoMarkerSampleResult)resolve.Invoke(null, new object[]
                 {
                     input, "point", skeleton, skeleton.root, withSourceCharacter ? character : null, new List<string>(), 0
@@ -205,8 +205,9 @@ namespace KimodoBridge.Editor.Tests
                 {
                     Assert.That(skeleton.GetBonePose(HumanBodyBones.RightHand, out Vector3 hand, out _), Is.True);
                     Vector3 target = hand + new Vector3(2f - supportRoot.x, 0f, -3f - supportRoot.z);
-                    commandInput["effector"] = new JObject { ["right_hand"] = new JObject {
-                        ["position"] = new JArray(target.x, target.y, target.z) } };
+                    commandInput["effector"] = new JArray(new JObject {
+                        ["joint"] = "right_hand",
+                        ["position"] = new JArray(target.x, target.y, target.z) });
                 }
                 Type context = typeof(command_dispatcher).Assembly
                     .GetType("KimodoUnityBridge.Command.command_context");
@@ -271,7 +272,7 @@ namespace KimodoBridge.Editor.Tests
                 var input = new JObject
                 {
                     ["pose"] = new JObject { ["track"] = "P", ["index"] = 0 },
-                    ["effector"] = new JObject { ["right_hand"] = new JObject { ["position"] = new JArray(target.x, target.y, target.z) } }
+                    ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(target.x, target.y, target.z) })
                 };
                 if (withRoot) input["root"] = new JObject { ["position"] = new JArray(pose.rootOverride.t.x, pose.rootOverride.t.y, pose.rootOverride.t.z) };
                 KimodoUnityBridge.Command.command_context.ApplyPointConstraintData(input, pose, 0, 0);

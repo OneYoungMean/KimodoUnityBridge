@@ -9,6 +9,7 @@ namespace KimodoBridge.Editor
     internal static class KimodoRuntimeProfileSkeletonPreview
     {
         private const string Soma77Guid = "138d6af561fb0f444b376fcf343f7217";
+        private const string Soma30Guid = "4246ef31ebd8c9448a4ebe5d5459a8e4";
         private const string Core27Guid = "6e1c47532d2e35c4084a31676521099c";
         private const string G1Guid = "cc09b26154e1aac448af3abae05da792";
         private const string SmplxGuid = "d1515f7acb0ea8d49b6ce2db95af38a7";
@@ -154,6 +155,7 @@ namespace KimodoBridge.Editor
                 KimodoConstraintRigType.Core27 => Core27Guid,
                 KimodoConstraintRigType.G1 => G1Guid,
                 KimodoConstraintRigType.Smplx => SmplxGuid,
+                KimodoConstraintRigType.Soma30 => Soma30Guid,
                 _ => Soma77Guid
             };
         }

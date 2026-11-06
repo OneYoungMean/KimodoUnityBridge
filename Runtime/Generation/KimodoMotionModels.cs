@@ -29,6 +29,9 @@ namespace KimodoBridge
         internal const string ArdyCore8ModelName = "ARDY-Core-RP-20FPS-Horizon8";
         internal const string ArdyG1ModelName = "ARDY-G1-RP-25FPS-Horizon52";
         internal const string ArdyG18ModelName = "ARDY-G1-RP-25FPS-Horizon8";
+        internal const string ArdySomaModelName = "ARDY-SOMA-RP-30FPS-Horizon60";
+        internal const string ArdySomaKimodoModelName = "ARDY-SOMA-RP-30FPS-KimodoRep-Horizon60";
+        internal const string KimodoSomaArdyRepModelName = "Kimodo-SOMA-RP-ArdyRep-v1.2";
 
         private static readonly KimodoMotionModelProfile ArdyCore = CreateArdy(
             ArdyCoreModelName,
@@ -62,6 +65,25 @@ namespace KimodoBridge
             34,
             "ardy-g1-rp-25fps-h8:nfpt4:motionrep-v1");
 
+        private static readonly KimodoMotionModelProfile ArdySoma = CreateArdy(
+            ArdySomaModelName,
+            30f,
+            60,
+            240,
+            30,
+            "ardy-soma-rp-30fps-h60:nfpt4:motionrep-v1");
+
+        private static readonly KimodoMotionModelProfile ArdySomaKimodo = CreateArdy(
+            ArdySomaKimodoModelName,
+            30f,
+            60,
+            240,
+            30,
+            "ardy-soma-rp-30fps-kimodorep-h60:nfpt4:motionrep-v1");
+
+        private static readonly KimodoMotionModelProfile KimodoSomaArdyRep =
+            CreateKimodo(KimodoSomaArdyRepModelName, 30);
+
         private static readonly KimodoMotionModelProfile[] Profiles =
         {
             CreateKimodo(DefaultModelName, 77),
@@ -71,10 +93,13 @@ namespace KimodoBridge
             CreateKimodo("Kimodo-SOMA-SEED-v1", 77),
             CreateKimodo("Kimodo-SOMA-SEED-v1.1", 77),
             CreateKimodo("Kimodo-G1-SEED-v1", 34),
+            KimodoSomaArdyRep,
             ArdyCore,
             ArdyCore8,
             ArdyG1,
-            ArdyG18
+            ArdyG18,
+            ArdySoma,
+            ArdySomaKimodo
         };
 
         internal static readonly string[] AllModelNames = BuildModelNames();
@@ -105,6 +130,12 @@ namespace KimodoBridge
                     profile = Profiles[i];
                     return true;
                 }
+            }
+
+            if (Matches(normalized, "soma-ardyrep", "kimodo-soma-ardyrep"))
+            {
+                profile = KimodoSomaArdyRep;
+                return true;
             }
 
             return TryGetArdyAlias(normalized, out profile);
@@ -166,6 +197,18 @@ namespace KimodoBridge
             if (Matches(modelName, "ardy-g18"))
             {
                 profile = ArdyG18;
+                return true;
+            }
+
+            if (Matches(modelName, "ardy-soma", "ardy-soma60"))
+            {
+                profile = ArdySoma;
+                return true;
+            }
+
+            if (Matches(modelName, "ardy-soma-kimodo", "ardy-soma-kimodorep", "ardy-soma-kimodorep60"))
+            {
+                profile = ArdySomaKimodo;
                 return true;
             }
 

@@ -137,3 +137,109 @@ namespace KimodoUnityBridge.Command
         }
     }
 }
+
+
+namespace KimodoUnityBridge.Command
+{
+    internal static partial class command_context
+    {
+        public static string SceneContext(string argumentsJson = "{}") =>
+            Execute(argumentsJson, SceneContextGet);
+
+        public static string SessionHistory(string argumentsJson = "{}") =>
+            Execute(argumentsJson, SessionHistoryGet);
+
+        public static string ClipInspect(string argumentsJson) =>
+            Execute(argumentsJson, ClipInspect);
+
+        public static string ClipSettingsSet(string argumentsJson) =>
+            Execute(argumentsJson, ClipSettingsSet);
+
+    }
+}
+
+namespace KimodoUnityBridge.Api
+{
+    /// <summary>
+    /// Direct command APIs. These methods call the command implementation by
+    /// operation, without routing through a command-name lookup.
+    /// Results retain the JSON command contract for host interoperability.
+    /// </summary>
+    public static class Animation
+    {
+        public static string Generate(string argumentsJson) =>
+            Command.command_context.GenerateAnimationAsset(argumentsJson);
+
+        public static Task<string> GenerateAsync(string argumentsJson) =>
+            Command.command_context.GenerateAnimationAssetAsync(argumentsJson);
+
+        public static string Analysis(string argumentsJson) =>
+            Command.command_context.AnimationAnalysis(argumentsJson);
+
+        public static string Retarget(string argumentsJson) =>
+            Command.command_context.RetargetAnimation(argumentsJson);
+    }
+
+    public static class Generation
+    {
+        public static string Install(string argumentsJson = "{}") =>
+            Command.command_context.InstallServer(argumentsJson);
+
+        public static Task<string> InstallAsync(string argumentsJson = "{}") =>
+            Command.command_context.InstallServerAsync(argumentsJson);
+
+        public static string Get(string argumentsJson) =>
+            Command.command_context.GetGeneration(argumentsJson);
+
+        public static string Cancel(string argumentsJson) =>
+            Command.command_context.CancelGeneration(argumentsJson);
+
+        public static Task<string> GetAsync(string argumentsJson) =>
+            Command.command_context.GetGenerationAsync(argumentsJson);
+    }
+
+    public static class Pose
+    {
+        public static string Analysis(string argumentsJson) =>
+            Command.command_context.PoseAnalysis(argumentsJson);
+
+        public static string Get(string argumentsJson) =>
+            Command.command_context.PoseGet(argumentsJson);
+
+        public static string Set(string argumentsJson) =>
+            Command.command_context.PoseSet(argumentsJson);
+    }
+
+    public static class Clip
+    {
+        public static string Inspect(string argumentsJson) =>
+            Command.command_context.ClipInspect(argumentsJson);
+
+        public static string SetSettings(string argumentsJson) =>
+            Command.command_context.ClipSettingsSet(argumentsJson);
+    }
+
+    public static class Scene
+    {
+        public static string Context(string argumentsJson = "{}") =>
+            Command.command_context.SceneContext(argumentsJson);
+    }
+
+    public static class Session
+    {
+        public static string History(string argumentsJson = "{}") =>
+            Command.command_context.SessionHistory(argumentsJson);
+
+        public static string Clear(string argumentsJson = "{}") =>
+            Command.command_context.ClearSession(argumentsJson);
+    }
+
+    public static class Help
+    {
+        public static string Definitions() =>
+            Command.command_context.GetCommandDefinitionsJson();
+
+        public static string Get(string argumentsJson = "{}") =>
+            Command.command_context.GetCommandHelp(argumentsJson);
+    }
+}

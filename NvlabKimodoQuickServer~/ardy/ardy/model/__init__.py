@@ -13,9 +13,12 @@ from .loading import (
     load_checkpoint_state_dict,
 )
 
+# from .twostage_denoiser import TwostageDenoiser
+
 __all__ = [
     "Ardy",
     "LLM2VecEncoder",
+    # "TwostageDenoiser",
     "load_model",
     "load_checkpoint_state_dict",
     "AVAILABLE_MODELS",

@@ -139,7 +139,7 @@ namespace KimodoUnityBridge.Command.Tests
                 });
 
                 Assert.That(analysis["request_id"], Is.Null);
-                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("6-command-60-force-line-v1"));
+                Assert.That(analysis.Value<string>("analysis_schema_version"), Is.EqualTo("7-command-60-explicit-frame-units-v1"));
                 Assert.That(analysis["picture"], Is.Null);
                 Assert.That(analysis["clips"], Is.Null);
                 Assert.That(analysis["pictures"]?.Value<string>("aspect"), Is.EqualTo("16:9"));
@@ -202,6 +202,9 @@ namespace KimodoUnityBridge.Command.Tests
                 }
                 Assert.That(phases.First().Value<int>("start_timeline_frame_60"), Is.EqualTo(0));
                 Assert.That(phases.First()["start_frame"], Is.Null);
+                Assert.That(phases.First()["duration_frames"], Is.Null);
+                Assert.That(phases.First().Value<int>("duration_frames_60"), Is.EqualTo(
+                    phases.First().Value<int>("end_timeline_frame_60_exclusive") - phases.First().Value<int>("start_timeline_frame_60")));
                 Assert.That(phases.First()["duration_seconds"], Is.Null);
                 int analyzedFrameCount = clipAnalysis["root_trajectory"]?.Value<int>("frame_count") ?? 0;
                 Assert.That(analyzedFrameCount, Is.GreaterThan(1));
@@ -210,7 +213,13 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(clipAnalysis["foot_contacts"]?.Count(), Is.GreaterThan(0));
                 Assert.That(clipAnalysis["foot_contacts"]?.FirstOrDefault()?["timeline_frame_60"], Is.Not.Null);
                 Assert.That(clipAnalysis["foot_contacts"]?.FirstOrDefault()?["frame"], Is.Null);
+                Assert.That(clipAnalysis["foot_contacts"]?.FirstOrDefault()?["duration_frames"], Is.Null);
+                Assert.That(clipAnalysis["foot_contacts"]?.FirstOrDefault()?["duration_frames_60"], Is.Not.Null);
                 Assert.That(clipAnalysis["root_trajectory"]?["duration_seconds"], Is.Null);
+                Assert.That(clipAnalysis["root_trajectory"]?["duration_frames"], Is.Null);
+                Assert.That(clipAnalysis["root_trajectory"]?["duration_frames_60"], Is.EqualTo(analyzedFrameCount));
+                Assert.That(clipAnalysis["root_trajectory"]?["sample_span_frames"], Is.Null);
+                Assert.That(clipAnalysis["root_trajectory"]?["sample_span_frames_60"], Is.EqualTo(analyzedFrameCount - 1));
                 Assert.That(clipAnalysis["root_trajectory"]?["samples"]?.FirstOrDefault()?["timeline_frame_60"], Is.Not.Null);
                 Assert.That(clipAnalysis["root_trajectory"]?["samples"]?.FirstOrDefault()?["frame"], Is.Null);
                 AssertGhostTileSpacing(analysis, clipAnalysis, "1.3");
@@ -231,10 +240,11 @@ namespace KimodoUnityBridge.Command.Tests
                         {
                             ["frame"] = 0,
                             ["root"] = new JObject { ["position"] = new JArray(0, 0, 0) },
-                            ["effector"] = new JObject
+                            ["effector"] = new JArray(new JObject
                             {
-                                ["right_hand"] = new JObject { ["position"] = new JArray(0, 0, 0) }
-                            }
+                                ["joint"] = "right_hand",
+                                ["position"] = new JArray(0, 0, 0)
+                            })
                         },
                         new JObject
                         {
@@ -358,10 +368,11 @@ namespace KimodoUnityBridge.Command.Tests
                         {
                             ["frame"] = 0,
                             ["root"] = new JObject { ["position"] = new JArray(0, 0, 0) },
-                            ["effector"] = new JObject
+                            ["effector"] = new JArray(new JObject
                             {
-                                ["right_hand"] = new JObject { ["position"] = new JArray(0, 0, 0) }
-                            }
+                                ["joint"] = "right_hand",
+                                ["position"] = new JArray(0, 0, 0)
+                            })
                         }
                     },
                     ["combine"] = false,

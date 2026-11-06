@@ -269,12 +269,12 @@ namespace KimodoUnityBridge.Command
         {
             JObject result = (JObject)arguments.DeepClone();
             var targets = new JArray();
-            JObject effectors = sourceResult?["constraint"]?["effector"] as JObject;
+            JArray effectors = sourceResult?["constraint"]?["effector"] as JArray;
             if (effectors != null)
             {
-                foreach (JProperty effector in effectors.Properties())
+                foreach (JObject effector in effectors.OfType<JObject>())
                 {
-                    string joint = effector.Name switch
+                    string joint = effector.Value<string>("joint") switch
                     {
                         "left_hand" => "LeftHand",
                         "right_hand" => "RightHand",
@@ -282,7 +282,7 @@ namespace KimodoUnityBridge.Command
                         "right_foot" => "RightFoot",
                         _ => null
                     };
-                    JArray position = effector.Value?["position"] as JArray;
+                    JArray position = effector["position"] as JArray;
                     if (joint == null || position == null) continue;
                     targets.Add(new JObject
                     {

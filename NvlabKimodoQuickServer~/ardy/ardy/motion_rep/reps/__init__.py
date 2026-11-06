@@ -3,5 +3,6 @@
 
 from .ardy_motionrep import ArdyMotionRep
 from .base import MotionRepBase
+from .kimodo_motionrep import KimodoMotionRep
 
-__all__ = ["ArdyMotionRep", "MotionRepBase"]
+__all__ = ["ArdyMotionRep", "KimodoMotionRep", "MotionRepBase"]

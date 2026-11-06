@@ -37,9 +37,12 @@ namespace KimodoUnityBridge.Command
         {
             int requested = side["window_frames"] == null ? 1 : RequiredNonNegativeFrame(side, "window_frames");
             int count = side["sample_count"] == null ? 1 : RequiredNonNegativeFrame(side, "sample_count");
-            if (requested < 1 || requested / SessionFrameRate * fps > KimodoMotionModelProfiles.MaxGenerationFrames)
+            if (requested < 1)
                 throw new InvalidOperationException("inout.window_frames must be positive and fit the model frame limit.");
-            int frames = KimodoConstraintWindowSpec.FromCommandFrames60(requested, count, fps).ModelFrameCount;
+            KimodoConstraintWindowSpec windowSpec = KimodoConstraintWindowSpec.FromCommandFrames60(requested, count, fps);
+            int frames = windowSpec.ModelFrameCount;
+            if (frames > KimodoMotionModelProfiles.MaxGenerationFrames)
+                throw new InvalidOperationException("inout.window_frames must be positive and fit the model frame limit.");
             if (count < 1 || count > frames)
                 throw new InvalidOperationException($"inout.sample_count must be within [1,{frames}] after conversion to model FPS; duplicate sample frames are not allowed.");
             if (inside && frames > targetFrames)
@@ -49,7 +52,7 @@ namespace KimodoUnityBridge.Command
                 ?? throw new InvalidOperationException("inout.source must be an object.");
             double boundary = source["frame"] == null
                 ? (forward ? 0 : sourceDuration - 1.0 / fps)
-                : RequiredNonNegativeFrame(source, "frame") / SessionFrameRate;
+                : KimodoFrameTimeUtility.CommandFrameIndexToSeconds(RequiredNonNegativeFrame(source, "frame"));
             double first = boundary - (forward ? 0 : (frames - 1.0) / fps);
             double last = first + (frames - 1.0) / fps;
             if (sourceDuration <= 0 || first < -1e-7 || last >= sourceDuration - 1e-7)
@@ -63,7 +66,7 @@ namespace KimodoUnityBridge.Command
                 SourceTimes = indices.Select(i => Math.Max(0, first) + i / (double)fps).ToArray(),
                 OutputFrames = indices.Select(i => start + i).ToArray(),
                 SourceWindowStartSeconds = first,
-                SourceWindowDurationSeconds = requested / SessionFrameRate
+                SourceWindowDurationSeconds = KimodoFrameTimeUtility.CommandFramesToSeconds(requested)
             };
         }
 

@@ -456,7 +456,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void PlayModeTransition_DisablesContextWithoutDestroyingItsTimeline()
+        public void PlayModeTransition_AddsRuntimeGuardAndLeavesExitToSceneReload()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -475,15 +475,25 @@ namespace KimodoUnityBridge.Command.Tests
                     "OnPlayModeStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
 
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.ExitingEditMode });
+                Assert.That(root.activeSelf, Is.True,
+                    "Preparing to enter Play Mode must not change the Edit Mode active state.");
+                Assert.That(root.GetComponent<KimodoDisableOnRuntime>(), Is.Null,
+                    "Existing roots should not be modified before Play Mode begins.");
+
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredPlayMode });
-                Assert.That(root, Is.Not.Null);
+                Assert.That(root.activeSelf, Is.True,
+                    "The Play Mode callback should leave disabling to the guard's Awake.");
+                KimodoDisableOnRuntime guard = root.GetComponent<KimodoDisableOnRuntime>();
+                Assert.That(guard, Is.Not.Null,
+                    "Legacy Session roots must receive the runtime guard in Play Mode.");
+                guard.DisableForPlay();
                 Assert.That(root.activeSelf, Is.False);
                 Assert.That(root.GetComponent<KimodoSessionContextBinding>(), Is.Not.Null);
                 Assert.That(director.playableAsset, Is.SameAs(timeline));
 
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredEditMode });
-                Assert.That(root, Is.Not.Null);
-                Assert.That(root.activeSelf, Is.True);
+                Assert.That(root.activeSelf, Is.False,
+                    "Exiting Play Mode must not mutate the root; scene reload restores it.");
             }
             finally
             {
@@ -611,7 +621,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void SessionRuntimeGuard_RestoresTheOriginalActiveState()
+        public void SessionRuntimeGuard_DisablesTheRootWithoutTrackingExitState()
         {
             GameObject root = new GameObject("KimodoSession_RuntimeGuardTest");
             try
@@ -621,14 +631,9 @@ namespace KimodoUnityBridge.Command.Tests
                 guard.DisableForPlay();
                 Assert.That(root.activeSelf, Is.False);
 
-                guard.RestoreAfterPlay();
-                Assert.That(root.activeSelf, Is.True);
-
-                root.SetActive(false);
                 guard.DisableForPlay();
-                guard.RestoreAfterPlay();
                 Assert.That(root.activeSelf, Is.False,
-                    "A context that was inactive before Play Mode must remain inactive in Edit Mode.");
+                    "Disabling an already inactive Session root must remain safe.");
             }
             finally
             {
@@ -637,7 +642,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void SessionRuntimeGuard_PlayModeStateChangesDisableAndRestoreSessionRoots()
+        public void SessionRuntimeGuard_AddsGuardInPlayModeAndDoesNothingWhenItEnds()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -651,16 +656,21 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(onPlayModeStateChanged, Is.Not.Null);
 
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.ExitingEditMode });
-                Assert.That(root.activeSelf, Is.False,
-                    "The Session root must be disabled before Play Mode starts.");
+                Assert.That(root.activeSelf, Is.True,
+                    "The Session root must remain active before Play Mode.");
+                Assert.That(root.GetComponent<KimodoDisableOnRuntime>(), Is.Null);
 
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredPlayMode });
-                Assert.That(root.activeSelf, Is.False,
-                    "Entering Play Mode must keep the Session root disabled without replacing its captured state.");
+                Assert.That(root.activeSelf, Is.True,
+                    "The state callback must leave disabling to Awake.");
+                KimodoDisableOnRuntime guard = root.GetComponent<KimodoDisableOnRuntime>();
+                Assert.That(guard, Is.Not.Null);
+                guard.DisableForPlay();
+                Assert.That(root.activeSelf, Is.False);
 
                 onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredEditMode });
-                Assert.That(root.activeSelf, Is.True,
-                    "The Session root must recover its Edit Mode state after Play Mode.");
+                Assert.That(root.activeSelf, Is.False,
+                    "The guard must not manually restore state after Play Mode.");
             }
             finally
             {

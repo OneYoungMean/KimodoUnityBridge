@@ -20,8 +20,7 @@ namespace KimodoBridge.Editor
             var result = new List<KimodoClipConstraint>();
             if (playableClip == null) return result;
             if (includeTimelineInConstraint &&
-                KimodoMotionModelProfiles.TryGetArdy(modelName, out _) &&
-                playableClip.inOutConstraintMode != KimodoInOutConstraintMode.None &&
+                ShouldBuildArdyBeginBoundary(modelName, playableClip.inOutConstraintMode) &&
                 playableClip.enableInConstraint &&
                 HasBeginBoundary(playableClip, timelineClip))
             {
@@ -34,6 +33,15 @@ namespace KimodoBridge.Editor
                     token));
             }
             return result;
+        }
+
+        internal static bool ShouldBuildArdyBeginBoundary(
+            string modelName,
+            KimodoInOutConstraintMode mode)
+        {
+            return mode != KimodoInOutConstraintMode.None &&
+                mode != KimodoInOutConstraintMode.Outside &&
+                KimodoMotionModelProfiles.TryGetArdy(modelName, out _);
         }
 
         internal static KimodoClipConstraint BuildBegin(

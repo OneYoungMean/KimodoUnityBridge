@@ -309,8 +309,10 @@ def post_process_motion(
         from motion_correction import motion_postprocess
     except ImportError as e:
         raise RuntimeError(
-            "Motion correction is required for this postprocessing path but the "
-            "motion_correction package is not installed. Install with: pip install -e ."
+            "Motion correction is required for this postprocessing path but the compiled "
+            "motion_correction extension is not available. Reinstall with a C++ toolchain and "
+            "CMake (pip install -e ., without ARDY_SKIP_MOTION_CORRECTION), or skip this path "
+            "(e.g. scripts/generate.py --no-postprocess)."
         ) from e
     for b in range(batch_size):
         motion_postprocess.correct_motion(

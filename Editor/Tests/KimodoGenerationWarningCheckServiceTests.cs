@@ -89,7 +89,7 @@ namespace KimodoBridge.Editor.Tests
                     {
                         ["frame"] = 10,
                         ["root"] = Root(1f, 0f),
-                        ["effector"] = new JObject { ["right_hand"] = new JObject { ["position"] = new JArray(0, 1, 0) } }
+                        ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(0, 1, 0) })
                     }
                 }
             };

@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Motion representation utilities."""
 
-from .reps import ArdyMotionRep, MotionRepBase
+from .reps import ArdyMotionRep, KimodoMotionRep, MotionRepBase
 
 __all__ = [
     "ArdyMotionRep",
+    "KimodoMotionRep",
     "MotionRepBase",
 ]

@@ -22,12 +22,12 @@ namespace KimodoUnityBridge.Command
     internal static partial class command_context
     {
         private const string CreateTimelineSessionUndoName = "Create Kimodo Timeline Session";
-        private const string AnalysisContractVersion = "6-command-60-force-line-v1";
+        private const string AnalysisContractVersion = "7-command-60-explicit-frame-units-v1";
         private const string MissingSceneContextWarning =
             "No live scene context was available; a new automatic context was created in the active scene.";
         internal const int SessionCaptureLayer = 17;
         internal const int ClipSafeZoneFrames = 4;
-        internal const double ClipSafeZoneSeconds = ClipSafeZoneFrames / 60.0;
+        internal const double ClipSafeZoneSeconds = ClipSafeZoneFrames / KimodoFrameTimeUtility.CommandFrameRate;
         private const string GeneratedTimelineFolder = KimodoEditorClipWritebackService.GeneratedClipFolder + "/Timelines";
         private static TimelineSessionRecord currentTimelineSession;
 
@@ -86,7 +86,7 @@ namespace KimodoUnityBridge.Command
         {
             if (EditorApplication.isPlayingOrWillChangePlaymode)
             {
-                KimodoSessionRuntimeGuard.DisableContextRoot(session?.SessionRoot);
+                KimodoDisableOnRuntime.Ensure(session?.SessionRoot);
                 return;
             }
             if (session?.SessionRoot != null) session.SessionRoot.SetActive(true);
@@ -123,6 +123,7 @@ namespace KimodoUnityBridge.Command
                 GameObject sessionRoot = new GameObject($"KimodoSession_{safeName}");
                 sessionRoot.layer = SessionCaptureLayer;
                 Undo.RegisterCreatedObjectUndo(sessionRoot, CreateTimelineSessionUndoName);
+                KimodoDisableOnRuntime.Ensure(sessionRoot);
                 KimodoSessionContextBinding binding = sessionRoot.AddComponent<KimodoSessionContextBinding>();
                 binding.sessionId = sessionId.ToString("D");
                 binding.sessionName = name;
@@ -442,6 +443,7 @@ namespace KimodoUnityBridge.Command
             {
                 throw new InvalidOperationException($"Character '{character.Name}' requires a valid humanoid Avatar before generation.");
             }
+            RefreshCharacterTimelineAppendPosition(character);
             return new TimelineGenerationTrace(session, character, character.NextStartSeconds, duration);
         }
 
@@ -636,13 +638,6 @@ namespace KimodoUnityBridge.Command
             JObject analysis = ParseAnalysisObject(result.AnalysisJson);
             trace.PlayableClip.clip = result.GeneratedClip;
             trace.Animation.ApplyResult(result.GeneratedClip, analysis, result.MotionBytes, result.StartFrame, result.EndFrameExclusive);
-
-            // Update duration_frames to reflect actual generated clip length
-            if (result.GeneratedClip != null && analysis != null)
-            {
-                int actualFrames = Mathf.RoundToInt(result.GeneratedClip.length * result.GeneratedClip.frameRate);
-                analysis["duration_frames"] = actualFrames;
-            }
 
             JArray keyframes = analysis?["keyframes"] as JArray ?? new JArray();
             if (keyframes.Count > 0)
@@ -929,13 +924,17 @@ namespace KimodoUnityBridge.Command
             if (character?.Track == null) return;
             foreach (TimelineClip timelineClip in character.Track.GetClips())
             {
+                if (timelineClip == null || double.IsNaN(timelineClip.end) || double.IsInfinity(timelineClip.end))
+                    continue;
+                // A canceled generation still occupies its reserved Timeline range.
+                // Keep it as an attempt record, but never place a retry on top of it.
+                character.NextStartSeconds = Math.Max(character.NextStartSeconds, timelineClip.end + ClipSafeZoneSeconds);
                 AnimationPlayableAsset playable = timelineClip.asset as AnimationPlayableAsset;
                 if (playable?.clip == null) continue;
                 int startFrame = Mathf.RoundToInt((float)(timelineClip.start * SessionFrameRate));
                 int endFrame = startFrame + Mathf.Max(1, Mathf.RoundToInt((float)(timelineClip.duration * SessionFrameRate)));
                 character.Animations.Add(new TimelineAnimationRecord(
                     GetTimelineAnimationId(timelineClip), playable.clip.name, "scene", playable.clip, timelineClip, null, null, startFrame, endFrame));
-                character.NextStartSeconds = Math.Max(character.NextStartSeconds, timelineClip.end + ClipSafeZoneSeconds);
             }
         }
 

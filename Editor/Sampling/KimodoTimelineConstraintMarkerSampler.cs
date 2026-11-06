@@ -113,7 +113,7 @@ namespace KimodoBridge.Editor
     {
         // Command/session frame values use a fixed 60 FPS time base. Timeline
         // asset FPS is kept separate for editor-only clip-boundary queries.
-        internal const float DefaultSessionFrameRate = 60f;
+        internal const float DefaultSessionFrameRate = (float)KimodoFrameTimeUtility.CommandFrameRate;
 
         internal static float ResolveTimelineFrameRate(KimodoTimelineInOutConstraintContext context)
         {

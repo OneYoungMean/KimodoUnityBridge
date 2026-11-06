@@ -13,6 +13,16 @@ namespace KimodoBridge
         public const double CommandFrameRate = 60.0;
         public const double FrameTolerance = 1e-4;
 
+        public static double CommandFramesToSeconds(int commandFrameCount)
+        {
+            return Math.Max(0, commandFrameCount) / CommandFrameRate;
+        }
+
+        public static double CommandFrameIndexToSeconds(int commandFrame)
+        {
+            return Math.Max(0, commandFrame) / CommandFrameRate;
+        }
+
         /// <summary>Converts a command/UI frame count (always based on 60 FPS) to model frames.</summary>
         public static int CommandFramesToModelFrameCount(int commandFrameCount, double modelFrameRate)
         {
@@ -24,6 +34,33 @@ namespace KimodoBridge
             }
 
             return SecondsToFrameCount(commandFrameCount / CommandFrameRate, modelFrameRate);
+        }
+
+        public static int ConvertFrameIndex(int frameIndex, double sourceFrameRate, double targetFrameRate)
+        {
+            if (frameIndex <= 0 ||
+                double.IsNaN(sourceFrameRate) || double.IsInfinity(sourceFrameRate) || sourceFrameRate <= 0.0 ||
+                double.IsNaN(targetFrameRate) || double.IsInfinity(targetFrameRate) || targetFrameRate <= 0.0)
+            {
+                return 0;
+            }
+
+            double converted = frameIndex * targetFrameRate / sourceFrameRate;
+            return converted >= int.MaxValue
+                ? int.MaxValue
+                : Math.Max(0, (int)Math.Round(converted, MidpointRounding.ToEven));
+        }
+
+        public static int ConvertFrameCount(int frameCount, double sourceFrameRate, double targetFrameRate)
+        {
+            if (frameCount <= 0 ||
+                double.IsNaN(sourceFrameRate) || double.IsInfinity(sourceFrameRate) || sourceFrameRate <= 0.0 ||
+                double.IsNaN(targetFrameRate) || double.IsInfinity(targetFrameRate) || targetFrameRate <= 0.0)
+            {
+                return 0;
+            }
+
+            return SecondsToFrameCount(frameCount / sourceFrameRate, targetFrameRate);
         }
 
         public static int SecondsToFrameCount(double seconds, double frameRate)

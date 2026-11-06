@@ -144,7 +144,8 @@ namespace KimodoBridge.Editor
                         return false;
                     }
 
-                    double sampleTime = pose.Value<double?>("timestamp_seconds") ?? frameIndex / 60.0;
+                    double sampleTime = pose.Value<double?>("timestamp_seconds") ??
+                        KimodoFrameTimeUtility.CommandFrameIndexToSeconds(frameIndex);
                     samples.Add(BuildCapturedSampleResult(sample, cache, sampleTime));
                 }
                 analysis["constraints"] = JArray.Parse(KimodoConstraintJsonExporter.ToConstraintsJson(

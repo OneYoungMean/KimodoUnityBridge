@@ -32,7 +32,8 @@ namespace KimodoBridge
         G1 = 1,
         Smplx = 2,
         Unknown = 3,
-        Core27 = 4
+        Core27 = 4,
+        Soma30 = 5
     }
 
     public enum KimodoConstraintMode

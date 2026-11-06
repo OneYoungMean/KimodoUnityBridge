@@ -29,7 +29,7 @@ description: 可复用 Kimodo 动画任务的共享执行、证据、识别、�
 
 ```csharp
 string schema = KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson();
-string result = KimodoUnityBridge.Command.command_dispatcher.Invoke(commandName, argumentsJson);
+string result = KimodoUnityBridge.Api.Animation.Generate(argumentsJson);
 ```
 
 选择工具前，先规划在 Unity 中最终可见的完整结果。Kimodo 命令、Unity Editor API、Timeline API、AnimationClip／AnimationCurve API、运行时 API 和项目本地工具，都是同一执行循环中的平等路径。用户明确指定命令或工具路径时，按该路径实际调用；用户未指定时，选择能直接产出目标结果的路径。实时 schema 可用时优先读取；连接的 Editor 不可用时，以仓库 `help.json` 为起点，并根据调用返回的结构化错误调整。使用协议中的命令名，不使用内部 C# 处理函数名。通过 Unity CLI 操作时，在已连接的 Editor 中执行 dispatcher。命令帧率为 60 FPS；每个字段应按文档规定，使用 Clip 相对帧或 Timeline 全局帧作为基准。为每个子任务记录 `子任务 → 实现路径 → 产物 → 验收检查`。如果某项操作更适合使用被允许的 Unity 或项目 API 表达，就直接使用该 API，并记录所用路径。

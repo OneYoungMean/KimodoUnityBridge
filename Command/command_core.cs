@@ -296,6 +296,14 @@ namespace KimodoUnityBridge.Command
         public static async Task<string> InvokeAsync(string toolName, string argumentsJson = "{}")
         {
             string initial = Invoke(toolName, argumentsJson);
+            return await AwaitCommandResultAsync(toolName, argumentsJson, initial);
+        }
+
+        internal static async Task<string> AwaitCommandResultAsync(
+            string toolName,
+            string argumentsJson,
+            string initial)
+        {
             if (!IsWaitableCommand(toolName)) return initial;
             JObject accepted;
             try
@@ -314,6 +322,24 @@ namespace KimodoUnityBridge.Command
             if (waitSeconds <= 0d) return initial;
             JObject latest = await WaitForCommandStatusAsync(requestId, Math.Max(0d, waitSeconds));
             return latest == null ? initial : latest.ToString(Formatting.None);
+        }
+
+        public static Task<string> GenerateAnimationAssetAsync(string argumentsJson)
+        {
+            string initial = GenerateAnimationAsset(argumentsJson);
+            return AwaitCommandResultAsync(GenerateAnimationCommand, argumentsJson, initial);
+        }
+
+        public static Task<string> InstallServerAsync(string argumentsJson = "{}")
+        {
+            string initial = InstallServer(argumentsJson);
+            return AwaitCommandResultAsync(InstallServerCommand, argumentsJson, initial);
+        }
+
+        public static Task<string> GetGenerationAsync(string argumentsJson)
+        {
+            string initial = GetGeneration(argumentsJson);
+            return AwaitCommandResultAsync(GetGenerationCommand, argumentsJson, initial);
         }
 
         private static bool IsWaitableCommand(string toolName)
@@ -540,7 +566,7 @@ namespace KimodoUnityBridge.Command
                             ["frame"] = "Relative frame in the generated clip.",
                             ["pose"] = "Optional FullBody External Pose reference: {track,index}.",
                             ["root"] = "Optional World root position [x,y,z] and/or Euler rotation [x,y,z] in degrees; maps directly to UI root fields.",
-                            ["effector"] = "Optional hand/foot targets, each with World position and/or Euler rotation in degrees. Omitted channels retain sampled values; provide position or rotation when adding a transform."
+                            ["effector"] = "Array of hand/foot targets. Each item uses joint=left_hand, right_hand, left_foot, or right_foot with World position and/or Euler rotation in degrees."
                         }
                     },
                     new JObject

@@ -73,7 +73,7 @@ namespace KimodoUnityBridge.Command
                 double? distance = Clip["root_trajectory"]?.Value<double?>("path_length_xz");
                 distanceText = distance.HasValue ? distance.Value.ToString("0.00", CultureInfo.InvariantCulture) + " m" : "N/A";
                 // Duration counts all clip frames, rather than the shorter interval between endpoint samples.
-                int durationFrames = Clip["root_trajectory"]?.Value<int?>("duration_frames")
+                int durationFrames = Clip["root_trajectory"]?.Value<int?>("duration_frames_60")
                     ?? Clip.Value<int>("end_timeline_frame_60_exclusive") - Clip.Value<int>("start_timeline_frame_60");
                 durationText = (durationFrames / SessionFrameRate).ToString("0.00", CultureInfo.InvariantCulture) + " s";
                 Tiles = BuildAnalysisTiles(data);

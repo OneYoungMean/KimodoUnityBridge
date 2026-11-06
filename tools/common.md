@@ -29,7 +29,7 @@ The public Editor entry is:
 
 ```csharp
 string schema = KimodoUnityBridge.Command.command_dispatcher.GetCommandDefinitionsJson();
-string result = KimodoUnityBridge.Command.command_dispatcher.Invoke(commandName, argumentsJson);
+string result = KimodoUnityBridge.Api.Animation.Generate(argumentsJson);
 ```
 
 Plan the complete visible Unity result before choosing tools. Kimodo commands, Unity Editor APIs, Timeline APIs, AnimationClip/AnimationCurve APIs, runtime APIs, and project-local tools are peer routes in the same execution loop. Honor a user-specified command or tool route and invoke it. When the user has not specified a route, choose the route that directly produces the requested result. Read the live schema or `kimodo.help` when available; when the connected Editor is unavailable, use the checked-in help as the starting reference and adapt to structured errors from the call. Use protocol command names, not internal C# handler names. With Unity CLI, execute the dispatcher in the connected Editor. Command frames use 60 FPS; use the documented Clip-relative or Timeline-global origin for each field. For each subtask, record `subtask → route → output → acceptance check`. If an operation is better represented by an allowed Unity or project API, use that API directly and record the route.

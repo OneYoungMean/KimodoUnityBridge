@@ -851,7 +851,9 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException($"Build connected clip constraints failed: {error}");
             }
 
-            if (hasBegin)
+            if (hasBegin && KimodoTimelineClipConstraintBuilder.ShouldBuildArdyBeginBoundary(
+                    entry.Request.ModelName,
+                    clip.inOutConstraintMode))
             {
                 entry.Request.Constraints.clips.Insert(0, KimodoTimelineClipConstraintBuilder.BuildBegin(
                     clip,
@@ -2057,6 +2059,60 @@ namespace KimodoBridge.Editor
                 KimodoEditorGenerationResult result = await KimodoEditorGeneratePipeline.ExecuteAsync(finalRequest);
                 token.ThrowIfCancellationRequested();
                 stage3.ResultMotion = ParseFirstPassMotion(finalRequest, result, "Stage 3");
+                if (generateLoop)
+                {
+                    int outputStartFrame = stage2BaseStartFrame - finalRequest.RuntimeTrimStartFrame;
+                    KimodoEditorGeneratePipeline.TrimGeneratedMotionForOutputRange(
+                        result,
+                        outputStartFrame,
+                        stage2Request.TargetFrameCount,
+                        modelName);
+                    if (!KimodoRawMotionUtility.TryParse(result.MotionJsonCompact, out KimodoRawMotionData outputMotion, out string outputMotionError))
+                    {
+                        throw new InvalidOperationException($"Trimmed loop output parsing failed: {outputMotionError}");
+                    }
+                    KimodoEditorGenerateOutputPlan outputPlan = finalRequest.ResolveOutputPlan(modelName);
+                    Avatar outputAvatar = KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan?.TargetRetargetAvatar)
+                        ? outputPlan.TargetRetargetAvatar
+                        : outputPlan?.OriginRetargetAvatar;
+                    if (!KimodoEditorGeneratePipeline.TryTrimRetargetedClipForOutput(
+                            result.GeneratedClip,
+                            outputAvatar,
+                            outputPlan != null && outputPlan.ExportMuscleClip,
+                            outputStartFrame,
+                            stage2Request.TargetFrameCount,
+                            finalRequest.TargetFrameRate,
+                            out string outputTrimError,
+                            appendCoverageHoldFrame: true))
+                    {
+                        throw new InvalidOperationException($"Trim generated loop output failed: {outputTrimError}");
+                    }
+                    if (result.RawBoneClip != null && !ReferenceEquals(result.RawBoneClip, result.GeneratedClip))
+                    {
+                        Avatar rawBoneAvatar = KimodoRetargetCoreUtility.IsValidHumanoid(outputPlan?.OriginRetargetAvatar)
+                            ? outputPlan.OriginRetargetAvatar
+                            : outputAvatar;
+                        if (!KimodoEditorGeneratePipeline.TryTrimRetargetedClipForOutput(
+                                result.RawBoneClip,
+                                rawBoneAvatar,
+                                false,
+                                outputStartFrame,
+                                stage2Request.TargetFrameCount,
+                                finalRequest.TargetFrameRate,
+                                out string rawBoneTrimError,
+                                appendCoverageHoldFrame: true))
+                        {
+                            throw new InvalidOperationException($"Trim generated loop raw bone output failed: {rawBoneTrimError}");
+                        }
+                    }
+                    KimodoFootContactTrackUtility.Apply(result.GeneratedClip, outputMotion);
+                    if (result.RawBoneClip != null && !ReferenceEquals(result.RawBoneClip, result.GeneratedClip))
+                    {
+                        KimodoFootContactTrackUtility.Apply(result.RawBoneClip, outputMotion);
+                        EditorUtility.SetDirty(result.RawBoneClip);
+                    }
+                    EditorUtility.SetDirty(result.GeneratedClip);
+                }
                 if (debugConstraintPasses != null)
                 {
                     result.DebugConstraintPasses.Clear();

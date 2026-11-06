@@ -20,13 +20,17 @@ KIMODO_REPO_IDS = [
     "nvidia/Kimodo-SOMA-SEED-v1",
     "nvidia/Kimodo-SOMA-SEED-v1.1",
     "nvidia/Kimodo-G1-SEED-v1",
+    "nvidia/Kimodo-SOMA-RP-ArdyRep-v1.2",
 ]
 TMR_REPO_IDS = [
     "nvidia/TMR-SOMA-RP-v1",
 ]
 
 # Repo ID without org, for display (e.g. Kimodo-SOMA-RP-v1).
-_REPO_NAME_PATTERN = re.compile(r"^(Kimodo|TMR)-([A-Za-z0-9]+)-(RP|SEED)-v(\d+(?:\.\d+)*)$")
+_REPO_NAME_PATTERN = re.compile(
+    r"^(Kimodo|TMR)-([A-Za-z0-9]+)-(RP(?:-ArdyRep)?|SEED)-v(\d+(?:\.\d+)*)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -43,7 +47,7 @@ class ModelInfo:
 
     @property
     def dataset_ui_label(self) -> str:
-        return "Rigplay" if self.dataset == "RP" else "SEED"
+        return "Rigplay (ArdyRep)" if self.dataset.lower() == "rp-ardyrep" else ("Rigplay" if self.dataset == "RP" else "SEED")
 
 
 def _parse_repo_id(repo_id: str) -> Optional[ModelInfo]:
@@ -195,7 +199,7 @@ def _get_latest_for_family_skeleton_dataset(family: str, skeleton: str, dataset:
 
 # Optional version: Family-Skeleton-Dataset-vN or Family-Skeleton-Dataset
 _RESOLVE_FULL_PATTERN = re.compile(
-    r"^(Kimodo|TMR|kimodo|tmr)[\-_]" r"([A-Za-z0-9]+)[\-_]" r"(RP|SEED|rp|seed)" r"(?:[\-_]v(\d+(?:\.\d+)*))?$",
+    r"^(Kimodo|TMR|kimodo|tmr)[\-_]" r"([A-Za-z0-9]+)[\-_]" r"(RP(?:[\-_]ArdyRep)?|SEED|rp(?:[\-_]ardyrep)?|seed)" r"(?:[\-_]v(\d+(?:\.\d+)*))?$",
     re.IGNORECASE,
 )
 # Partial: Skeleton-Dataset or Skeleton or Dataset (no family)
@@ -260,7 +264,7 @@ def resolve_model_name(name: Optional[str], default_family: Optional[str] = None
         fam_raw, skel_raw, ds_raw, ver_num = m.groups()
         fam = _normalize_family(fam_raw)
         skel = _normalize_skeleton(skel_raw)
-        ds = _normalize_dataset(ds_raw)
+        ds = "RP-ArdyRep" if ds_raw.lower().replace("_", "-") == "rp-ardyrep" else _normalize_dataset(ds_raw)
         if fam is not None and skel is not None and ds is not None:
             if ver_num is not None:
                 version = f"v{ver_num}"

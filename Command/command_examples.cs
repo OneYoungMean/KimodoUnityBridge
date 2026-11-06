@@ -33,7 +33,7 @@ namespace KimodoUnityBridge.Command
                     @"{'clip':'<clip>','settings':{'loop_time':true,'root_motion_enabled':true}}");
                 case PoseAnalysisCommand: return new JArray(
                     Example("Preview a point constraint when pose inspection will help assess the requested result.",
-                        @"{'character':'<character>','constraints':[{'frame':90,'pose':{'track':'<track>','index':0},'root':{'position':[1.1,0,2.4]},'effector':{'right_hand':{'position':[1.2,0.9,2.4]}}}],'combine':false,'camera':{'resolution':[1280,720]}}"),
+                        @"{'character':'<character>','constraints':[{'frame':90,'pose':{'track':'<track>','index':0},'root':{'position':[1.1,0,2.4]},'effector':[{'joint':'right_hand','position':[1.2,0.9,2.4]}]}],'combine':false,'camera':{'resolution':[1280,720]}}"),
                     Example("Preview a Root2D point constraint and inspect the returned measurements.",
                         @"{'character':'<character>','constraints':[{'frame':60,'root':{'position':[2.4,0.95,5.0],'rotation':[0,0,0]}}]}"));
                 case RetargetAnimationCommand: return Examples("Retarget a loaded Clip to another scene character.",
@@ -52,7 +52,7 @@ namespace KimodoUnityBridge.Command
                     Example("Create a Root2D constraint from a complete World root transform with Euler rotation in degrees.",
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120,'constraints':[{'frame':60,'root':{'position':[2.4,0.95,5.0],'rotation':[0,0,0]}}]}"),
                     Example("Create an IK-solved FullBody constraint from a referenced pose, root override, and hand target.",
-                        @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':180,'loop':{'enabled':false},'constraints':[{'frame':90,'pose':{'track':'<pose track>','index':0},'root':{'position':[2.4,0.95,5.0],'rotation':[0,0,0]},'effector':{'right_hand':{'position':[2.55,0.95,5.35]}}}]}"));
+                        @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':180,'loop':{'enabled':false},'constraints':[{'frame':90,'pose':{'track':'<pose track>','index':0},'root':{'position':[2.4,0.95,5.0],'rotation':[0,0,0]},'effector':[{'joint':'right_hand','position':[2.55,0.95,5.35]}]}]}"));
                 case PoseGetCommand: return new JArray(
                     Example("Capture a pose at an absolute Timeline-global frame resolved from scene.context or existing analysis.",
                         @"{'source':{'character':'<character>','timeline_frame_60':90}}"),
