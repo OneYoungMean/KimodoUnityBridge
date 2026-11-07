@@ -7,8 +7,8 @@ namespace KimodoBridge.Editor
     internal sealed class KimodoPlayableClipGenerationSettings : ScriptableSingleton<KimodoPlayableClipGenerationSettings>
     {
         internal const int MinGeneratedClipsLimit = 1;
-        internal const int MaxGeneratedClipsLimit = 1000;
-        internal const int DefaultGeneratedClipsLimit = 400;
+        internal const int MaxGeneratedClipsLimit = 32768;
+        internal const int DefaultGeneratedClipsLimit = 32768;
         internal const int MinTimelineConstraintCacheTimeFrames = 1;
         internal const int MaxTimelineConstraintCacheTimeFrames = 900;
         internal const int DefaultTimelineConstraintCacheTimeFrames = 60;

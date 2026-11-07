@@ -481,6 +481,11 @@ def _build_model_worker_key(config: dict[str, Any]) -> str:
     )
 
 
+def _build_motion_runtime_signature(config: dict[str, Any]) -> str:
+    """Identify motion-model state independently from the shared text encoder."""
+    return _build_model_worker_key(config)
+
+
 def _build_task_worker_key(config: dict[str, Any], session_id: str) -> str:
     profile = assets.resolve_motion_model_profile(config["model"])
     if profile is not None and profile.backend == "ardy":
@@ -490,6 +495,18 @@ def _build_task_worker_key(config: dict[str, Any], session_id: str) -> str:
 
 def _build_text_encoder_signature(config: dict[str, Any]) -> str:
     return f"text_encoder_mode={config['text_encoder_mode']}"
+
+
+def _build_text_encoder_instance_signature(config: dict[str, Any], encoder: Any) -> str:
+    route, device = _text_encoder_placement(encoder)
+    return "|".join(
+        (
+            _build_text_encoder_signature(config),
+            f"force_cpu={int(bool(config.get('_force_text_encoder_cpu')))}",
+            f"route={route}",
+            f"device={device}",
+        )
+    )
 
 
 def _build_text_encoder_execution_key(config: dict[str, Any]) -> tuple[str, str]:
@@ -560,6 +577,9 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
     state["model"] = None
     state["fps"] = 30
     state["runtime_signature"] = ""
+    state["motion_runtime_signature"] = ""
+    state["text_encoder_signature"] = ""
+    state["text_encoder_instance_signature"] = ""
     state["runtime_config"] = None
     state["resolved_model_name"] = ""
     state["runtime_device"] = ""
@@ -575,7 +595,7 @@ def _unload_runtime_model(state: dict[str, Any], logger: SetupLogger) -> None:
 
 def _clear_shared_text_encoder_state(state: dict[str, Any]) -> Any:
     encoder = state.get("shared_text_encoder")
-    runtimes = [state["active_runtime"]] + list((state.get("ardy_runtimes") or {}).values()) + [
+    runtimes = list((state.get("kimodo_runtimes") or {}).values()) + [state["active_runtime"]] + list((state.get("ardy_runtimes") or {}).values()) + [
         session.get("ardy_runtime") or {} for session in state["sessions"].values()
     ] + list(state["retired_runtimes"])
     for runtime in runtimes:
@@ -747,12 +767,19 @@ def _ensure_runtime(
 ) -> dict[str, Any]:
     assets.raise_if_download_cancelled(cancel_event)
     signature = _build_signature(config)
-    existing_signature = str(state.get("runtime_signature") or "")
-    same_runtime = existing_signature == signature and state.get("model") is not None
+    motion_signature = _build_motion_runtime_signature(config)
+    same_runtime = (
+        str(state.get("motion_runtime_signature") or "") == motion_signature
+        and state.get("model") is not None
+    )
     if (
         same_runtime
         and getattr(state["model"], "text_encoder", None) is not None
+        and str(state.get("text_encoder_instance_signature") or "")
+        == _build_text_encoder_instance_signature(config, state["model"].text_encoder)
     ):
+        state["runtime_signature"] = signature
+        state["runtime_config"] = dict(config)
         return {
             "model": state["resolved_model_name"],
             "device": state["runtime_device"],
@@ -824,8 +851,27 @@ def _ensure_runtime(
     )
 
     if same_runtime:
-        _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger, cancel_event)
+        required_encoder_placement = (
+            runtime_decision.encoder_route,
+            runtime_decision.encoder_device,
+        )
+        current_encoder = getattr(state["model"], "text_encoder", None)
+        if text_encoder is not None and _text_encoder_placement(text_encoder) == required_encoder_placement:
+            state["model"].text_encoder = text_encoder
+        elif (
+            current_encoder is None
+            or str(state.get("text_encoder_signature") or "") != _build_text_encoder_signature(config)
+            or _text_encoder_placement(current_encoder) != required_encoder_placement
+        ):
+            _replace_text_encoder(state["model"], config, runtime_decision, kimodo_root, logger, cancel_event)
         state["text_encoder_decision"] = runtime_decision
+        state["runtime_signature"] = signature
+        state["motion_runtime_signature"] = motion_signature
+        state["text_encoder_signature"] = _build_text_encoder_signature(config)
+        state["text_encoder_instance_signature"] = _build_text_encoder_instance_signature(
+            config, state["model"].text_encoder
+        )
+        state["runtime_config"] = dict(config)
         logger.log("[INFO] Text encoder ready; reusing current motion runtime.")
         return {
             "model": state["resolved_model_name"],
@@ -936,6 +982,11 @@ def _ensure_runtime(
         state["model"] = model
         state["fps"] = int(motion_profile.source_fps)
         state["runtime_signature"] = signature
+        state["motion_runtime_signature"] = motion_signature
+        state["text_encoder_signature"] = _build_text_encoder_signature(config)
+        state["text_encoder_instance_signature"] = _build_text_encoder_instance_signature(
+            config, getattr(model, "text_encoder", None)
+        )
         state["runtime_config"] = dict(config)
         state["resolved_model_name"] = motion_profile.model_name
         state["runtime_device"] = runtime_decision.motion_device
@@ -985,6 +1036,11 @@ def _ensure_runtime(
     state["model"] = model
     state["fps"] = int(model.fps)
     state["runtime_signature"] = signature
+    state["motion_runtime_signature"] = motion_signature
+    state["text_encoder_signature"] = _build_text_encoder_signature(config)
+    state["text_encoder_instance_signature"] = _build_text_encoder_instance_signature(
+        config, getattr(model, "text_encoder", None)
+    )
     state["runtime_config"] = dict(config)
     state["resolved_model_name"] = resolved_model_name
     state["runtime_device"] = runtime_decision.motion_device
@@ -1000,6 +1056,45 @@ def _ensure_runtime(
         "signature": signature,
         "reused": False,
     }
+
+
+def _evict_cached_kimodo_runtimes_for_request(
+    state: dict[str, Any],
+    config: dict[str, Any],
+    logger: SetupLogger,
+) -> None:
+    """Free only idle Kimodo motion runtimes when a new one needs GPU room."""
+    if config.get("simulate_free_vram_gb") is not None:
+        return
+
+    required_gb = assets.motion_model_min_free_vram_gb(config["model"])
+    profile = runtime_helpers._runtime_self_check(None)
+    if profile.runtime_device == "cpu" or profile.free_vram_gb >= required_gb:
+        return
+
+    runtime_cache = state.get("kimodo_runtimes") or {}
+    candidates = sorted(
+        (
+            (key, runtime)
+            for key, runtime in runtime_cache.items()
+            if runtime.get("model") is not None
+        ),
+        key=lambda item: float(item[1].get("last_used_at") or 0.0),
+    )
+    for key, runtime in candidates:
+        logger.log(
+            "[INFO] Reclaiming an idle Kimodo motion runtime before loading a requested model: "
+            f"model={runtime.get('resolved_model_name') or key} "
+            f"free_vram={profile.free_vram_gb:.2f}GB required={required_gb:g}GB."
+        )
+        _unload_runtime_model(runtime, logger)
+        if state.get("active_runtime") is runtime:
+            state["active_runtime"] = {}
+        if runtime_cache.get(key) is runtime:
+            runtime_cache.pop(key, None)
+        profile = runtime_helpers._runtime_self_check(profile.runtime_device)
+        if profile.runtime_device == "cpu" or profile.free_vram_gb >= required_gb:
+            break
 
 
 def _execute_generate(
@@ -1357,6 +1452,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         "watch_pid": max(0, int(args.watchpid or 0)),
         "last_activity": time.time(),
         "active_runtime": {},
+        "kimodo_runtimes": {},
         "ardy_runtimes": {},
         "shared_text_encoder": None,
         "shared_text_encoder_signature": "",
@@ -1422,7 +1518,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         state["ardy_session_count"] = int(state["ardy_session_count"]) + 1
         ardy_backend.set_inference_session_count(state["ardy_session_count"])
 
-    def bind_shared_text_encoder(runtime: dict[str, Any], encoder_signature: str) -> None:
+    def bind_shared_text_encoder(
+        runtime: dict[str, Any],
+        encoder_signature: str,
+        encoder_config: dict[str, Any] | None = None,
+    ) -> None:
         model = runtime.get("model")
         encoder = getattr(model, "text_encoder", None) if model is not None else None
         if encoder is None:
@@ -1430,7 +1530,7 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
         decision = runtime.get("text_encoder_decision")
         models_root = str((runtime.get("runtime_config") or {}).get("models_root") or "")
         with state_lock:
-            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + [
+            runtimes = list((state.get("kimodo_runtimes") or {}).values()) + [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + [
                 session.get("ardy_runtime") or {} for session in state["sessions"].values()
             ]
             state["shared_text_encoder"] = encoder
@@ -1443,6 +1543,11 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 if candidate_model is not None:
                     candidate_model.text_encoder = encoder
                     candidate["text_encoder_decision"] = decision
+                    candidate["text_encoder_signature"] = encoder_signature
+                    candidate["text_encoder_instance_signature"] = _build_text_encoder_instance_signature(
+                        encoder_config or runtime.get("runtime_config") or {},
+                        encoder,
+                    )
 
     def release_shared_text_encoder() -> None:
         with state_lock:
@@ -1596,6 +1701,8 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 watch_pid = int(state.get("watch_pid") or 0)
                 idle_seconds = time.time() - float(state.get("last_activity") or 0.0)
                 runtime_loaded = state["active_runtime"].get("model") is not None or any(
+                    runtime.get("model") is not None for runtime in state["kimodo_runtimes"].values()
+                ) or any(
                     runtime.get("model") is not None for runtime in state["ardy_runtimes"].values()
                 )
                 work_in_flight = any(
@@ -1620,7 +1727,13 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             session["queue"] or session.get("active") is not None
                             for session in state["sessions"].values()
                         ) and int(state.get("active_command_count") or 0) == 0:
-                            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values())
+                            runtimes = (
+                                list(state["kimodo_runtimes"].values())
+                                + [state["active_runtime"]]
+                                + list(state["ardy_runtimes"].values())
+                            )
+                            state["kimodo_runtimes"] = {}
+                            state["active_runtime"] = {}
                             state["ardy_runtimes"] = {}
                             for session in state["sessions"].values():
                                 session["ardy_runtime"] = {}
@@ -1652,14 +1765,16 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             else:
                 runtime_config["models_root"] = str(assets.default_models_root(kimodo_root))
             signature = _build_signature(runtime_config)
+            motion_signature = _build_motion_runtime_signature(runtime_config)
             encoder_signature = _build_text_encoder_signature(runtime_config)
             profile = assets.resolve_motion_model_profile(runtime_config["model"])
             is_ardy = profile is not None and profile.backend == "ardy"
             if is_ardy:
-                runtime = state["ardy_runtimes"].setdefault(signature, {})
+                runtime = state["ardy_runtimes"].setdefault(motion_signature, {})
                 session["ardy_runtime"] = runtime
             else:
-                runtime = state["active_runtime"]
+                runtime = state["kimodo_runtimes"].setdefault(motion_signature, {})
+                state["active_runtime"] = runtime
             if shared_encoder is not None and shared_signature != encoder_signature:
                 logger.log(
                     "[INFO] Shared text encoder mode changed; releasing the previous encoder: "
@@ -1686,7 +1801,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                     )
                     runtime["device"] = str(runtime.get("runtime_device") or "")
                     runtime["reused"] = True
+                    runtime["last_used_at"] = time.monotonic()
                     return runtime
+            if not is_ardy and runtime.get("model") is None:
+                _evict_cached_kimodo_runtimes_for_request(state, runtime_config, logger)
             runtime_report = _ensure_runtime(
                 runtime,
                 runtime_config,
@@ -1698,8 +1816,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             )
             runtime["device"] = runtime_report["device"]
             runtime["reused"] = runtime_report["reused"]
+            runtime["last_used_at"] = time.monotonic()
             runtime["model"]._kimodo_runtime_signature = signature
-            bind_shared_text_encoder(runtime, encoder_signature)
+            bind_shared_text_encoder(runtime, encoder_signature, runtime_config)
             state["active_model_worker_key"] = _build_task_worker_key(
                 runtime_config, session["session_id"]
             )
@@ -1760,7 +1879,9 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
             ):
                 raise
             bind_shared_text_encoder(
-                runtime, _build_text_encoder_signature(task["runtime_config"])
+                runtime,
+                _build_text_encoder_signature(task["runtime_config"]),
+                task["runtime_config"],
             )
             return execute()
 
@@ -2263,9 +2384,14 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                 if stream is not None:
                     stream.close()
                 session["ardy_stream"] = None
-            runtimes = [state["active_runtime"]] + list(state["ardy_runtimes"].values()) + list(
-                state["retired_runtimes"]
+            runtimes = (
+                list(state["kimodo_runtimes"].values())
+                + [state["active_runtime"]]
+                + list(state["ardy_runtimes"].values())
+                + list(state["retired_runtimes"])
             )
+            state["kimodo_runtimes"] = {}
+            state["active_runtime"] = {}
             state["ardy_runtimes"] = {}
             state["retired_runtimes"].clear()
             state["shared_text_encoder"] = None

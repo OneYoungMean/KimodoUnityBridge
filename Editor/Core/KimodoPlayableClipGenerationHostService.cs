@@ -32,7 +32,8 @@ namespace KimodoBridge.Editor
             double? targetDurationSecondsOverride = null,
             bool disableOutsideContextExpansion = false,
             bool requestEndpointSample = false,
-            string rawGenerateInstructionJson = null)
+            string rawGenerateInstructionJson = null,
+            bool useTransientTargetClip = false)
         {
             if (clip == null)
             {
@@ -232,7 +233,9 @@ namespace KimodoBridge.Editor
                 token);
             KimodoPlayableClipGenerationSettings settings = KimodoPlayableClipGenerationSettings.instance;
             return new KimodoEditorGenerateRequest(
-                () => KimodoTimelineGenerationOutputPlanner.CreateTargetClip(clip),
+                () => useTransientTargetClip
+                    ? new AnimationClip { name = "Kimodo_Loop_Intermediate", hideFlags = HideFlags.HideAndDontSave }
+                    : KimodoTimelineGenerationOutputPlanner.CreateTargetClip(clip),
                 (generatedClip, modelName) => KimodoTimelineGenerationOutputPlanner.Resolve(
                     outputPlanSnapshot,
                     outputBindingObject,
@@ -335,7 +338,8 @@ namespace KimodoBridge.Editor
                 result.ConstraintsPath = request.Constraints.IsEmpty ? "(none)" : "(inline-json)";
                 HandleGeneratedClipWritebackCompleted(clip, request);
 
-                if (!KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
+                if (KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips &&
+                    !KimodoEditorClipWritebackService.TryMaterializeGeneratedClipCache(
                         result.GeneratedClip,
                         request.OutputPlan != null && request.OutputPlan.ExportMuscleClip,
                         request.OutputPlan != null ? request.OutputPlan.TargetRetargetAvatar : null,
@@ -347,11 +351,6 @@ namespace KimodoBridge.Editor
                         string.IsNullOrWhiteSpace(cacheError)
                             ? "Materialize generated clip cache failed."
                             : cacheError);
-                }
-
-                if (generatedCacheClip != null)
-                {
-                    EditorUtility.SetDirty(generatedCacheClip);
                 }
 
                 ResetTimelineTimeScaleAfterGeneration(request);

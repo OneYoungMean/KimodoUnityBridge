@@ -1604,7 +1604,8 @@ namespace KimodoBridge.Editor
                     generateLoopOverride: false,
                     deferOutConstraint: clip.postApplyOutConstraint,
                     deferInConstraint: clip.postApplyInConstraint,
-                    requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(modelName, out _));
+                    requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(modelName, out _),
+                    useTransientTargetClip: generateLoop);
                 stage2Request = finalRequest;
                 var stage2 = new KimodoEditorGenerationStage(2, "Path and heading", finalRequest, motion);
                 if (firstRequest != null)

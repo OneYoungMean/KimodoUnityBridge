@@ -614,6 +614,52 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             quickserver_cli._build_text_encoder_signature(high_performance),
         )
 
+    def test_motion_runtime_signature_is_independent_of_text_encoder_mode(self):
+        base = {
+            "model": "Kimodo-SOMA-RP-v1",
+            "text_encoder_mode": "high_precision",
+            "models_root": "C:/runtime/models",
+            "simulate_free_vram_gb": None,
+        }
+        changed_encoder = {**base, "text_encoder_mode": "high_performance"}
+        changed_motion_model = {**base, "model": "Kimodo-SOMA-RP-v1.1"}
+
+        self.assertEqual(
+            quickserver_cli._build_motion_runtime_signature(base),
+            quickserver_cli._build_motion_runtime_signature(changed_encoder),
+        )
+        self.assertNotEqual(
+            quickserver_cli._build_motion_runtime_signature(base),
+            quickserver_cli._build_motion_runtime_signature(changed_motion_model),
+        )
+
+    def test_motion_runtime_eviction_is_deferred_until_new_model_needs_vram(self):
+        old_runtime = {"model": object(), "resolved_model_name": "old", "last_used_at": 1.0}
+        newer_runtime = {"model": object(), "resolved_model_name": "newer", "last_used_at": 2.0}
+        shared_encoder = object()
+        state = {
+            "kimodo_runtimes": {"old": old_runtime, "newer": newer_runtime},
+            "active_runtime": newer_runtime,
+            "shared_text_encoder": shared_encoder,
+        }
+        config = {"model": "Kimodo-SOMA-RP-v1", "simulate_free_vram_gb": None}
+        gpu_profile = lambda free: SimpleNamespace(runtime_device="cuda:0", free_vram_gb=free)
+
+        with patch.object(quickserver_cli.assets, "motion_model_min_free_vram_gb", return_value=4.0), patch.object(
+            quickserver_cli.runtime_helpers,
+            "_runtime_self_check",
+            side_effect=[gpu_profile(2.0), gpu_profile(5.0)],
+        ), patch.object(quickserver_cli, "_unload_runtime_model") as unload_runtime:
+            quickserver_cli._evict_cached_kimodo_runtimes_for_request(
+                state, config, SimpleNamespace(log=lambda _message: None)
+            )
+
+        unload_runtime.assert_called_once_with(old_runtime, ANY)
+        self.assertNotIn("old", state["kimodo_runtimes"])
+        self.assertIn("newer", state["kimodo_runtimes"])
+        self.assertIs(state["active_runtime"], newer_runtime)
+        self.assertIs(state["shared_text_encoder"], shared_encoder)
+
     def test_text_encoder_execution_gate_allows_matching_ardy_and_serializes_kimodo(self):
         gate = quickserver_cli._TextEncoderExecutionGate()
         ardy_key = ("text_encoder_mode=high_precision", "ardy")
@@ -645,10 +691,12 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
     def test_clearing_shared_text_encoder_detaches_every_runtime_reference(self):
         encoder = object()
         active_model = SimpleNamespace(text_encoder=encoder)
+        cached_model = SimpleNamespace(text_encoder=encoder)
         session_model = SimpleNamespace(text_encoder=encoder)
         retired_model = SimpleNamespace(text_encoder=encoder)
         state = {
             "active_runtime": {"model": active_model},
+            "kimodo_runtimes": {"cached": {"model": cached_model}},
             "sessions": {"runtime": {"ardy_runtime": {"model": session_model}}},
             "retired_runtimes": [{"model": retired_model}],
             "shared_text_encoder": encoder,
@@ -660,6 +708,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         self.assertIs(quickserver_cli._clear_shared_text_encoder_state(state), encoder)
         self.assertIsNone(active_model.text_encoder)
+        self.assertIsNone(cached_model.text_encoder)
         self.assertIsNone(session_model.text_encoder)
         self.assertIsNone(retired_model.text_encoder)
         self.assertIsNone(state["shared_text_encoder"])
@@ -668,15 +717,18 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
     def test_missing_encoder_is_rebuilt_without_reloading_the_motion_runtime(self):
         config = {
             "model": "ARDY-Core-RP-20FPS-Horizon40",
-            "text_encoder_mode": "high_precision",
+            "text_encoder_mode": "high_performance",
             "models_root": "D:/editor/models",
             "force_hf_download": False,
             "simulate_free_vram_gb": None,
         }
+        previous_config = {**config, "text_encoder_mode": "high_precision"}
         model = SimpleNamespace(text_encoder=None)
         runtime = {
             "model": model,
-            "runtime_signature": quickserver_cli._build_signature(config),
+            "runtime_signature": quickserver_cli._build_signature(previous_config),
+            "motion_runtime_signature": quickserver_cli._build_motion_runtime_signature(config),
+            "text_encoder_signature": quickserver_cli._build_text_encoder_signature(previous_config),
             "resolved_model_name": config["model"],
             "runtime_device": "cpu",
             "fps": 20,

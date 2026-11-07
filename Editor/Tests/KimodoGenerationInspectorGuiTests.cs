@@ -645,6 +645,7 @@ namespace KimodoBridge.Editor.Tests
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             GameObject directorRoot = new GameObject("KimodoLoopGenerationRequestTest");
             RetargetSkeleton skeleton = null;
+            KimodoEditorGenerateRequest transientLoopPass = null;
             try
             {
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
@@ -667,6 +668,17 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(request.RuntimeFrameCount, Is.EqualTo(request.TargetFrameCount * 2));
                 Assert.That(request.RuntimeTrimStartFrame, Is.EqualTo(request.TargetFrameCount / 2));
                 Assert.That(timelineClip.duration, Is.EqualTo(2.0));
+
+                transientLoopPass = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default,
+                    generateLoopOverride: false,
+                    useTransientTargetClip: true);
+                transientLoopPass.CreateTargetClip();
+                Assert.That(AssetDatabase.GetAssetPath(transientLoopPass.TargetClip), Is.Empty);
+                Assert.That(transientLoopPass.TargetClip.hideFlags, Is.EqualTo(HideFlags.HideAndDontSave));
 
                 KimodoEditorGenerateRequest firstPass = KimodoPlayableClipGenerationHostService.BuildRequest(
                     clip,

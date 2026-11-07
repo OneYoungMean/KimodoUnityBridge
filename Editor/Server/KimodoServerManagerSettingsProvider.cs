@@ -246,7 +246,7 @@ namespace KimodoBridge.Editor
             {
                 EditorGUI.BeginChangeCheck();
                 int newLimit = EditorGUILayout.IntSlider(
-                    new GUIContent("Max Cached Clip", "Maximum number of cache clip assets kept under Assets/KimodoGeneratedClips/Cache. Range: 1-1000."),
+                    new GUIContent("Max Cached Clip", "Maximum number of cache clip assets kept under Assets/KimodoGeneratedClips/Cache. Range: 1-2048."),
                     settings.MaxGeneratedClips,
                     KimodoPlayableClipGenerationSettings.MinGeneratedClipsLimit,
                     KimodoPlayableClipGenerationSettings.MaxGeneratedClipsLimit);
