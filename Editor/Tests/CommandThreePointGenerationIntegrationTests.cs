@@ -47,7 +47,6 @@ namespace KimodoUnityBridge.Command.Tests
                 "Could not save the scene fixture needed for stable scene-object identity.");
             GameObject previousSelection = Selection.activeGameObject;
             Selection.activeGameObject = character;
-            object previousSession = CurrentSessionField().GetValue(null);
             string requestId = null;
             try
             {
@@ -198,9 +197,9 @@ namespace KimodoUnityBridge.Command.Tests
                 }
                 Type contextType = typeof(command_dispatcher).Assembly
                     .GetType("KimodoUnityBridge.Command.command_context");
+                object session = CurrentSessionProjection();
                 contextType.GetMethod("ClearRuntimeSession", BindingFlags.Static | BindingFlags.NonPublic)
-                    ?.Invoke(null, new[] { CurrentSessionField().GetValue(null) });
-                CurrentSessionField().SetValue(null, previousSession);
+                    ?.Invoke(null, new[] { session });
                 Selection.activeGameObject = previousSelection;
                 UnityEngine.Object.DestroyImmediate(character);
             }
@@ -217,9 +216,7 @@ namespace KimodoUnityBridge.Command.Tests
         {
             Type contextType = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context");
-            FieldInfo currentSession = contextType?.GetField(
-                "currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
-            object session = currentSession?.GetValue(null);
+            object session = CurrentSessionProjection();
             Assert.That(session, Is.Not.Null, "Command did not create a Timeline session.");
             object character = ((System.Collections.IEnumerable)session.GetType()
                     .GetProperty("Characters").GetValue(session))
@@ -231,18 +228,19 @@ namespace KimodoUnityBridge.Command.Tests
                 .OrderBy(marker => marker.time).ToArray();
         }
 
-        private static FieldInfo CurrentSessionField()
+        private static object CurrentSessionProjection()
         {
             Type contextType = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context");
-            return contextType.GetField("currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo buildView = contextType.GetMethod("BuildTimelineSessionView", BindingFlags.Static | BindingFlags.NonPublic);
+            return buildView.Invoke(null, new object[] { SceneManager.GetActiveScene() });
         }
 
         private static void AssertGenerationResolvesCachedCharacterByNameAndId(GameObject source)
         {
             Type contextType = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context");
-            object session = CurrentSessionField().GetValue(null);
+            object session = CurrentSessionProjection();
             MethodInfo resolve = contextType.GetMethod("ResolveCharacter", BindingFlags.Static | BindingFlags.NonPublic);
             object byName = resolve.Invoke(null, new object[] { session, source.name });
             string sourceId = GlobalObjectId.GetGlobalObjectIdSlow(source).ToString();

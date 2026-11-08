@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -329,12 +330,15 @@ namespace KimodoUnityBridge.Command.Tests
                 transform.gameObject.hideFlags = HideFlags.None;
             SceneManager.MoveGameObjectToScene(skeleton.root, SceneManager.GetActiveScene());
             var sessionRoot = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "PoseGetWorldCoordinateTest");
-            var directorObject = new GameObject("PoseGetWorldCoordinateDirector");
-            directorObject.transform.SetParent(sessionRoot.transform, false);
-            var director = directorObject.AddComponent<PlayableDirector>();
+            KimodoDisableOnRuntime.Ensure(sessionRoot);
+            var director = sessionRoot.AddComponent<PlayableDirector>();
             var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            string timelineFolder = "Assets/Archive/KimodoPoseGetTests/Timelines";
+            Directory.CreateDirectory(Path.Combine(Application.dataPath, "Archive", "KimodoPoseGetTests", "Timelines"));
+            string timelinePath = AssetDatabase.GenerateUniqueAssetPath($"{timelineFolder}/PoseGetWorldCoordinate_{Guid.NewGuid():N}.playable");
+            AssetDatabase.CreateAsset(timeline, timelinePath);
+            AssetDatabase.SaveAssets();
             AnimationClip sourceClip = null;
-            FieldInfo currentSessionField = typeof(command_context).GetField("currentTimelineSession", PrivateStatic);
             try
             {
                 Assert.That(KimodoRetargetSamplingUtility.TryCaptureMuscleSample(skeleton, out var pose, out error), Is.True, error);
@@ -364,17 +368,8 @@ namespace KimodoUnityBridge.Command.Tests
                 timelineClip.duration = 2.0;
                 timelineClip.clipIn = 0.25;
                 timelineClip.timeScale = 1.2;
-                string sourceObjectRef = GlobalObjectId.GetGlobalObjectIdSlow(skeleton.root).ToString();
-                var character = new command_context.TimelineCharacterRecord(
-                    sourceObjectRef, skeleton.root, skeleton.animator, avatar, track, poseTrack, "");
-                character.Animations.Add(new command_context.TimelineAnimationRecord(
-                    Guid.NewGuid(), "Sample", "test", sourceClip, timelineClip, null, null, 0, 120));
-
-                var sessionType = typeof(command_context).GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
-                var session = Activator.CreateInstance(sessionType,
-                    new object[] { Guid.NewGuid(), "PoseGetWorldCoordinateTest", director, timeline, "", false, sessionRoot, null, 0 });
-                ((List<command_context.TimelineCharacterRecord>)sessionType.GetProperty("Characters").GetValue(session)).Add(character);
-                currentSessionField.SetValue(null, session);
+                EditorUtility.SetDirty(timeline);
+                AssetDatabase.SaveAssets();
 
                 director.RebuildGraph();
                 director.Evaluate();
@@ -475,14 +470,7 @@ namespace KimodoUnityBridge.Command.Tests
             }
             finally
             {
-                currentSessionField?.SetValue(null, null);
                 if (director != null) director.Stop();
-                foreach (var track in timeline.GetOutputTracks().ToArray())
-                {
-                    foreach (var clip in track.GetClips().ToArray()) Object.DestroyImmediate(clip.asset);
-                    Object.DestroyImmediate(track);
-                }
-                Object.DestroyImmediate(timeline);
                 Object.DestroyImmediate(sessionRoot);
                 if (sourceClip != null) Object.DestroyImmediate(sourceClip);
                 skeleton.Dispose();

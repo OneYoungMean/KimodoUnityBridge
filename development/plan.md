@@ -52,9 +52,9 @@
 
 ## 暂缓 TODO：Command 层收敛
 
-- [x] **Session Context 来源与 JSON 边界（已完成）。** 场景里的 Context 根对象、序列化 Binding 和其下的 Timeline 是唯一事实来源；Binding 固定 Session ID、名称、Timeline 路径与 JSON 写入路径。只有需要场景 Context 的命令才读取已加载的根对象和 Timeline；无关命令不进入这条流程。只在命令改动 Timeline/场景结构后请求 Timeline 窗口更新及 SceneView 重绘（`RefreshEditorWorkflow`），不刷新程序集、不重编译脚本、不重载 Editor 或场景。运行中的 generation 保留它持有的任务对象引用；任务完成后的 Context 命令再读取最新 Timeline。Command 不按名称选择 Context，不读取或校验 `session.json` 来绑定/恢复 Context，也不保留额外的 Session 注册表。修改完成后将当前 Timeline 快照写到 Binding 指定的 JSON 路径。Play Mode 只停用根对象并在退出后恢复；场景重载由场景序列化对象自然保留，不另设恢复 marker 或 `session.rebind` 路径。
-- [x] **Session 历史与 Context 分离（已完成）。** `session.json` 只保存当前 Timeline/context 快照。独立的 `session.history` 从 Generation 与 Analysis 原始记录构建历史索引；这些记录不选择、不校验或恢复 Context，也不写回 `session.json`。明确的 `session.clear` 仍会销毁当前场景的 Context 根对象、保留 Timeline/动画资产，并由后续普通 Command 懒创建新 Context。
-- [x] **过期恢复设计已关闭。** 不新增显式 `session.rebind`，不按 Session 名称、旧 metadata、静态缓存或 JSON 选择当前 Context。`scene.context` 的 `timeline_path` 是用户明确要求打开/替换当前场景 Timeline 的操作，与场景重载恢复分开。
+- [x] **Session Context 来源与 JSON 边界（3.0）。** `session.context` 每次从当前场景和 Timeline 构建轻量投影，不读取或写入 `session.json`，也不保留静态 Session 快照；`details` 组按需生成。Session 根只包含直接挂载的 `PlayableDirector` 和 Awake 运行时停用脚本，Play Mode 退出不执行恢复逻辑。
+- [x] **Session 历史与 Context 分离（3.0）。** `session.history` 使用每个 Timeline GUID 对应的 `history.jsonl`，只追加动画生成、Retarget 和分析命令及异步终态；Context 不保存历史快照，旁路生成/分析产物仍按 Session 目录保留。`session.clear` 保留 Timeline/动画资产，后续命令按需创建新的场景根。
+- [x] **过期恢复设计已关闭。** 不新增 `scene.context` 别名、`session.rebind`、静态注册表或 JSON 选择/恢复路径；`session.context` 的 `timeline_path` 只负责用户明确请求的 Timeline 打开/替换。
 - [ ] **Issue 3：跨片段 RootT.y 基线。** 先在同一 Avatar、Animator、`trackOffset`、`removeStartOffset` 和 `applyRootMotion` 条件下复现，再按 root-motion 语义决定有条件的垂直 rebase；站立片段与跳跃片段必须分开验收，暂不引入固定髋高。
 - [x] **Issue 6：inout 幻影速度误报。** deferred Out 样本在速度校验副本中排除未重锚的 `rootOverride`，保留姿态数据和原始生成样本；即时真实根运动仍由 7 m/s 校验拦截。
 - [ ] 为 QuickServer、连接超时、取消和输入错误定义稳定的错误码映射；当前执行器仍将未分类异常映射为 `invalid_argument`。
@@ -111,10 +111,9 @@
 - 本批 Command 收尾验证（2026-11-01，Unity 2022.3.62f3c1）：FullDemo `KimodoTool.Command.Editor` 编译通过（0 警告、0 错误）；Command API 合同、In/Out 和 Session 生命周期 EditMode 定向组 53/53 通过。
 - Command 信息与接口冗余收敛（2026-11-01，Unity 2022.3.62f3c1）：`GenerationCommands_ShareRequestIdLifecycleContract`、`OtherCommands_AreDiscoverableAsIndependentContracts`、`PackagedHelpJson_MatchesLiveOutputSchemas`、`AnalysisKeyframes_UseOnlyAbsoluteTimelineFrameAndNormalizeIdempotently` 定向 EditMode 4/4 通过；`Command/help.json` 已由实时 schema 导出，PowerShell JSON 解析和 `git diff --check` 通过。未跑全量回归或视觉审阅。
 - generation 状态结构收敛（2026-11-01，Unity 2022.3.62f3c1）：FullDemo `KimodoTool.Command.Editor` 编译通过（0 警告、0 错误）；`AsyncResponseNormalization_RemovesEchoAndUsesOneLifecycleShape` 定向 EditMode 1/1 通过，覆盖旧扁平持久化状态转换及规范 `clip` 对象直通；`git diff --check` 通过。未执行生成后播放验证。
-- scene.context 与 session.json 动画索引集成验证（2026-11-01，Unity 2022.3.62f3c1）：`AnimationAnalysis_ArcWalkFixture_WritesCompositePng` 1/1 通过，确认运行时历史仍能按角色找到动画，且 session.json 不再输出顶层 animations 副本。
-- session.json 分析索引验证（2026-11-01，Unity 2022.3.62f3c1）：FullDemo `KimodoTool.Command.Editor` `dotnet build --no-restore` 通过（0 警告、0 错误）；同一 ArcWalk EditMode 集成测试 1/1 通过，确认索引已去掉 `keyframes`、`foot_contacts` 和完整 `pictures`，且 `analysis_path` 文件仍保存完整数据与图片元数据。
+- 历史 Context/session.json 索引验证（2026-11-01）：该验证针对 3.0 之前的实现，仅保留作为历史记录；3.0 不再生成或读取 `session.json`。
 - Context/Session 清理回归（2026-11-01，Unity 2022.3.62f3c1）：Command Editor `dotnet build --no-restore` 通过（0 警告、0 错误）；Editor.Tests 编译通过（0 警告、0 错误）；`CommandSessionLifecycleTests`、`CommandApiGroupContractTests` 与 `CommandInOutTests` 定向 EditMode 53/53 通过，新增覆盖 Timeline 投影刷新；`AnimationAnalysisCommandIntegrationTests` 6/6 通过（含 ArcWalk SceneView/合成图）。`Command/help.json` JSON 解析与 `git diff --check` 通过。未执行全量回归、生成后播放或人工视觉审阅。
-- Context Binding 与 Timeline 读取收束（2026-11-01，Unity 2022.3.62f3c1）：Command Editor 与 Editor.Tests 编译通过，均 0 警告、0 错误；Command Session 生命周期、API 合同、In/Out 与 Analysis 集成定向 EditMode 59/59 通过。覆盖移除静态 Session 注册表、按场景序列化 Binding 确认生成归属，以及重读 Timeline 时保留已生成 Clip 的 analysis/KMB 结果。`Command/help.json` JSON 解析和 `git diff --check` 通过。UI 证据限于代码调用既有 Timeline/SceneView 重绘入口，未做人工视觉审阅；未跑全量回归或生成后播放。
+- Session Context 3.0 实现验证（2026-11-07）：FullDemo `KimodoTool.Command.Editor` 与 `KimodoTool.Editor.Tests` 构建均 0 警告、0 错误；Unity EditMode batchmode 已启动但未产出 TestRunner XML，因此不能视为 EditMode 通过。`Command/help.json` JSON 解析和包仓库 `git diff --check` 通过。
 - Unity 6000.5.7f1 导入/编译通过；schema、六类合法输入、部分 transform 覆盖、旧输入拒绝、IK FullBody、marker 序列化和协议折叠均已做定向断言。
 - 更早的全范围定向断言记录了两项旧 CaptureWorldTargets validity 断言和一项 PoseGet fixture Timeline Animator 绑定失败；这些记录与上面的本轮结果分开看待。
 - 尚未执行本次升级的后端生成或播放验证；不要引用归档中的旧项目/旧版本测试数量作为本次通过证据。
@@ -150,11 +149,10 @@
 
 - [x] 已将无调用者的 `ExecutePlayableClipGenerationAsync` 归档到 `archive/command-api-convergence-20261101/` 并从活动 Command 路径停用；FullDemo Command Editor 编译通过，0 警告、0 错误。
 - [x] 已从 `generation.get` 输出 schema 移除没有运行时生产者的顶层 `analysis_schema_version`；`animation.analysis` 的顶层版本字段保持不变。`generation.get.post_analysis` 仅返回状态与 `analysis_path`，完整版本字段保留在该路径指向的 JSON 文件中。
-- [x] 已收敛 `scene.context` 的动画索引：动画仅保留在 `characters[*].animations`；`history` 限定为 generation 与 analysis 索引，并同步 schema、帮助和契约测试。
-- [x] 已收敛 `session.json` 的动画索引：保留按角色嵌套的 `characters[*].animations`；顶层副本已归档并停用。Session 恢复不再依赖 Timeline 子资源 metadata。
-- [x] 已将 `scene.context` 与 `session.json` 的分析索引合并到同一构建器；`session.json` 的独立分析索引仅保留 ID、路径、角色/Clip 索引字段及必要的 `picture_paths`，不再复制其 `analysis_*.json` 中的 `keyframes`、`foot_contacts` 或 `pictures`。生成后的 `post_analysis` 仍由独立文件保存并通过 `post_analysis.analysis_path` 引用。
+- [x] 3.0 已将 `scene.context` 改为 `session.context`：Clip 计数直接来自当前角色动画轨道的 Timeline Clip 实例，详情组按请求构建。
+- [x] 3.0 不生成、不读取或维护 `session.json`；生成/分析旁路产物继续按 Timeline GUID 的 Session 目录保存。
 - [x] 已让新写入的 generation 状态直接使用规范 `clip` 对象；Session generation 索引读取该对象。归一化器仍把旧持久化状态的 `path/animation/character/start/duration` 转为 `clip`，使已有状态文件可继续查询。
-- [x] 已将 Session JSON 写入从 Timeline metadata 子资源中拆出；当前 Context 绑定组件保存 JSON 写入入口，Command 只从 Timeline/context 结构组装并写出 `session.json`。旧 Session metadata 与 Play Mode 恢复分支已停用。
+- [x] 3.0 保留 `KimodoSessionContextBinding` 仅用于旧场景反序列化；新 Session 根不添加或读取该组件，Play Mode 只在 Awake 停用且退出不恢复。
 - [x] 已更新本轮验证记录，分别报告静态检查、Editor 编译和定向 EditMode 结果；不把 schema/输出契约调整宣称为视觉回归通过。
 
 保留边界：生成过程的 `analysis` 与生成后完整 `post_analysis` 表示不同阶段的数据，不合并；`analysis_option.analysis_only` 仍是 Command analysis 使用的内部 Runtime 协议，不恢复为公开生成字段；In/Out 二次规划按 P1 决策保留现状；`Command/help.json` 继续由活动 schema 定义生成并做一致性校验。
@@ -168,7 +166,7 @@
 - [x] **合并生成参数重复的值域检查。** `duration_frames`、loop 窗口/采样数和 `path.distance` 的标量范围统一由实时 schema 处理；handler 仅保留有限数值检查、跨字段约束和业务安全检查。
 - [x] **归档过期 loop 生成支路。** 生产只走 `BuildLoopWindowConstraintJson` 与第 0 帧 anchor 策略；旧 `BuildLoopConstraintJson`、foot-contact anchor 备用链、速度估算器和仅覆盖旧支路的测试已移出活动代码并保留在本轮归档快照中。新 window 流程与当前仍被调用的 anchor helper 保留。
 - [x] **整理残留约束 JSON helper 命名。** 通用 append/root 替换逻辑已并入 `KimodoConstraintWindow`；旧 `KimodoClipConstraintBakeUtility` 文件与 meta 已按仓库规则移出活动路径并保留归档文本快照。
-- [x] **拆分历史索引 API。** `session.history` 只读取活动场景已有 Session Binding 对应的 Generation/Analysis 原始记录索引，不创建或重绑 Context；`scene.context` 只返回当前场景与 Timeline 结构，不再接受 `include_history` 或返回历史索引。原始记录、完整分析 JSON 与图片文件继续保留。
+- [x] **拆分历史 API（3.0）。** `session.history` 按 Session 追加 `animation.generate`、`animation.retarget` 和 `animation.analysis` 的完整输入、返回及异步终态；`session.context` 只返回当前场景与 Timeline 投影，不接受历史参数。
 - [x] **复核约束面板 Auto Sample 文案。** `autoSample=true` 当前确实以标记时间的 Timeline pose 覆盖手动 effectors/motion，因此现有提醒与行为一致；此项不列为清理任务，也不重命名序列化字段。
 - [x] **收敛 Window 与分析帧语义。** In/Out 的 60 FPS 秒数与模型帧换算继续由 `KimodoFrameTimeUtility`/`KimodoConstraintWindowSpec` 负责；散落的 60 常量改用共享命令帧率。公开分析的 phase、足部接触和 Root trajectory 时长/位置均明确使用 `_60` 字段；生成完成时不再向内部分析缓存补写模型帧 `duration_frames`。
 

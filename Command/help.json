@@ -25,7 +25,7 @@
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "session.history",
           "animation.generate"
         ]
@@ -234,23 +234,23 @@
       ]
     },
     {
-      "name": "scene.context",
-      "description": "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references.",
+      "name": "session.context",
+      "description": "Read a compact Session summary built from the active scene and Timeline. Request details by tag when needed.",
       "documentation": {
-        "when_to_use": "Read the active Unity scene, its Kimodo Timeline, character handles, and current Session identity; optionally reload and open a Timeline asset.",
+        "when_to_use": "Read the compact current Session summary directly from the active scene and Timeline; optionally request tagged details or open a Timeline asset.",
         "behavior": [
-          "Use returned scene object references in later commands.",
-          "Set timeline_path to open an Assets/... or Packages/... Timeline; same-name root tracks bind to scene characters when available."
+          "Use returned object references in later commands.",
+          "Set timeline_path to open an Assets/... or Packages/... Timeline. Request characters, clips, timeline, or tasks in details when needed."
         ],
         "result_notes": [
-          "With no timeline_path, returns the current live scene context and creates its root when needed.",
-          "With timeline_path, binds the loaded Timeline, opens it in the Timeline window, and returns opened_timeline details. Same-name scene characters are bound when available."
+          "With no timeline_path, returns current Session, Scene, and Timeline identity and creates a Session root when needed.",
+          "Only requested detail groups are built and returned."
         ],
         "scene_effects": [
-          "The context uses the active scene root, Timeline binding, and explicit JSON write path. Commands read the scene Timeline structure and write resulting snapshots through that path. Opening a Timeline asset preserves its asset data."
+          "Context is a live projection of the active scene and Timeline. It does not read or write a context snapshot file."
         ],
         "limits": [
-          "Context reflects the active scene and current Session. Use scene handles for Timeline objects and asset paths for project assets."
+          "Clip counts are Timeline Clip instances on character animation tracks; each segment of a composite is counted separately."
         ],
         "shared_rule_refs": [
           "scene_references",
@@ -267,7 +267,21 @@
         "properties": {
           "timeline_path": {
             "type": "string",
-            "description": "Reload and open an Assets/... or Packages/... Timeline asset, then bind root AnimationTracks to same-name scene characters when available."
+            "description": "Open an Assets/... or Packages/... Timeline asset and make it the current Session Timeline."
+          },
+          "details": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "characters",
+                "clips",
+                "timeline",
+                "tasks"
+              ]
+            },
+            "description": "Optional detail groups to construct: characters, clips, timeline, and tasks."
           }
         },
         "required": [],
@@ -306,146 +320,172 @@
               "session_id": {
                 "type": "string"
               },
-              "session_revision": {
+              "name": {
+                "type": "string"
+              },
+              "created_at_utc": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "running",
+                  "invalid"
+                ]
+              },
+              "clip_count": {
                 "type": "integer"
               },
-              "schema_version": {
-                "type": "string"
+              "active_task_count": {
+                "type": "integer"
               }
             },
             "additionalProperties": true
           },
           "scene": {
-            "type": "string"
-          },
-          "scene_name": {
-            "type": "string"
-          },
-          "director": {
-            "type": "string"
-          },
-          "directors": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "object_ref": {
-                  "type": "string"
-                },
-                "hierarchy_path": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "enabled": {
-                  "type": "boolean"
-                },
-                "playable_asset": {
-                  "type": "string"
-                },
-                "timeline_frame_60": {
-                  "type": "integer"
-                },
-                "duration_frames_60": {
-                  "type": "integer"
-                },
-                "frame_rate": {
-                  "type": "number"
-                }
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
               },
-              "additionalProperties": true
-            }
+              "path": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           },
-          "command_context_director": {
-            "type": "string"
+          "timeline": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
           },
-          "playable_asset": {
-            "type": "string"
-          },
-          "playable_asset_path": {
-            "type": "string"
-          },
-          "duration_frames_60": {
-            "type": "integer"
-          },
-          "frame_rate": {
-            "type": "number"
-          },
-          "current_frame_60": {
-            "type": "integer"
-          },
-          "characters": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "role": {
-                  "type": "string"
-                },
-                "scene_object": {
-                  "type": "string"
-                },
-                "object_ref": {
-                  "type": "string"
-                },
-                "animator": {
-                  "type": "string"
-                },
-                "timeline_preview": {
-                  "type": "object"
-                },
-                "avatar": {
-                  "type": "string"
-                },
-                "avatar_valid_humanoid": {
-                  "type": "boolean"
-                },
-                "animations": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "animation_id": {
-                        "type": "string"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "source": {
-                        "type": "string"
-                      },
-                      "kind": {
-                        "type": "string"
-                      },
-                      "start_timeline_frame_60": {
-                        "type": "integer"
-                      },
-                      "duration_frames": {
-                        "type": "integer"
-                      },
-                      "segments": {
-                        "type": "array"
-                      },
-                      "transition": {
-                        "type": "object"
-                      }
+          "details": {
+            "type": "object",
+            "properties": {
+              "characters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
                     },
-                    "additionalProperties": true
-                  }
+                    "object_ref": {
+                      "type": "string"
+                    },
+                    "scene_object": {
+                      "type": "string"
+                    },
+                    "animator": {
+                      "type": "string"
+                    },
+                    "avatar": {
+                      "type": "string"
+                    },
+                    "avatar_valid_humanoid": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": true
                 }
               },
-              "additionalProperties": true
-            }
-          },
-          "warnings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+              "clips": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "character": {
+                      "type": "string"
+                    },
+                    "track": {
+                      "type": "string"
+                    },
+                    "animation_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "start_timeline_frame_60": {
+                      "type": "integer"
+                    },
+                    "duration_frames": {
+                      "type": "integer"
+                    },
+                    "asset_path": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "timeline": {
+                "type": "object",
+                "properties": {
+                  "duration_frames_60": {
+                    "type": "integer"
+                  },
+                  "frame_rate": {
+                    "type": "number"
+                  },
+                  "current_frame_60": {
+                    "type": "object"
+                  },
+                  "tracks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string"
+                        },
+                        "clip_count": {
+                          "type": "object"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  }
+                },
+                "additionalProperties": true
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "character": {
+                      "type": "string"
+                    },
+                    "animation": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            },
+            "additionalProperties": false
           },
           "opened_timeline": {
             "type": "object",
@@ -497,11 +537,20 @@
       },
       "examples": [
         {
-          "description": "Read the scene and current Session identity.",
+          "description": "Read the compact current Session summary.",
           "arguments": {}
         },
         {
-          "description": "Reload and open a historical Timeline, binding same-name scene characters when available.",
+          "description": "Request only the character and Clip details.",
+          "arguments": {
+            "details": [
+              "characters",
+              "clips"
+            ]
+          }
+        },
+        {
+          "description": "Open a Timeline asset and make it current.",
           "arguments": {
             "timeline_path": "Assets/Timelines/WalkHistory.playable"
           }
@@ -622,7 +671,7 @@
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "pose.get",
           "pose.analysis"
         ]
@@ -842,19 +891,19 @@
                   "type": "object",
                   "properties": {
                     "clip_index": {
-                      "type": "integer"
+                      "type": "object"
                     },
                     "foot": {
-                      "type": "string"
+                      "type": "object"
                     },
                     "timeline_frame_60": {
                       "type": "integer"
                     },
                     "contact": {
-                      "type": "boolean"
+                      "type": "object"
                     },
                     "transition": {
-                      "type": "string"
+                      "type": "object"
                     },
                     "duration_frames_60": {
                       "type": "integer"
@@ -2320,14 +2369,14 @@
           "Appends a derived animation to the target character; the source Clip remains available."
         ],
         "limits": [
-          "Source and target resolve to supported scene characters from scene.context."
+          "Source and target resolve to supported scene characters from session.context."
         ],
         "shared_rule_refs": [
           "scene_references",
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "animation.analysis"
         ]
       },
@@ -2336,7 +2385,7 @@
         "properties": {
           "source_character": {
             "type": "string",
-            "description": "Source scene character name or object_ref from scene.context."
+            "description": "Source scene character name or object_ref from session.context."
           },
           "animation": {
             "type": "string",
@@ -2344,7 +2393,7 @@
           },
           "target_character": {
             "type": "string",
-            "description": "Target scene character name or object_ref from scene.context."
+            "description": "Target scene character name or object_ref from session.context."
           },
           "output": {
             "type": "object",
@@ -2496,7 +2545,7 @@
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "pose.get",
           "generation.get",
           "generation.cancel",
@@ -2508,7 +2557,7 @@
         "properties": {
           "character": {
             "type": "string",
-            "description": "Scene character name or object_ref from scene.context."
+            "description": "Scene character name or object_ref from session.context."
           },
           "prompt": {
             "type": "string",
@@ -3285,7 +3334,7 @@
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "animation.analysis",
           "pose.analysis",
           "pose.set"
@@ -3480,7 +3529,7 @@
       },
       "examples": [
         {
-          "description": "Capture a pose at an absolute Timeline-global frame resolved from scene.context or existing analysis.",
+          "description": "Capture a pose at an absolute Timeline-global frame resolved from session.context or existing analysis.",
           "arguments": {
             "source": {
               "character": "<character>",
@@ -4319,16 +4368,16 @@
           "Returns whether the context was cleared, how many context objects were destroyed, and lazy recreation information."
         ],
         "scene_effects": [
-          "Destroys scene-bound context GameObjects; persisted Timeline, Session JSON, and animation assets are retained."
+          "Destroys scene-bound context GameObjects; persisted Timeline, History, and animation assets are retained."
         ],
         "limits": [
-          "Call scene.context after clearing to obtain fresh scene references."
+          "Call session.context after clearing to obtain fresh scene references."
         ],
         "shared_rule_refs": [
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context"
+          "session.context"
         ]
       },
       "inputSchema": {
@@ -4391,35 +4440,56 @@
     },
     {
       "name": "session.history",
-      "description": "Read the original generation and animation analysis record indexes for the active scene Session. Use scene.context to inspect the Session identity and current Timeline context.",
+      "description": "Read append-only command history for the active Session, a specified Session, or the global Session directory.",
       "documentation": {
-        "when_to_use": "Read the compact generation and animation analysis indexes for the active scene Session.",
+        "when_to_use": "Read append-only animation command history for the current Session, a specified Session, or the global Session directory.",
         "behavior": [
-          "Use scene.context for active Session identity and Timeline handles.",
-          "Use this command when generation or analysis record indexes are needed."
+          "Omit session_id to use or create the current Session; set scope='global' to list all created Sessions.",
+          "historybegin and historyend are an inclusive operation-sequence range and must be provided together."
         ],
         "result_notes": [
-          "Returns generation and analysis indexes built from the original record files, plus the active Session identity."
+          "Without a range, returns the 20 newest operations. Operations include the original command input and response; asynchronous generation aggregates accepted and terminal events."
         ],
         "scene_effects": [
-          "Reads the recorded indexes for the active scene Session."
+          "Reads the Session's append-only history.jsonl and checks history-format and package MAJOR.MINOR compatibility."
         ],
         "limits": [
-          "For full analysis keyframes and pictures, follow analysis_path. Use scene.context for current Timeline handles."
+          "Global scope lists Sessions even when they have no operations. Patch-level package version differences within one MAJOR.MINOR are compatible."
         ],
         "shared_rule_refs": [
           "scene_references",
           "operation_scope"
         ],
         "related_commands": [
-          "scene.context",
+          "session.context",
           "generation.get",
           "animation.analysis"
         ]
       },
       "inputSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "Read one Session by its Timeline asset GUID; omitted uses the current Session."
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "session",
+              "global"
+            ],
+            "description": "Defaults to session; set global to list all created Sessions, including Sessions with no operations."
+          },
+          "historybegin": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "historyend": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
@@ -4456,10 +4526,10 @@
               "session_id": {
                 "type": "string"
               },
-              "session_revision": {
-                "type": "integer"
+              "name": {
+                "type": "string"
               },
-              "schema_version": {
+              "created_at_utc": {
                 "type": "string"
               }
             },
@@ -4468,79 +4538,65 @@
           "history": {
             "type": "object",
             "properties": {
-              "generations": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "session",
+                  "global"
+                ]
+              },
+              "operations": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "request_id": {
-                      "type": "string"
-                    },
-                    "animation_id": {
-                      "type": "string"
-                    },
-                    "character": {
-                      "type": "string"
-                    },
-                    "animation": {
+                    "operation_seq": {
                       "type": "object"
                     },
-                    "status": {
-                      "type": "string"
+                    "operation_id": {
+                      "type": "object"
                     },
-                    "stage": {
-                      "type": "string"
+                    "command": {
+                      "type": "object"
                     },
-                    "message": {
-                      "type": "string"
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "started_at_utc": {
+                    "created_at_utc": {
                       "type": "string"
                     },
                     "updated_at_utc": {
                       "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "input": {
+                      "type": "object"
+                    },
+                    "accepted": {
+                      "type": "object"
+                    },
+                    "response": {
+                      "type": "object"
                     }
                   },
                   "additionalProperties": true
                 }
               },
-              "analyses": {
+              "sessions": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "analysis_id": {
-                      "type": "string"
-                    },
                     "session_id": {
                       "type": "string"
                     },
-                    "character": {
-                      "type": "string"
-                    },
-                    "animation_id": {
-                      "type": "string"
-                    },
-                    "animation_name": {
-                      "type": "string"
-                    },
-                    "input_signature": {
+                    "name": {
                       "type": "string"
                     },
                     "created_at_utc": {
                       "type": "string"
                     },
-                    "analysis_path": {
-                      "type": "string"
-                    },
-                    "picture_paths": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
+                    "operation_count": {
+                      "type": "object"
                     }
                   },
                   "additionalProperties": true
@@ -4557,8 +4613,21 @@
       },
       "examples": [
         {
-          "description": "Read the compact generation and analysis history for the active Session.",
+          "description": "Read the 20 newest operations for the current Session.",
           "arguments": {}
+        },
+        {
+          "description": "Read operations 10 through 20, inclusive.",
+          "arguments": {
+            "historybegin": 10,
+            "historyend": 20
+          }
+        },
+        {
+          "description": "List all created Sessions, including empty histories.",
+          "arguments": {
+            "scope": "global"
+          }
         }
       ]
     }

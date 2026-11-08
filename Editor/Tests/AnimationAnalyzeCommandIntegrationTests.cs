@@ -149,35 +149,26 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(analysis["pictures"]?.Value<int?>("header_height"), Is.GreaterThan(0));
                 Assert.That(analysis["pictures"]?["images"]?.Count(), Is.EqualTo(20));
 
-                JObject compactContext = Require("scene.context", new JObject());
+                JObject compactContext = Require("session.context", new JObject());
                 Assert.That(compactContext["history"], Is.Null, "History is returned by the independent session.history command.");
                 string sessionIdBeforeHistory = compactContext["session"]?.Value<string>("session_id");
                 JObject historyResponse = Require("session.history", new JObject());
                 Assert.That(historyResponse["session"]?.Value<string>("session_id"), Is.Not.Empty);
                 Assert.That(historyResponse["session"]?.Value<string>("session_id"), Is.EqualTo(sessionIdBeforeHistory),
                     "A history query must inspect the existing context without replacing it.");
-                Assert.That(historyResponse["session"]?.Value<int>("session_revision"), Is.GreaterThan(0));
-                JObject indexedAnalysis = (historyResponse["history"]?["analyses"] as JArray)?.Values<JObject>()
-                    .SingleOrDefault(item => item.Value<string>("analysis_id") == analysis["clip"]?.Value<string>("analysis_id"));
-                Assert.That(indexedAnalysis, Is.Not.Null);
-                Assert.That(indexedAnalysis.Value<string>("animation_id"), Is.Not.Empty);
-                CollectionAssert.Contains(indexedAnalysis["picture_paths"].Values<string>(), analysis["pictures"]?.Value<string>("image_path"));
-                Assert.That(historyResponse["history"]?["animations"], Is.Null);
-                Assert.That((compactContext["characters"] as JArray)?.Values<JObject>()
-                    .Any(item => (item["animations"] as JArray)?.Values<JObject>()
-                        .Any(animationItem => animationItem.Value<string>("animation_id") == indexedAnalysis.Value<string>("animation_id")) == true), Is.True);
+                JObject recordedAnalysis = (historyResponse["history"]?["operations"] as JArray)?.Values<JObject>()
+                    .SingleOrDefault(item => item.Value<string>("command") == "animation.analysis" &&
+                        item["response"]?["clip"]?.Value<string>("analysis_id") == analysis["clip"]?.Value<string>("analysis_id"));
+                Assert.That(recordedAnalysis, Is.Not.Null, "History retains the exact analysis response.");
+                Assert.That(recordedAnalysis["input"]?["clips"]?[0]?.Value<string>("clip"), Is.EqualTo(ArcWalkPath));
+                Assert.That(recordedAnalysis["response"]?["pictures"]?.Value<string>("image_path"),
+                    Is.EqualTo(analysis["pictures"]?.Value<string>("image_path")));
                 Type contextType = typeof(command_dispatcher).Assembly.GetType("KimodoUnityBridge.Command.command_context");
-                MethodInfo sessionJsonPathMethod = contextType.GetMethod("GetSessionJsonAbsolutePath", BindingFlags.Static | BindingFlags.NonPublic);
-                string sessionJsonPath = sessionJsonPathMethod.Invoke(null, new[] { testSession }) as string;
-                JObject sessionJson = JObject.Parse(File.ReadAllText(sessionJsonPath));
-                Assert.That(sessionJson["animations"], Is.Null);
-                Assert.That((sessionJson["characters"] as JArray)?.Values<JObject>()
-                    .Any(item => (item["animations"] as JArray)?.Values<JObject>()
-                        .Any(animationItem => animationItem.Value<string>("animation_id") == indexedAnalysis.Value<string>("animation_id")) == true), Is.True);
-                Assert.That(sessionJson["analyses"], Is.Null,
-                    "Context JSON contains the current Timeline structure; analysis history is indexed independently from raw records.");
-                Assert.That(sessionJson["generations"], Is.Null);
-                string fullAnalysisPath = Path.Combine(Directory.GetCurrentDirectory(), indexedAnalysis.Value<string>("analysis_path"));
+                string sessionFolder = Path.Combine(Directory.GetCurrentDirectory(), "Library", "KimodoData", "Sessions", sessionIdBeforeHistory);
+                Assert.That(File.Exists(Path.Combine(sessionFolder, "session.json")), Is.False,
+                    "Session Context must not produce a session.json snapshot.");
+                Assert.That(File.Exists(Path.Combine(sessionFolder, "history.jsonl")), Is.True);
+                string fullAnalysisPath = Path.Combine(sessionFolder, "Analyses", $"analysis_{analysis["clip"]?.Value<string>("analysis_id")}.json");
                 JObject fullAnalysisRecord = JObject.Parse(File.ReadAllText(fullAnalysisPath));
                 Assert.That(fullAnalysisRecord["analysis"]?["keyframes"]?.Count(), Is.GreaterThan(0));
                 Assert.That(fullAnalysisRecord["analysis"]?["foot_contacts"]?.Count(), Is.GreaterThan(0));
@@ -528,34 +519,29 @@ namespace KimodoUnityBridge.Command.Tests
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
             timeline.editorSettings.frameRate = 60.0;
             string sessionName = "AnimationAnalysis_ArcWalkFixture_CurrentCommand";
-            GameObject sessionRoot = new GameObject("KimodoSession_ArcWalkFixture_CurrentCommand");
-            sessionRoot.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            KimodoSessionContextBinding binding = sessionRoot.AddComponent<KimodoSessionContextBinding>();
-            Guid sessionId = Guid.NewGuid();
-            binding.sessionId = sessionId.ToString("D");
-            binding.sessionName = sessionName;
-            binding.sessionJsonPath = $"Library/KimodoData/Sessions/{sessionId:D}/session.json";
-            binding.isAutomatic = true;
-            GameObject directorObject = new GameObject("Kimodo_CommandSession_ArcWalkFixture_CurrentCommand");
-            directorObject.hideFlags = HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor;
-            directorObject.transform.SetParent(sessionRoot.transform, false);
-            PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+            string timelineFolder = "Assets/Archive/KimodoAnimationAnalysis/Timelines";
+            Directory.CreateDirectory(Path.Combine(Application.dataPath, "Archive", "KimodoAnimationAnalysis", "Timelines"));
+            string timelinePath = AssetDatabase.GenerateUniqueAssetPath($"{timelineFolder}/{sessionName}_{Guid.NewGuid():N}.playable");
+            AssetDatabase.CreateAsset(timeline, timelinePath);
+            AssetDatabase.SaveAssets();
+            Guid sessionId = Guid.Parse(AssetDatabase.AssetPathToGUID(timelinePath));
+            GameObject sessionRoot = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + sessionName);
+            KimodoDisableOnRuntime.Ensure(sessionRoot);
+            PlayableDirector director = sessionRoot.AddComponent<PlayableDirector>();
             director.playableAsset = timeline;
 
             ConstructorInfo sessionConstructor = sessionType.GetConstructors(
                     BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .Single(item => item.GetParameters().Length == 9);
+                .Single(item => item.GetParameters().Length == 6);
             object session = sessionConstructor.Invoke(new object[]
             {
-                sessionId, sessionName, director, timeline, string.Empty, true, sessionRoot, binding.sessionJsonPath, 0
+                sessionId, sessionName, director, timeline, timelinePath, sessionRoot
             });
 
             MethodInfo addCharacter = contextType.GetMethod("AddCharacterTrack", BindingFlags.Static | BindingFlags.NonPublic);
             object[] addArguments = { session, character, animator, true, null, true };
             Assert.That((bool)addCharacter.Invoke(null, addArguments), Is.True,
                 "AddCharacterTrack failed: " + addArguments[4]);
-            FieldInfo currentSession = contextType.GetField("currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
-            currentSession.SetValue(null, session);
             MethodInfo activate = contextType.GetMethod("ActivateTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
             activate.Invoke(null, new[] { session });
             return session;
@@ -563,16 +549,10 @@ namespace KimodoUnityBridge.Command.Tests
 
         private static void ResetCurrentTestContext(object session)
         {
-            Type contextType = typeof(command_dispatcher).Assembly
-                .GetType("KimodoUnityBridge.Command.command_context");
-            FieldInfo currentSession = contextType.GetField("currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
-            currentSession.SetValue(null, null);
             if (session == null) return;
             Type sessionType = session.GetType();
             GameObject root = sessionType.GetProperty("SessionRoot")?.GetValue(session) as GameObject;
-            TimelineAsset timeline = sessionType.GetProperty("TimelineAsset")?.GetValue(session) as TimelineAsset;
             if (root != null) UnityEngine.Object.DestroyImmediate(root);
-            if (timeline != null) UnityEngine.Object.DestroyImmediate(timeline);
         }
 
         private static JObject Require(string command, JObject arguments)

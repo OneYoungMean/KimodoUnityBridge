@@ -14,7 +14,7 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        private static JObject OpenTimelineFromSceneContext(string requestedPath)
+        private static JObject OpenTimelineFromSessionContext(string requestedPath)
         {
             string assetPath = ResolveTimelineAssetPath(requestedPath);
             AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
@@ -32,30 +32,22 @@ namespace KimodoUnityBridge.Command
             {
                 layer = SessionCaptureLayer
             };
-            Guid sessionId = Guid.NewGuid();
+            KimodoDisableOnRuntime.Ensure(sessionRoot);
             string sessionName = safeName;
-            KimodoSessionContextBinding binding = sessionRoot.AddComponent<KimodoSessionContextBinding>();
-            binding.sessionId = sessionId.ToString("D");
-            binding.sessionName = sessionName;
-            binding.timelineAssetPath = assetPath;
-            binding.isAutomatic = false;
-            GameObject directorObject = new GameObject($"{KimodoRuntimeUtility.SessionDirectorPrefix}{safeName}");
-            directorObject.transform.SetParent(sessionRoot.transform, false);
-            PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+            PlayableDirector director = sessionRoot.AddComponent<PlayableDirector>();
             director.playableAsset = timeline;
             director.time = 0.0;
             director.enabled = true;
+            Guid sessionId = GetTimelineAssetGuid(timeline);
 
             var session = new TimelineSessionRecord(
-                sessionId, sessionName, director, timeline, assetPath,
-                isAutomatic: false, sessionRoot);
-            binding.sessionJsonPath = session.SessionJsonPath;
+                sessionId, sessionName, director, timeline, assetPath, sessionRoot);
 
             var result = new JObject
             {
                 ["timeline_asset"] = timeline.name,
                 ["timeline_asset_path"] = assetPath,
-                ["director"] = GetSceneHierarchyPath(directorObject),
+                ["director"] = GetSceneHierarchyPath(sessionRoot),
                 ["bound_characters"] = new JArray(),
                 ["warnings"] = new JArray()
             };
@@ -100,8 +92,7 @@ namespace KimodoUnityBridge.Command
                 });
             }
 
-            currentTimelineSession = session;
-            PersistTimelineSessionJson(session);
+            EnsureSessionHistoryHeaderIfMissing(session);
             ActivateTimelineSession(session);
             OpenTimelineWindow(session.Director);
             return result;
@@ -137,10 +128,8 @@ namespace KimodoUnityBridge.Command
 
         private static void ClearCurrentTimelineContext()
         {
-            // Opening another Timeline replaces the current scene binding while
-            // retaining all serialized Timeline, Session, generation, and analysis
-            // data. The new binding is a complete scene context, not a temporary
-            // history object.
+            // Opening another Timeline replaces the current scene root while
+            // retaining the Timeline asset and its per-Session generated data.
             ClearSession(new JObject());
         }
 

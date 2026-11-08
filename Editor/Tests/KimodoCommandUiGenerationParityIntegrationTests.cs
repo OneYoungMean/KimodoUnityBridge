@@ -42,7 +42,6 @@ namespace KimodoUnityBridge.Command.Tests
         public IEnumerator CommandThenInspectorGeneration_SameSeedProducesSameMotion()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
-            object previousSession = CurrentSessionField().GetValue(null);
             Scene fixtureScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject character = null;
             object testSession = null;
@@ -82,9 +81,9 @@ namespace KimodoUnityBridge.Command.Tests
                     "Could not save the scene needed by command character resolution.");
 
                 Selection.activeGameObject = character;
-                Invoke("scene.context", new JObject());
-                testSession = CurrentSessionField().GetValue(null);
-                Assert.That(testSession, Is.Not.Null, "scene.context did not create an active Timeline session.");
+                Invoke("session.context", new JObject());
+                testSession = CurrentSessionProjection();
+                Assert.That(testSession, Is.Not.Null, "session.context did not create an active Timeline session.");
                 string outputName = "CommandUiParity_" + Guid.NewGuid().ToString("N");
                 commandTimer = Stopwatch.StartNew();
                 JObject accepted = Invoke("animation.generate", new JObject
@@ -241,7 +240,6 @@ namespace KimodoUnityBridge.Command.Tests
                 {
                     TestContext.Progress.WriteLine("Best-effort Timeline archive failed: " + cleanupError.Message);
                 }
-                CurrentSessionField().SetValue(null, previousSession);
                 Selection.activeObject = previousSelection;
                 TimelineEditor.selectedClips = previousTimelineSelection ?? Array.Empty<TimelineClip>();
                 if (character != null) UnityEngine.Object.DestroyImmediate(character);
@@ -349,11 +347,12 @@ namespace KimodoUnityBridge.Command.Tests
             return response;
         }
 
-        private static FieldInfo CurrentSessionField()
+        private static object CurrentSessionProjection()
         {
             Type contextType = typeof(command_dispatcher).Assembly
                 .GetType("KimodoUnityBridge.Command.command_context");
-            return contextType.GetField("currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
+            MethodInfo buildView = contextType.GetMethod("BuildTimelineSessionView", BindingFlags.Static | BindingFlags.NonPublic);
+            return buildView.Invoke(null, new object[] { SceneManager.GetActiveScene() });
         }
 
         private static void ResetCurrentTestContext(object session)
@@ -363,7 +362,6 @@ namespace KimodoUnityBridge.Command.Tests
             if (session == null) return;
             contextType.GetMethod("ClearRuntimeSession", BindingFlags.Static | BindingFlags.NonPublic)
                 ?.Invoke(null, new[] { session });
-            CurrentSessionField().SetValue(null, null);
         }
 
         private static void ArchiveSessionTimeline(object session)

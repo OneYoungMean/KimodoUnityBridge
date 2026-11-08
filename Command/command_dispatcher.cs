@@ -143,8 +143,8 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        public static string SceneContext(string argumentsJson = "{}") =>
-            Execute(argumentsJson, SceneContextGet);
+        public static string SessionContext(string argumentsJson = "{}") =>
+            Execute(argumentsJson, SessionContextGet);
 
         public static string SessionHistory(string argumentsJson = "{}") =>
             Execute(argumentsJson, SessionHistoryGet);
@@ -168,16 +168,22 @@ namespace KimodoUnityBridge.Api
     public static class Animation
     {
         public static string Generate(string argumentsJson) =>
-            Command.command_context.GenerateAnimationAsset(argumentsJson);
+            Command.command_context.InvokeAnimationApi(Command.command_context.GenerateAnimationCommand, argumentsJson,
+                Command.command_context.GenerateAnimationAsset);
 
-        public static Task<string> GenerateAsync(string argumentsJson) =>
-            Command.command_context.GenerateAnimationAssetAsync(argumentsJson);
+        public static Task<string> GenerateAsync(string argumentsJson)
+        {
+            string initial = Generate(argumentsJson);
+            return Command.command_context.AwaitCommandResultAsync(Command.command_context.GenerateAnimationCommand, argumentsJson, initial);
+        }
 
         public static string Analysis(string argumentsJson) =>
-            Command.command_context.AnimationAnalysis(argumentsJson);
+            Command.command_context.InvokeAnimationApi(Command.command_context.AnimationAnalysisCommand, argumentsJson,
+                Command.command_context.AnimationAnalysis);
 
         public static string Retarget(string argumentsJson) =>
-            Command.command_context.RetargetAnimation(argumentsJson);
+            Command.command_context.InvokeAnimationApi(Command.command_context.RetargetAnimationCommand, argumentsJson,
+                Command.command_context.RetargetAnimation);
     }
 
     public static class Generation
@@ -219,14 +225,11 @@ namespace KimodoUnityBridge.Api
             Command.command_context.ClipSettingsSet(argumentsJson);
     }
 
-    public static class Scene
-    {
-        public static string Context(string argumentsJson = "{}") =>
-            Command.command_context.SceneContext(argumentsJson);
-    }
-
     public static class Session
     {
+        public static string Context(string argumentsJson = "{}") =>
+            Command.command_context.SessionContext(argumentsJson);
+
         public static string History(string argumentsJson = "{}") =>
             Command.command_context.SessionHistory(argumentsJson);
 

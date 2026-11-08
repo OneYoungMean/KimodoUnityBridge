@@ -676,7 +676,8 @@ namespace KimodoUnityBridge.Command
             TimelineSessionRecord timelineSession = record.TimelineGenerationTrace.Session;
             JObject status = BuildStatus(record, includeBackendRequestJson: true);
             WriteJsonAtomically(GenerationJobPath(timelineSession, jobSession.RequestId), status);
-            PersistTimelineSessionJson(timelineSession);
+            PersistSessionArtifacts(timelineSession);
+            RecordGenerationTerminalHistory(timelineSession, status);
             EditorUtility.SetDirty(timelineSession.TimelineAsset);
             AssetDatabase.SaveAssets();
         }

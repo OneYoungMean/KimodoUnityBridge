@@ -81,7 +81,7 @@ These are interactive acceptance tests for the Skill workflow, not Unity unit te
 
 **Setup:** A Session with two completed candidates and their analysis records.
 
-**Exercise:** Read `scene.context`, then query `session.history` separately. Match generation and analysis entries by their IDs and evidence paths. Analyze each candidate under the same criteria and rendering conditions; open both images.
+**Exercise:** Read `session.context`, then query `session.history` separately. Match generation and analysis entries by their IDs and evidence paths. Analyze each candidate under the same criteria and rendering conditions; open both images.
 
 **Pass when:** the default scene response omits history, explicit history returns the compact index, IDs remain distinct, and comparison reports only criteria supported by the evidence. `session_revision` is not described as a restore point.
 

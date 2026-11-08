@@ -3,8 +3,8 @@ using UnityEngine;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Disables an editor-only Session root during Play Mode. Scene reload
-    /// restores the Edit Mode state when Play Mode ends.
+    /// Disables an editor-only Session root from Awake during Play Mode.
+    /// No Play Mode exit callback changes the root's state.
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("Kimodo/Session Runtime Guard")]
@@ -29,9 +29,5 @@ namespace KimodoBridge
             if (Application.isPlaying) DisableForPlay();
         }
 
-        private void OnEnable()
-        {
-            if (Application.isPlaying) DisableForPlay();
-        }
     }
 }

@@ -165,8 +165,7 @@ namespace KimodoUnityBridge.Command
         {
             session = null;
             error = string.Empty;
-            RefreshSceneContextBinding();
-            session = currentTimelineSession ?? BindLoadedSceneContext(SceneManager.GetActiveScene());
+            session = BuildTimelineSessionView(SceneManager.GetActiveScene());
             if (!IsTimelineSessionValid(session))
             {
                 error = "Post-generation analysis skipped because no existing scene Timeline Session is available; an automatic context was not created.";
@@ -177,7 +176,6 @@ namespace KimodoUnityBridge.Command
                 error = "Post-generation analysis skipped because the existing scene Session does not own the source Timeline.";
                 return false;
             }
-            currentTimelineSession = session;
             return true;
         }
     }

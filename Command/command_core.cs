@@ -20,7 +20,7 @@ namespace KimodoUnityBridge.Command
     internal static partial class command_context
     {
         public const string HelpCommand = "kimodo.help";
-        public const string SceneContextCommand = "scene.context";
+        public const string SessionContextCommand = "session.context";
         public const string InstallServerCommand = "server.install";
         public const string GenerateAnimationCommand = "animation.generate";
         public const string AnimationAnalysisCommand = "animation.analysis";
@@ -120,10 +120,17 @@ namespace KimodoUnityBridge.Command
                                 ["default"] = "commands",
                                 ["description"] = "Select the command overview, currently viable models, or generation constraint reference. Set command for one detailed command entry."
                             }, false))),
-                    CommandDefinition(SceneContextCommand,
-                        "Return the current active-scene context JSON. Use this response as the authoritative source for scene characters, Clips, Timeline ranges, and object references.",
+                    CommandDefinition(SessionContextCommand,
+                        "Read a compact Session summary built from the active scene and Timeline. Request details by tag when needed.",
                         Properties(
-                            Optional("timeline_path", "string", "Reload and open an Assets/... or Packages/... Timeline asset, then bind root AnimationTracks to same-name scene characters when available."))),
+                            Optional("timeline_path", "string", "Open an Assets/... or Packages/... Timeline asset and make it the current Session Timeline."),
+                            new PropertyDefinition("details", new JObject
+                            {
+                                ["type"] = "array",
+                                ["uniqueItems"] = true,
+                                ["items"] = new JObject { ["type"] = "string", ["enum"] = new JArray("characters", "clips", "timeline", "tasks") },
+                                ["description"] = "Optional detail groups to construct: characters, clips, timeline, and tasks."
+                            }, false))),
                     CommandDefinition(InstallServerCommand,
                         "Start or refresh the project-local QuickServer runtime when generation needs it. Returns a request handle and status for progress tracking.",
                         Properties(WaitSecondsProperty(10.0, allowAboveLimit: true))),
@@ -209,14 +216,14 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current scene context character and append the result.",
                         Properties(
-                            Required("source_character", "string", "Source scene character name or object_ref from scene.context."),
+                            Required("source_character", "string", "Source scene character name or object_ref from session.context."),
                             Required("animation", "string", "Safe source animation name."),
-                            Required("target_character", "string", "Target scene character name or object_ref from scene.context."),
+                            Required("target_character", "string", "Target scene character name or object_ref from session.context."),
                             OptionalOutput())),
                     CommandDefinition(GenerateAnimationCommand,
                         "Generate one animation Clip for a scene character. Use prompt for semantic motion or raw_instruction to replay an exact captured server payload; use structured constraint and trajectory fields for explicit requirements. Returns a request handle and preflight diagnostics; generation.get returns the completed Clip and analysis details.",
                         Properties(
-                            Required("character", "string", "Scene character name or object_ref from scene.context."),
+                            Required("character", "string", "Scene character name or object_ref from session.context."),
                             Optional("prompt", "string", "Short semantic description of the current Clip's action, aim for 25 words or fewer; use raw_instruction to replay a captured payload."),
                             new PropertyDefinition("raw_instruction", new JObject
                             {
@@ -271,8 +278,16 @@ namespace KimodoUnityBridge.Command
                         "Clear the active scene context objects. The Timeline, Session data, and animation assets remain available; the next command creates a fresh scene context when needed.",
                         Properties()),
                     CommandDefinition(SessionHistoryCommand,
-                        "Read the original generation and animation analysis record indexes for the active scene Session. Use scene.context to inspect the Session identity and current Timeline context.",
-                        Properties()),
+                        "Read append-only command history for the active Session, a specified Session, or the global Session directory.",
+                        Properties(
+                            Optional("session_id", "string", "Read one Session by its Timeline asset GUID; omitted uses the current Session."),
+                            new PropertyDefinition("scope", new JObject
+                            {
+                                ["type"] = "string", ["enum"] = new JArray("session", "global"),
+                                ["description"] = "Defaults to session; set global to list all created Sessions, including Sessions with no operations."
+                            }, false),
+                            new PropertyDefinition("historybegin", new JObject { ["type"] = "integer", ["minimum"] = 1 }, false),
+                            new PropertyDefinition("historyend", new JObject { ["type"] = "integer", ["minimum"] = 1 }, false))),
                 }
             }.ToString(Formatting.None);
         }
@@ -282,9 +297,33 @@ namespace KimodoUnityBridge.Command
             string commandName = toolName?.Trim();
             if (Commands.Value.TryGet(commandName, out CommandRegistration command))
             {
-                return command.Handler(argumentsJson);
+                string response = command.Handler(argumentsJson);
+                if (commandName == GenerateAnimationCommand || commandName == RetargetAnimationCommand || commandName == AnimationAnalysisCommand)
+                {
+                    RecordHistorySafely(commandName, argumentsJson, response);
+                }
+                return response;
             }
             return Error("unknown_command", $"Unknown Kimodo command '{toolName ?? string.Empty}'.");
+        }
+
+        internal static string InvokeAnimationApi(string commandName, string argumentsJson, Func<string, string> handler)
+        {
+            string response = handler(argumentsJson);
+            RecordHistorySafely(commandName, argumentsJson, response);
+            return response;
+        }
+
+        private static void RecordHistorySafely(string commandName, string argumentsJson, string response)
+        {
+            try
+            {
+                RecordCommandHistory(commandName, ParseCommandArguments(argumentsJson), JObject.Parse(response));
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"[Kimodo][SessionHistory] Failed to record {commandName}: {exception}");
+            }
         }
 
         /// <summary>
@@ -510,7 +549,7 @@ namespace KimodoUnityBridge.Command
                     ["routing"] = new JArray
                     {
                         Route("discover schema or models", HelpCommand),
-                        Route("read active scene context", SceneContextCommand),
+                        Route("read active scene context", SessionContextCommand),
                         Route("reinstall the local server", InstallServerCommand, "then " + GetGenerationCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
                         Route("analyze a video for SMPL-X poses", PoseFromVideoCommand, "then " + GetGenerationCommand),

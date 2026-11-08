@@ -308,54 +308,35 @@ namespace KimodoUnityBridge.Command.Tests
             }
         }
 
-        [TestCase(false)]
-        [TestCase(true)]
-        public void SceneContextBinding_ReadsTimelineAndPreservesItsJsonTarget(bool isAutomatic)
+        [Test]
+        public void SessionRoot_UsesTimelineGuidAndDirectDirectorWithoutBindingOrChildDirector()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            string sessionId = Guid.NewGuid().ToString("D");
-            string jsonPath = $"Library/KimodoData/Sessions/{Guid.NewGuid():D}/session.json";
+            string timelinePath = $"Assets/Archive/KimodoCommandTests/Timelines/SessionRoot_{Guid.NewGuid():N}.playable";
+            EnsureAssetFolder("Assets/Archive/KimodoCommandTests/Timelines");
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            GameObject root = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "BindingTest");
-            KimodoSessionContextBinding binding = root.AddComponent<KimodoSessionContextBinding>();
-            binding.sessionId = sessionId;
-            binding.sessionName = "BindingTest";
-            binding.sessionJsonPath = jsonPath;
-            binding.timelineAssetPath = "Assets/BindingTest.playable";
-            binding.isAutomatic = isAutomatic;
-            binding.sessionRevision = 17;
-            GameObject directorObject = new GameObject(KimodoRuntimeUtility.SessionDirectorPrefix + "BindingTest");
-            directorObject.transform.SetParent(root.transform, false);
-            PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+            AssetDatabase.CreateAsset(timeline, timelinePath);
+            GameObject root = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "RootTest");
+            KimodoDisableOnRuntime.Ensure(root);
+            PlayableDirector director = root.AddComponent<PlayableDirector>();
             director.playableAsset = timeline;
 
             try
             {
-                Type context = typeof(command_dispatcher).Assembly.GetType("KimodoUnityBridge.Command.command_context");
-                MethodInfo bind = context.GetMethod("BindLoadedSceneContext", BindingFlags.Static | BindingFlags.NonPublic);
-                object session = bind.Invoke(null, new object[] { scene });
-                Type sessionType = session.GetType();
-                MethodInfo isBound = context.GetMethod("IsSceneContextBound", BindingFlags.Static | BindingFlags.NonPublic);
-
-                Assert.That(sessionType.GetProperty("Id").GetValue(session), Is.EqualTo(Guid.Parse(sessionId)));
-                Assert.That(sessionType.GetProperty("IsAutomatic").GetValue(session), Is.EqualTo(isAutomatic));
-                Assert.That(sessionType.GetProperty("SessionJsonPath").GetValue(session), Is.EqualTo(jsonPath));
-                Assert.That(sessionType.GetProperty("SessionRevision").GetValue(session), Is.EqualTo(17));
-                Assert.That((bool)isBound.Invoke(null, new[] { session }), Is.True,
-                    "The loaded scene root and its serialized Binding identify the context.");
-                binding.sessionId = Guid.NewGuid().ToString("D");
-                Assert.That((bool)isBound.Invoke(null, new[] { session }), Is.False,
-                    "Generation must stop if the scene Binding no longer identifies its context.");
-                binding.sessionId = sessionId;
-                Assert.That(director.playableAsset, Is.SameAs(timeline));
-                Assert.That(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), jsonPath)), Is.False,
-                    "Binding a scene context must not read or create its JSON file.");
+                command_context.TimelineSessionRecord session = command_context.BuildTimelineSessionView(scene);
+                Assert.That(session, Is.Not.Null);
+                Assert.That(session.Id, Is.EqualTo(command_context.GetTimelineAssetGuid(timeline)));
+                Assert.That(session.TimelineAssetPath, Is.EqualTo(timelinePath));
+                Assert.That(root.GetComponent<PlayableDirector>(), Is.SameAs(director));
+                Assert.That(director.transform, Is.SameAs(root.transform));
+                Assert.That(root.transform.childCount, Is.Zero);
+                Assert.That(root.GetComponent<KimodoSessionContextBinding>(), Is.Null);
+                Assert.That(root.GetComponent<KimodoDisableOnRuntime>(), Is.Not.Null);
             }
             finally
             {
                 if (root != null) UnityEngine.Object.DestroyImmediate(root);
-                if (timeline != null) UnityEngine.Object.DestroyImmediate(timeline);
                 if (previousSceneSetup.Any(setup => setup.isLoaded))
                     EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
                 else
@@ -364,141 +345,75 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void RuntimeTimelineProjection_ReadsClipsFromBoundSceneTimeline()
+        public void SessionContext_RebuildsTimelineProjectionAfterExternalClipChanges()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject sessionRoot = null;
+            string timelinePath = $"Assets/Archive/KimodoCommandTests/Timelines/Projection_{Guid.NewGuid():N}.playable";
+            EnsureAssetFolder("Assets/Archive/KimodoCommandTests/Timelines");
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            Guid sessionId = Guid.Empty;
             AnimationClip firstClip = new AnimationClip { name = "ProjectionFirst" };
             AnimationClip secondClip = new AnimationClip { name = "ProjectionSecond" };
-            Type context = typeof(command_dispatcher).Assembly.GetType("KimodoUnityBridge.Command.command_context");
-            FieldInfo currentSessionField = context.GetField("currentTimelineSession", BindingFlags.Static | BindingFlags.NonPublic);
-            object previousCurrentSession = currentSessionField.GetValue(null);
+            AssetDatabase.CreateAsset(timeline, timelinePath);
+            sessionId = Guid.Parse(AssetDatabase.AssetPathToGUID(timelinePath));
             try
             {
-                Avatar avatar = AssetDatabase.LoadAllAssetsAtPath(HumanoidModelPath)
-                    .OfType<Avatar>().FirstOrDefault(item => item.isValid && item.isHuman);
-                Assert.That(avatar, Is.Not.Null, "Missing Humanoid Armature fixture Avatar.");
-                GameObject character = CreateHumanoidCharacter("ProjectionCharacter", avatar);
-                Animator animator = character.GetComponentInChildren<Animator>(true);
-
                 sessionRoot = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "ProjectionTest");
-                KimodoSessionContextBinding binding = sessionRoot.AddComponent<KimodoSessionContextBinding>();
-                Guid sessionId = Guid.NewGuid();
-                binding.sessionId = sessionId.ToString("D");
-                binding.sessionName = "ProjectionTest";
-                binding.sessionJsonPath = $"Library/KimodoData/Sessions/{sessionId:D}/session.json";
-                binding.isAutomatic = true;
-                GameObject directorObject = new GameObject(KimodoRuntimeUtility.SessionDirectorPrefix + "ProjectionTest");
-                directorObject.transform.SetParent(sessionRoot.transform, false);
-                PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+                KimodoDisableOnRuntime.Ensure(sessionRoot);
+                PlayableDirector director = sessionRoot.AddComponent<PlayableDirector>();
                 director.playableAsset = timeline;
+                GameObject character = new GameObject("ProjectionCharacter");
+                Animator animator = character.AddComponent<Animator>();
                 AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, character.name);
                 director.SetGenericBinding(track, animator);
                 timeline.CreateTrack<AnimationTrack>(track, character.name + ".Poses");
                 TimelineClip firstTimelineClip = track.CreateClip<AnimationPlayableAsset>();
+                AssetDatabase.AddObjectToAsset(firstClip, timeline);
                 ((AnimationPlayableAsset)firstTimelineClip.asset).clip = firstClip;
-                firstTimelineClip.displayName = firstClip.name;
-
-                MethodInfo bind = context.GetMethod("BindLoadedSceneContext", BindingFlags.Static | BindingFlags.NonPublic);
-                object session = bind.Invoke(null, new object[] { scene });
-                Assert.That(session, Is.Not.Null);
-                currentSessionField.SetValue(null, session);
-                Type sessionType = session.GetType();
-                Type characterType = context.GetNestedType("TimelineCharacterRecord", BindingFlags.NonPublic);
-                object originalCharacter = ((IList)sessionType.GetProperty("Characters").GetValue(session))[0];
-                object originalAnimation = ((IList)characterType.GetProperty("Animations").GetValue(originalCharacter))[0];
-                Guid originalAnimationId = (Guid)originalAnimation.GetType().GetProperty("Id").GetValue(originalAnimation);
-                JObject retainedAnalysis = new JObject { ["projection_test"] = true };
-                byte[] retainedMotion = { 3, 1, 4 };
-                originalAnimation.GetType().GetMethod("ApplyResult").Invoke(originalAnimation, new object[]
-                {
-                    firstClip, retainedAnalysis, retainedMotion, 12, 34
-                });
-
+                firstTimelineClip.displayName = "ProjectionFirst";
+                AssetDatabase.SaveAssets();
+                command_context.TimelineSessionRecord firstProjection = command_context.BuildTimelineSessionView(scene);
+                Assert.That(firstProjection, Is.Not.Null);
+                Guid firstClipId = firstProjection.Characters.Single().Animations.Single().Id;
                 TimelineClip secondTimelineClip = track.CreateClip<AnimationPlayableAsset>();
+                AssetDatabase.AddObjectToAsset(secondClip, timeline);
                 ((AnimationPlayableAsset)secondTimelineClip.asset).clip = secondClip;
-                secondTimelineClip.displayName = secondClip.name;
-                MethodInfo readProjection = context.GetMethod("ReadSceneTimelineProjection", BindingFlags.Static | BindingFlags.NonPublic);
-                readProjection.Invoke(null, new object[] { scene });
+                secondTimelineClip.displayName = "ProjectionSecond";
+                AssetDatabase.SaveAssets();
+                command_context.TimelineSessionRecord refreshed = command_context.BuildTimelineSessionView(scene);
+                Assert.That(refreshed, Is.Not.Null);
+                Assert.That(refreshed.Characters.Single().Animations, Has.Count.EqualTo(2));
+                Assert.That(refreshed.Characters.Single().Animations.Select(item => item.Name),
+                    Is.EquivalentTo(new[] { "ProjectionFirst", "ProjectionSecond" }));
+                Assert.That(refreshed.Characters.Single().Animations[0].Id, Is.EqualTo(firstClipId),
+                    "A fresh Timeline projection retains stable IDs for unchanged Timeline clips.");
 
-                Assert.That(currentSessionField.GetValue(null), Is.SameAs(session),
-                    "Refreshing the scene-backed projection must preserve the Session identity used by in-flight work.");
-                IList refreshedCharacters = (IList)sessionType.GetProperty("Characters").GetValue(session);
-                Assert.That(refreshedCharacters, Has.Count.EqualTo(1));
-                IList refreshedAnimations = (IList)characterType.GetProperty("Animations").GetValue(refreshedCharacters[0]);
-                Assert.That(refreshedAnimations, Has.Count.EqualTo(2));
-                Assert.That(refreshedAnimations.Cast<object>().Single(item =>
-                    (Guid)item.GetType().GetProperty("Id").GetValue(item) == originalAnimationId), Is.SameAs(originalAnimation),
-                    "A Timeline reread must preserve the animation record carrying generated or analysis data.");
-                JObject retainedAnalysisResult = (JObject)originalAnimation.GetType().GetProperty("Analysis").GetValue(originalAnimation);
-                Assert.That(retainedAnalysisResult["projection_test"].Value<bool>(), Is.True);
-                CollectionAssert.AreEqual(retainedMotion,
-                    (byte[])originalAnimation.GetType().GetProperty("KmbBytes").GetValue(originalAnimation));
-                CollectionAssert.AreEquivalent(new[] { firstClip.name, secondClip.name },
-                    refreshedAnimations.Cast<object>().Select(item => item.GetType().GetProperty("Name").GetValue(item)));
-                Assert.That((Guid)refreshedAnimations[0].GetType().GetProperty("Id").GetValue(refreshedAnimations[0]),
-                    Is.EqualTo(originalAnimationId), "A projection refresh must keep persistent Timeline Clip identity stable.");
+                JObject compact = JObject.Parse(command_dispatcher.Invoke("session.context", "{}"));
+                Assert.That(compact.Value<bool>("ok"), Is.True, compact.ToString());
+                Assert.That(compact["session"]?.Value<int>("clip_count"), Is.EqualTo(2));
+                Assert.That(compact["details"], Is.Null, "Detail groups are omitted unless requested.");
+
+                JObject clipDetails = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", "{'details':['clips']}"));
+                Assert.That(clipDetails["details"]?["clips"]?.Count(), Is.EqualTo(2));
+                Assert.That(clipDetails["details"]?["characters"], Is.Null);
+                Assert.That(clipDetails["details"]?["timeline"], Is.Null);
+                Assert.That(clipDetails["details"]?["tasks"], Is.Null);
+
+                JObject timelineDetails = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", "{'details':['timeline']}"));
+                Assert.That(timelineDetails["details"]?["timeline"]?["tracks"]?.Count(), Is.EqualTo(2));
+                JObject unknownDetail = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", "{'details':['animations']}"));
+                Assert.That(unknownDetail["ok"]?.Value<bool>(), Is.False);
+                Assert.That(unknownDetail["error"]?["code"]?.Value<string>(), Is.EqualTo("invalid_argument"));
             }
             finally
             {
-                currentSessionField.SetValue(null, previousCurrentSession);
                 if (sessionRoot != null) UnityEngine.Object.DestroyImmediate(sessionRoot);
-                if (timeline != null) UnityEngine.Object.DestroyImmediate(timeline);
-                if (firstClip != null) UnityEngine.Object.DestroyImmediate(firstClip);
-                if (secondClip != null) UnityEngine.Object.DestroyImmediate(secondClip);
-                if (previousSceneSetup.Any(setup => setup.isLoaded))
-                    EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
-                else
-                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            }
-        }
-
-        [Test]
-        public void PlayModeTransition_AddsRuntimeGuardAndLeavesExitToSceneReload()
-        {
-            SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
-            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            GameObject root = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "PlayModeBindingTest");
-            root.AddComponent<KimodoSessionContextBinding>();
-            GameObject directorObject = new GameObject(KimodoRuntimeUtility.SessionDirectorPrefix + "PlayModeBindingTest");
-            directorObject.transform.SetParent(root.transform, false);
-            PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
-            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
-            director.playableAsset = timeline;
-            try
-            {
-                Type guardType = typeof(command_dispatcher).Assembly.GetType(
-                    "KimodoUnityBridge.Command.KimodoSessionRuntimeGuard");
-                MethodInfo onPlayModeStateChanged = guardType.GetMethod(
-                    "OnPlayModeStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.ExitingEditMode });
-                Assert.That(root.activeSelf, Is.True,
-                    "Preparing to enter Play Mode must not change the Edit Mode active state.");
-                Assert.That(root.GetComponent<KimodoDisableOnRuntime>(), Is.Null,
-                    "Existing roots should not be modified before Play Mode begins.");
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredPlayMode });
-                Assert.That(root.activeSelf, Is.True,
-                    "The Play Mode callback should leave disabling to the guard's Awake.");
-                KimodoDisableOnRuntime guard = root.GetComponent<KimodoDisableOnRuntime>();
-                Assert.That(guard, Is.Not.Null,
-                    "Legacy Session roots must receive the runtime guard in Play Mode.");
-                guard.DisableForPlay();
-                Assert.That(root.activeSelf, Is.False);
-                Assert.That(root.GetComponent<KimodoSessionContextBinding>(), Is.Not.Null);
-                Assert.That(director.playableAsset, Is.SameAs(timeline));
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredEditMode });
-                Assert.That(root.activeSelf, Is.False,
-                    "Exiting Play Mode must not mutate the root; scene reload restores it.");
-            }
-            finally
-            {
-                if (root != null) UnityEngine.Object.DestroyImmediate(root);
-                if (timeline != null) UnityEngine.Object.DestroyImmediate(timeline);
+                if (sessionId != Guid.Empty) ArchiveSessionData(sessionId);
                 if (previousSceneSetup.Any(setup => setup.isLoaded))
                     EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
                 else
@@ -598,21 +513,214 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void SessionHistory_DoesNotCreateContextWhenActiveSceneHasNoBinding()
+        public void SessionContext_AutoCreatesOnceAndHistoryListsTheEmptySession()
         {
             SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
             Scene activeScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            string createdTimelinePath = null;
+            Guid createdSessionId = Guid.Empty;
             try
             {
                 Assert.That(activeScene.GetRootGameObjects(), Is.Empty);
-                JObject response = JObject.Parse(command_dispatcher.Invoke("session.history", "{}"));
-                Assert.That(response.Value<bool>("ok"), Is.False);
-                Assert.That(response["error"]?.Value<string>("code"), Is.EqualTo("invalid_scene_context"));
-                Assert.That(activeScene.GetRootGameObjects(), Is.Empty,
-                    "History reads must not create or replace a scene Context.");
+                JObject context = JObject.Parse(command_dispatcher.Invoke("session.context", "{}"));
+                Assert.That(context.Value<bool>("ok"), Is.True, context.ToString());
+                createdSessionId = Guid.Parse(context["session"]?.Value<string>("session_id"));
+                createdTimelinePath = context["timeline"]?.Value<string>("path");
+                GameObject[] roots = activeScene.GetRootGameObjects().Where(root =>
+                    root.name.StartsWith(KimodoRuntimeUtility.SessionRootPrefix, System.StringComparison.Ordinal)).ToArray();
+                Assert.That(roots, Has.Length.EqualTo(1));
+                Assert.That(roots[0].GetComponent<PlayableDirector>(), Is.Not.Null);
+                Assert.That(roots[0].GetComponent<KimodoSessionContextBinding>(), Is.Null);
+                Assert.That(roots[0].transform.childCount, Is.Zero);
+
+                JObject repeated = JObject.Parse(command_dispatcher.Invoke("session.context", "{}"));
+                Assert.That(repeated["session"]?.Value<string>("session_id"), Is.EqualTo(createdSessionId.ToString("D")));
+                Assert.That(activeScene.GetRootGameObjects().Count(root =>
+                    root.name.StartsWith(KimodoRuntimeUtility.SessionRootPrefix, System.StringComparison.Ordinal)), Is.EqualTo(1));
+
+                JObject details = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", "{'details':['characters','clips','timeline','tasks']}"));
+                Assert.That(details["details"]?["characters"], Is.TypeOf<JArray>());
+                Assert.That(details["details"]?["clips"], Is.TypeOf<JArray>());
+                Assert.That(details["details"]?["timeline"], Is.TypeOf<JObject>());
+                Assert.That(details["details"]?["tasks"], Is.TypeOf<JArray>());
+
+                JObject currentHistory = JObject.Parse(command_dispatcher.Invoke("session.history", "{}"));
+                Assert.That(currentHistory.Value<bool>("ok"), Is.True, currentHistory.ToString());
+                Assert.That(currentHistory["history"]?["operations"], Is.TypeOf<JArray>().And.Empty);
+                JObject globalHistory = JObject.Parse(command_dispatcher.Invoke("session.history", "{'scope':'global'}"));
+                JObject directoryEntry = (globalHistory["history"]?["sessions"] as JArray)?.Values<JObject>()
+                    .SingleOrDefault(item => item.Value<string>("session_id") == createdSessionId.ToString("D"));
+                Assert.That(directoryEntry, Is.Not.Null, globalHistory.ToString());
+                Assert.That(directoryEntry.Value<int>("operation_count"), Is.Zero);
             }
             finally
             {
+                if (createdSessionId != Guid.Empty)
+                {
+                    command_dispatcher.Invoke("session.clear", "{}");
+                    ArchiveSessionData(createdSessionId);
+                    ArchiveTimelineAsset(createdTimelinePath);
+                }
+                if (previousSceneSetup.Any(setup => setup.isLoaded))
+                    EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
+                else
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            }
+        }
+
+        [Test]
+        public void SessionContext_TimelinePathSwitchesTheDirectTimelineRoot()
+        {
+            SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            EnsureAssetFolder("Assets/Archive/KimodoCommandTests/Timelines");
+            string firstPath = AssetDatabase.GenerateUniqueAssetPath(
+                "Assets/Archive/KimodoCommandTests/Timelines/ContextSwitch_First.playable");
+            string secondPath = AssetDatabase.GenerateUniqueAssetPath(
+                "Assets/Archive/KimodoCommandTests/Timelines/ContextSwitch_Second.playable");
+            var firstTimeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var secondTimeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            AssetDatabase.CreateAsset(firstTimeline, firstPath);
+            AssetDatabase.CreateAsset(secondTimeline, secondPath);
+            Guid automaticSessionId = Guid.Empty;
+            try
+            {
+                JObject automatic = JObject.Parse(command_dispatcher.Invoke("session.context", "{}"));
+                Assert.That(automatic["ok"]?.Value<bool>(), Is.True, automatic.ToString());
+                automaticSessionId = Guid.Parse(automatic["session"]?.Value<string>("session_id"));
+
+                JObject first = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", new JObject { ["timeline_path"] = firstPath }.ToString()));
+                Assert.That(first["ok"]?.Value<bool>(), Is.True, first.ToString());
+                Assert.That(first["session"]?["session_id"]?.Value<string>(), Is.EqualTo(AssetDatabase.AssetPathToGUID(firstPath)));
+                Assert.That(first["timeline"]?["path"]?.Value<string>(), Is.EqualTo(firstPath));
+                Assert.That(first["opened_timeline"]?["timeline_asset_path"]?.Value<string>(), Is.EqualTo(firstPath));
+
+                JObject second = JObject.Parse(command_dispatcher.Invoke(
+                    "session.context", new JObject { ["timeline_path"] = secondPath }.ToString()));
+                Assert.That(second["ok"]?.Value<bool>(), Is.True, second.ToString());
+                Assert.That(second["session"]?["session_id"]?.Value<string>(), Is.EqualTo(AssetDatabase.AssetPathToGUID(secondPath)));
+                GameObject[] roots = SceneManager.GetActiveScene().GetRootGameObjects()
+                    .Where(root => root.name.StartsWith(KimodoRuntimeUtility.SessionRootPrefix, StringComparison.Ordinal))
+                    .ToArray();
+                Assert.That(roots, Has.Length.EqualTo(1));
+                Assert.That(roots[0].GetComponent<PlayableDirector>()?.playableAsset, Is.SameAs(secondTimeline));
+                Assert.That(roots[0].GetComponent<KimodoSessionContextBinding>(), Is.Null);
+                Assert.That(roots[0].transform.childCount, Is.Zero);
+            }
+            finally
+            {
+                command_dispatcher.Invoke("session.clear", "{}");
+                if (automaticSessionId != Guid.Empty) ArchiveSessionData(automaticSessionId);
+                ArchiveSessionData(Guid.Parse(AssetDatabase.AssetPathToGUID(firstPath)));
+                ArchiveSessionData(Guid.Parse(AssetDatabase.AssetPathToGUID(secondPath)));
+                ArchiveTimelineAsset(firstPath);
+                ArchiveTimelineAsset(secondPath);
+                if (previousSceneSetup.Any(setup => setup.isLoaded))
+                    EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
+                else
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            }
+        }
+
+        [Test]
+        public void SessionHistory_RecordsFailuresAndAggregatesAsyncOperationsBySequence()
+        {
+            SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            Guid sessionId = Guid.Empty;
+            string historyPath = null;
+            string timelinePath = null;
+            string originalHistory = null;
+            try
+            {
+                JObject context = JObject.Parse(command_dispatcher.Invoke("session.context", "{}"));
+                Assert.That(context["ok"]?.Value<bool>(), Is.True, context.ToString());
+                sessionId = Guid.Parse(context["session"]?["session_id"]?.Value<string>());
+                timelinePath = context["timeline"]?.Value<string>("path");
+                historyPath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "KimodoData", "Sessions",
+                    sessionId.ToString("D"), "history.jsonl");
+
+                for (int index = 1; index <= 23; index++)
+                {
+                    command_context.RecordCommandHistory(command_context.AnimationAnalysisCommand,
+                        new JObject { ["fixture_index"] = index },
+                        index == 2
+                            ? new JObject { ["ok"] = false, ["error"] = new JObject { ["code"] = "fixture_failure" } }
+                            : new JObject { ["ok"] = true, ["fixture_result"] = index });
+                }
+
+                const string asyncRequestId = "async-history-fixture";
+                command_context.RecordCommandHistory(command_context.GenerateAnimationCommand,
+                    new JObject { ["prompt"] = "fixture async generation" },
+                    new JObject { ["ok"] = true, ["request_id"] = asyncRequestId, ["status"] = "accepted" });
+                Type contextType = typeof(command_context);
+                MethodInfo buildView = contextType.GetMethod("BuildTimelineSessionView", BindingFlags.Static | BindingFlags.NonPublic);
+                object currentSession = buildView.Invoke(null, new object[] { SceneManager.GetActiveScene() });
+                MethodInfo recordTerminal = contextType.GetMethod("RecordGenerationTerminalHistory", BindingFlags.Static | BindingFlags.NonPublic);
+                recordTerminal.Invoke(null, new object[] { currentSession,
+                    new JObject { ["request_id"] = asyncRequestId, ["status"] = "completed", ["clip"] = new JObject { ["name"] = "fixture" } } });
+
+                JObject latest = JObject.Parse(command_dispatcher.Invoke("session.history", "{}"));
+                JArray latestOperations = latest["history"]?["operations"] as JArray;
+                Assert.That(latestOperations, Has.Count.EqualTo(20));
+                Assert.That(latestOperations.First?.Value<long>("operation_seq"), Is.EqualTo(24));
+                Assert.That(latestOperations.Last?.Value<long>("operation_seq"), Is.EqualTo(5));
+                JObject failed = JObject.Parse(command_dispatcher.Invoke(
+                    "session.history", "{'historybegin':2,'historyend':2}"))["history"]?["operations"]?.First as JObject;
+                Assert.That(failed, Is.Not.Null);
+                Assert.That(failed.Value<string>("status"), Is.EqualTo("failed"));
+                Assert.That(failed["input"]?["fixture_index"]?.Value<int>(), Is.EqualTo(2));
+                Assert.That(failed["response"]?["error"]?["code"]?.Value<string>(), Is.EqualTo("fixture_failure"));
+
+                JObject ranged = JObject.Parse(command_dispatcher.Invoke(
+                    "session.history", "{'historybegin':3,'historyend':5}"));
+                CollectionAssert.AreEqual(new long[] { 5, 4, 3 },
+                    ranged["history"]?["operations"]?.Values<JObject>().Select(item => item.Value<long>("operation_seq")));
+                JObject partialRange = JObject.Parse(command_dispatcher.Invoke("session.history", "{'historybegin':3}"));
+                Assert.That(partialRange["error"]?["code"]?.Value<string>(), Is.EqualTo("invalid_argument"));
+
+                JObject asyncOperation = JObject.Parse(command_dispatcher.Invoke(
+                    "session.history", "{'historybegin':24,'historyend':24}"))["history"]?["operations"]?.First as JObject;
+                Assert.That(asyncOperation?.Value<string>("status"), Is.EqualTo("completed"));
+                Assert.That(asyncOperation?["input"]?["prompt"]?.Value<string>(), Is.EqualTo("fixture async generation"));
+                Assert.That(asyncOperation?["accepted"]?["status"]?.Value<string>(), Is.EqualTo("accepted"));
+                Assert.That(asyncOperation?["response"]?["status"]?.Value<string>(), Is.EqualTo("completed"));
+
+                JObject byId = JObject.Parse(command_dispatcher.Invoke("session.history",
+                    new JObject { ["session_id"] = sessionId.ToString("D") }.ToString()));
+                Assert.That(byId["session"]?["session_id"]?.Value<string>(), Is.EqualTo(sessionId.ToString("D")));
+
+                originalHistory = File.ReadAllText(historyPath);
+                string[] lines = originalHistory.Split('\n');
+                JObject header = JObject.Parse(lines[0]);
+                header["package_version"] = "3.0.12";
+                lines[0] = header.ToString(Newtonsoft.Json.Formatting.None);
+                File.WriteAllText(historyPath, string.Join("\n", lines));
+                Assert.That(JObject.Parse(command_dispatcher.Invoke("session.history", "{}"))["ok"]?.Value<bool>(), Is.True,
+                    "Patch-level package versions within the same MAJOR.MINOR are compatible.");
+                header["package_version"] = "3.1.0";
+                lines[0] = header.ToString(Newtonsoft.Json.Formatting.None);
+                File.WriteAllText(historyPath, string.Join("\n", lines));
+                JObject incompatible = JObject.Parse(command_dispatcher.Invoke("session.history", "{}"));
+                Assert.That(incompatible["error"]?["code"]?.Value<string>(), Is.EqualTo("history_incompatible"));
+                header["package_version"] = "3.0.invalid";
+                lines[0] = header.ToString(Newtonsoft.Json.Formatting.None);
+                File.WriteAllText(historyPath, string.Join("\n", lines));
+                JObject malformedVersion = JObject.Parse(command_dispatcher.Invoke("session.history", "{}"));
+                Assert.That(malformedVersion["error"]?["code"]?.Value<string>(), Is.EqualTo("history_incompatible"));
+            }
+            finally
+            {
+                if (!string.IsNullOrWhiteSpace(originalHistory) && !string.IsNullOrWhiteSpace(historyPath))
+                    File.WriteAllText(historyPath, originalHistory);
+                if (sessionId != Guid.Empty)
+                {
+                    command_dispatcher.Invoke("session.clear", "{}");
+                    ArchiveSessionData(sessionId);
+                    ArchiveTimelineAsset(timelinePath);
+                }
                 if (previousSceneSetup.Any(setup => setup.isLoaded))
                     EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
                 else
@@ -642,43 +750,22 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void SessionRuntimeGuard_AddsGuardInPlayModeAndDoesNothingWhenItEnds()
+        public void SessionRuntimeGuard_DisablesDirectRootAndHasNoPlayModeExitCallback()
         {
-            SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
-            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             GameObject root = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "RuntimeEventGuardTest");
             try
             {
-                Type guardType = typeof(command_context).Assembly.GetType(
-                    "KimodoUnityBridge.Command.KimodoSessionRuntimeGuard");
-                MethodInfo onPlayModeStateChanged = guardType?.GetMethod(
-                    "OnPlayModeStateChanged", BindingFlags.Static | BindingFlags.NonPublic);
-                Assert.That(onPlayModeStateChanged, Is.Not.Null);
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.ExitingEditMode });
-                Assert.That(root.activeSelf, Is.True,
-                    "The Session root must remain active before Play Mode.");
-                Assert.That(root.GetComponent<KimodoDisableOnRuntime>(), Is.Null);
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredPlayMode });
-                Assert.That(root.activeSelf, Is.True,
-                    "The state callback must leave disabling to Awake.");
-                KimodoDisableOnRuntime guard = root.GetComponent<KimodoDisableOnRuntime>();
+                KimodoDisableOnRuntime guard = KimodoDisableOnRuntime.Ensure(root);
                 Assert.That(guard, Is.Not.Null);
                 guard.DisableForPlay();
                 Assert.That(root.activeSelf, Is.False);
-
-                onPlayModeStateChanged.Invoke(null, new object[] { PlayModeStateChange.EnteredEditMode });
-                Assert.That(root.activeSelf, Is.False,
-                    "The guard must not manually restore state after Play Mode.");
+                Assert.That(typeof(KimodoSessionRuntimeGuard).GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+                    .Any(method => method.Name.Contains("PlayMode")), Is.False,
+                    "No Play Mode callback should restore the Session root on exit.");
             }
             finally
             {
                 if (root != null) UnityEngine.Object.DestroyImmediate(root);
-                if (previousSceneSetup.Any(setup => setup.isLoaded))
-                    EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
-                else
-                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             }
         }
 
@@ -689,11 +776,32 @@ namespace KimodoUnityBridge.Command.Tests
             GameObject sessionRoot)
         {
             ConstructorInfo constructor = sessionType.GetConstructors(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                .Single(item => item.GetParameters().Length == 9);
+                .Single(item => item.GetParameters().Length == 6);
             return constructor.Invoke(new object[]
             {
-                Guid.NewGuid(), "Test", director, timeline, string.Empty, true, sessionRoot, null, 0
+                Guid.NewGuid(), "Test", director, timeline, string.Empty, sessionRoot
             });
+        }
+
+        private static void ArchiveSessionData(Guid sessionId)
+        {
+            string source = Path.Combine("Library", "KimodoData", "Sessions", sessionId.ToString("D"));
+            if (!Directory.Exists(source)) return;
+            string archive = Path.Combine("Library", "Archive", "KimodoData", "Sessions", sessionId.ToString("D"));
+            Directory.CreateDirectory(Path.GetDirectoryName(archive));
+            if (Directory.Exists(archive)) archive += "_" + Guid.NewGuid().ToString("N");
+            Directory.Move(source, archive);
+        }
+
+        private static void ArchiveTimelineAsset(string assetPath)
+        {
+            if (string.IsNullOrWhiteSpace(assetPath) || !assetPath.StartsWith("Assets/", StringComparison.Ordinal)) return;
+            string fileName = Path.GetFileName(assetPath);
+            string archiveFolder = "Assets/Archive/KimodoCommandTests/Timelines";
+            EnsureAssetFolder(archiveFolder);
+            string destination = AssetDatabase.GenerateUniqueAssetPath(archiveFolder + "/" + fileName);
+            string error = AssetDatabase.MoveAsset(assetPath, destination);
+            Assert.That(error, Is.Empty, $"Could not archive Timeline asset '{assetPath}': {error}");
         }
 
         private static void EnsureAssetFolder(string folderPath)

@@ -41,7 +41,7 @@ Use public command names (never internal C# handlers). In hosts that expose the 
 ### Stage 1 — Prepare
 
 1. State the result that should be visible in Unity: action beats, ordering, contacts, duration, end state, and the assumptions filling any gap. Ask only about choices that would materially change that result.
-2. Read `scene.context` as the authoritative source for characters, Clips, Timeline ranges, and object references. Check `session.history` before creating new work so existing candidates and analyses are reused.
+2. Read `session.context` as the authoritative source for characters, Clips, Timeline ranges, and object references. Check `session.history` before creating new work so existing candidates and analyses are reused.
 3. Resolve every reference you intend to use: scene character name or `object_ref`, loaded Clip name or `Assets/` `Packages/` path, Pose slot as `{track,index}`, Timeline asset path. Never invent handles.
 4. Split the action into independently checkable beats and record dependencies between character Clips, prop motion, and Timeline bindings. Split into multiple Clips only when local revision or continuation genuinely needs it.
 5. Write acceptance criteria before generating: separate necessary constraints from quality preferences, and give each an observable check method and tolerance. Provide semantic alternatives where action meaning must be distinguished.

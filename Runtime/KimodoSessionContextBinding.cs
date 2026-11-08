@@ -3,9 +3,9 @@ using UnityEngine;
 namespace KimodoUnityBridge.Command
 {
     /// <summary>
-    /// Scene-serialized identity and output binding for the Timeline context.
-    /// The Command assembly rebuilds its runtime view from the Timeline and
-    /// writes snapshots to the explicitly bound JSON path.
+    /// Legacy serialized component retained so older scenes can deserialize.
+    /// Session 3.0 does not add or consult this component; current state comes
+    /// directly from the active Timeline and History header.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class KimodoSessionContextBinding : MonoBehaviour

@@ -36,7 +36,7 @@ string result = KimodoUnityBridge.Api.Animation.Generate(argumentsJson);
 
 [`Command/help.json`](../Command/help.json) 是仓库中的命令参考；实时 schema 可用时，应与之对照。
 
-通过 `scene.context` 和相关命令返回结果解析角色、Clip、Timeline 和 Session 引用。场景对象使用返回的句柄，Pose 槽位使用 `{track,index}`，接受路径的字段使用资产路径。
+通过 `session.context` 和相关命令返回结果解析角色、Clip、Timeline 和 Session 引用。场景对象使用返回的句柄，Pose 槽位使用 `{track,index}`，接受路径的字段使用资产路径。
 
 当前 Unity 场景、Timeline 和 Kimodo Session 构成可编辑的工作管线。Agent 可以切换上下文，也可以通过插入轨道、Clip、绑定或同步的道具运动扩展现有 Timeline。默认保留已有轨道和 Clip；优先添加轨道或创建派生 Timeline，而不是重写或重建现有内容。只有任务确实需要时才修改现有内容，并先保留可恢复的原始版本。编辑后，在目标 Timeline 中验证当前场景／Session、轨道绑定、Clip 范围和同步关系。
 
@@ -112,7 +112,7 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 1. 从当前场景解析参与的角色和对象。明确可见结果、动作顺序、接触点、时长和结束状态。说明假设。
 2. 识别可独立检验的动作节拍；局部修订或续接确实需要独立处理时，再拆成多个 Clip。记录角色 Clip、道具运动和 Timeline 绑定之间的依赖关系。
 3. 选择相关标准，区分必要约束和质量偏好。标准可以涉及语义、空间、时间、接触、结构、视觉或播放。说明可观察的检查方法和适用容差，并依据各项证据分别判断。
-4. 收集所需的最少证据：`scene.context`、`pose.get`、`pose.analysis`、已有 Clip 的分析结果，或已确认的对象 Transform。当点约束预览有助于评估目标姿势时，将同一组约束传给 `pose.analysis`，查看图像、关节世界位置、目标距离和警告。设置 `combine=true` 可在一张 SceneView 图中以不透明姿势叠加显示多个预览。`pose.analysis` 与 `animation.analysis` 共用 `camera`；未显式传参时，SceneView 光照、天空盒、Gizmos 和网格沿用当前设置。若需测量生成后的姿势，使用 `pose.get` 从完成的 Clip 采样，再进行分析。
+4. 收集所需的最少证据：`session.context`、`pose.get`、`pose.analysis`、已有 Clip 的分析结果，或已确认的对象 Transform。当点约束预览有助于评估目标姿势时，将同一组约束传给 `pose.analysis`，查看图像、关节世界位置、目标距离和警告。设置 `combine=true` 可在一张 SceneView 图中以不透明姿势叠加显示多个预览。`pose.analysis` 与 `animation.analysis` 共用 `camera`；未显式传参时，SceneView 光照、天空盒、Gizmos 和网格沿用当前设置。若需测量生成后的姿势，使用 `pose.get` 从完成的 Clip 采样，再进行分析。
 5. 当任务需要动作专用的起始 Pose 或 Clip 续接时，用 `pose.get` 解析合适来源并使用返回的 `{track,index}`。如果确实需要动作专用 Pose 且当前没有合适来源，选取或生成一段初始 Clip，物化目标帧，再通过 `pose.analysis` 检查。无需显式动作 Pose 时，可使用命令 schema 所述的 Avatar rest pose 初始化。
 6. 需要生成时，根据用户明确要求和已确认的场景证据，构造简短的语义提示词和受支持的结构化约束。将用户明确给出的根位置、朝向、路径、Pose、手／脚目标、循环、时长、续接和根运动要求映射到受支持的 Kimodo 字段；使用已确认的证据补充未说明的细节，其余可选字段沿用 schema 默认值。`enable_root_motion` 默认开启；只有在生成的 Humanoid Clip 需要将水平根位移 Bake Into Pose（Lock Root）时才设为 `false`。该开关不改变现有的旋转或 Y 轴烘焙设置。对象曲线、Timeline 轨道、绑定及其他资产编辑使用适合的 Unity 或项目 API。检查 `pose.get` 结果并使用其返回引用作为续接来源。按依赖顺序生成 Clip，后续 Clip 使用已评估的前序结束状态。报告约束使用了显式 Pose，还是命令默认的 Avatar rest pose 初始化。
 7. 只有确有需要时才生成或编辑候选，轮询异步请求，并保留 ID 和提交的设置。API 产物没有 Kimodo ID 时，保留实际资产／轨道引用。检查路径以现有产物为评估对象。

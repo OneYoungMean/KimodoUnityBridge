@@ -68,7 +68,7 @@ namespace KimodoUnityBridge.Command.Tests
         [Test]
         public void Invoke_ValidatesInputSchemaAndPreservesDateFormattedStrings()
         {
-            JObject malformedJson = JObject.Parse(command_dispatcher.Invoke("scene.context", "{"));
+            JObject malformedJson = JObject.Parse(command_dispatcher.Invoke("session.context", "{"));
             Assert.That(malformedJson.Value<bool>("ok"), Is.False);
             Assert.That(malformedJson["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
 
@@ -77,14 +77,14 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(directMalformedJson["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
 
             JObject unknownProperty = JObject.Parse(command_dispatcher.Invoke(
-                "scene.context",
+                "session.context",
                 new JObject { ["unexpected"] = true }.ToString()));
             Assert.That(unknownProperty.Value<bool>("ok"), Is.False);
             Assert.That(unknownProperty["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
             Assert.That(unknownProperty["error"]?.Value<string>("message"), Does.Contain("unexpected"));
 
             JObject oldHistoryOption = JObject.Parse(command_dispatcher.Invoke(
-                "scene.context",
+                "session.context",
                 new JObject { ["include_history"] = true }.ToString()));
             Assert.That(oldHistoryOption.Value<bool>("ok"), Is.False);
             Assert.That(oldHistoryOption["error"]?.Value<string>("code"), Is.EqualTo("invalid_argument"));
@@ -377,11 +377,19 @@ namespace KimodoUnityBridge.Command.Tests
         public void OtherCommands_AreDiscoverableAsIndependentContracts()
         {
             JObject document = Definitions();
+            Assert.That(((JArray)document["tools"]).Values<JObject>()
+                .Any(tool => tool.Value<string>("name") == "scene.context"), Is.False,
+                "The destructive API rename must not retain scene.context as an alias.");
+            JObject oldContextCommand = JObject.Parse(command_dispatcher.Invoke("scene.context", "{}"));
+            Assert.That(oldContextCommand["error"]?["code"]?.Value<string>(), Is.EqualTo("unknown_command"));
+            Assert.That(typeof(KimodoUnityBridge.Api.Session).GetMethod("Context"), Is.Not.Null,
+                "C# callers use Api.Session.Context for the renamed command.");
+
             string[] names =
             {
                 "kimodo.help",
                 "server.install",
-                "scene.context",
+                "session.context",
                 "session.history",
                 "session.clear",
                 "animation.analysis"
@@ -396,26 +404,27 @@ namespace KimodoUnityBridge.Command.Tests
                     Assert.That(example["arguments"], Is.TypeOf<JObject>(), name);
             }
 
-            JObject sceneContext = Tool(document, "scene.context");
-            Assert.That(sceneContext["inputSchema"]?["additionalProperties"]?.Value<bool>(), Is.False);
-            Assert.That(sceneContext["inputSchema"]?["properties"]?["include_history"], Is.Null);
-            Assert.That(sceneContext["inputSchema"]?["properties"]?["timeline_path"]?["type"]?.Value<string>(), Is.EqualTo("string"));
-            Assert.That(sceneContext["description"]?.Value<string>(), Does.Contain("authoritative source"));
-            Assert.That(sceneContext["documentation"]?["result_notes"]?.Values<string>()
-                .Any(note => note.Contains("creates one in the active scene")), Is.True);
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["session"]?["properties"]?["session_id"]?.Value<string>("type"), Is.EqualTo("string"));
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["warnings"]?["items"]?["type"]?.Value<string>(), Is.EqualTo("string"));
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["session"]?["properties"]?["session_revision"]?.Value<string>("type"), Is.EqualTo("integer"));
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["history"], Is.Null);
-            JObject sessionHistory = Tool(document, "session.history");
-            Assert.That(sessionHistory["inputSchema"]?["properties"]?.Children().Any(), Is.False);
-            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["analyses"]?["items"]?["properties"]?["analysis_id"], Is.Not.Null);
+            JObject sessionContext = Tool(document, "session.context");
+            Assert.That(sessionContext["inputSchema"]?["additionalProperties"]?.Value<bool>(), Is.False);
+            Assert.That(sessionContext["inputSchema"]?["properties"]?["timeline_path"]?["type"]?.Value<string>(), Is.EqualTo("string"));
             CollectionAssert.AreEquivalent(
-                new[] { "generations", "analyses" },
-                ((JObject)sessionHistory["outputSchema"]["properties"]["history"]["properties"]).Properties().Select(property => property.Name));
-            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["generations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["characters"]?["items"]?["properties"]?["animations"]?["items"]?["properties"]?["animation_id"], Is.Not.Null);
-            Assert.That(sceneContext["outputSchema"]?["properties"]?["opened_timeline"]?["properties"]?["warnings"]?["items"]?["type"]?.Value<string>(), Is.EqualTo("string"));
+                new[] { "characters", "clips", "timeline", "tasks" },
+                sessionContext["inputSchema"]?["properties"]?["details"]?["items"]?["enum"]?.Values<string>());
+            Assert.That(sessionContext["description"]?.Value<string>(), Does.Contain("active scene and Timeline"));
+            Assert.That(sessionContext["documentation"]?["result_notes"]?.Values<string>()
+                .Any(note => note.Contains("Only requested detail groups are built and returned")), Is.True);
+            Assert.That(sessionContext["outputSchema"]?["properties"]?["session"]?["properties"]?["session_id"]?["type"]?.Value<string>(), Is.EqualTo("string"));
+            Assert.That(sessionContext["outputSchema"]?["properties"]?["session"]?["properties"]?["status"]?["enum"]?.Values<string>(),
+                Is.EquivalentTo(new[] { "ready", "running", "invalid" }));
+            Assert.That(sessionContext["outputSchema"]?["properties"]?["details"]?["properties"]?["tasks"], Is.Not.Null);
+            Assert.That(sessionContext["outputSchema"]?["properties"]?["opened_timeline"], Is.Not.Null);
+            JObject sessionHistory = Tool(document, "session.history");
+            Assert.That(sessionHistory["inputSchema"]?["properties"]?["scope"]?["enum"]?.Values<string>(),
+                Is.EquivalentTo(new[] { "session", "global" }));
+            Assert.That(sessionHistory["inputSchema"]?["properties"]?["historybegin"]?["type"]?.Value<string>(), Is.EqualTo("integer"));
+            Assert.That(sessionHistory["inputSchema"]?["properties"]?["historyend"]?["type"]?.Value<string>(), Is.EqualTo("integer"));
+            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["operations"]?["items"]?["properties"]?["input"], Is.Not.Null);
+            Assert.That(sessionHistory["outputSchema"]?["properties"]?["history"]?["properties"]?["sessions"]?["items"]?["properties"]?["operation_count"], Is.Not.Null);
             Assert.That(Tool(document, "session.clear")["inputSchema"]["required"], Is.Null.Or.Empty);
 
             JObject poseGet = Tool(document, "pose.get");

@@ -23,7 +23,7 @@
 
 ## Common：共享规则
 
-命令入口是 `KimodoUnityBridge.Command.command_dispatcher`。选择命令或参数前读取实时 schema 或 `kimodo.help`；检查顶层 `ok`，保存异步任务的准确 `request_id`，轮询到终态。使用 `scene.context` 返回的角色、Clip、Pose 和对象引用，不从显示名称猜句柄。
+命令入口是 `KimodoUnityBridge.Command.command_dispatcher`。选择命令或参数前读取实时 schema 或 `kimodo.help`；检查顶层 `ok`，保存异步任务的准确 `request_id`，轮询到终态。使用 `session.context` 返回的角色、Clip、Timeline 和对象引用，不从显示名称猜句柄；Pose 槽位由 `pose.get` 返回。
 
 视觉观察、结构化测量和播放观察分开报告。打开返回图片后作视觉判断；使用时序测量或播放检查连续性、速度、加速度、脚滑和跳变。缺失或冲突的证据标记为未知。已完成 Clip 保留，修正产生派生输出。
 
