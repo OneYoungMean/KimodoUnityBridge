@@ -163,6 +163,11 @@ namespace KimodoBridge
         public float startTime;
         public float duration;
         public KimodoClipConstraintMask mask;
+        public string purpose;
+        public string samplingMode;
+        public int sampleCount = 2;
+        public bool postApply;
+        public List<int> targetFrameIndices;
     }
 
     [Serializable]
@@ -236,6 +241,25 @@ namespace KimodoBridge
                     ["duration"] = clip.duration
                 };
                 if (clip.mask != null) item["mask"] = SerializeMask(clip.mask, jointNames);
+                if (!string.IsNullOrWhiteSpace(clip.purpose)) item["purpose"] = clip.purpose;
+                if (clip.purpose == "inside")
+                {
+                    item["sampling_mode"] = clip.samplingMode ?? "uniform";
+                }
+                if (clip.purpose == "inside" || clip.purpose == "outside_in" || clip.purpose == "outside_out")
+                    item["sample_count"] = clip.sampleCount;
+                if (clip.postApply) item["post_apply"] = true;
+                if (clip.targetFrameIndices != null && clip.targetFrameIndices.Count > 0)
+                {
+                    if (clip.targetFrameIndices.Count != motion.FrameCount)
+                        throw new InvalidOperationException("ClipConstraint target frame count must match its KMB sample count.");
+                    for (int frame = 1; frame < clip.targetFrameIndices.Count; frame++)
+                    {
+                        if (clip.targetFrameIndices[frame] <= clip.targetFrameIndices[frame - 1])
+                            throw new InvalidOperationException("ClipConstraint target frames must be strictly increasing.");
+                    }
+                    item["target_frame_indices"] = new JArray(clip.targetFrameIndices);
+                }
                 output.Add(item);
             }
         }

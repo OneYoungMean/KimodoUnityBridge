@@ -550,7 +550,7 @@ namespace KimodoUnityBridge.Command
             if (requiresFootContactEncoding)
             {
                 motionBytes = KimodoClipConstraintEncoder.EncodeTimeline(animation.TimelineClip, ResolveModelName(null), frameCount,
-                    frameRate, 0, KimodoInOutConstraintMode.None, false, false, includeFootContacts: true);
+                    frameRate, 0, includeFootContacts: true);
                 startFrame = 0;
             }
             if (KimodoRawMotionUtility.TryParseFlatBuffer(motionBytes, out KimodoRawMotionData motion, out _) && motion.FrameCount > 0)

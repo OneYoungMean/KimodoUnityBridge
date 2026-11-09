@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +16,7 @@ namespace KimodoBridge
     {
         public int Index { get; internal set; }
         public int Offset { get; internal set; }
+        public string Purpose { get; internal set; }
         public byte[] MotionBytes { get; internal set; }
         public KimodoRawMotionData MotionData { get; internal set; }
         public int StartFrame { get; internal set; }
@@ -301,22 +303,32 @@ namespace KimodoBridge
                     IReadOnlyList<KimodoBridgeKmbAttachment> attachments = ParseKmbAttachments(
                         header,
                         response?.BinaryPayload ?? Array.Empty<byte>());
-                    KimodoBridgeKmbAttachment first = attachments.Count > 0 ? attachments[0] : null;
+                    KimodoBridgeKmbAttachment first =
+                        attachments.FirstOrDefault(item => string.Equals(item.Purpose, "final", StringComparison.OrdinalIgnoreCase)) ??
+                        (attachments.Count > 0 ? attachments[0] : null);
+                    KimodoBridgeKmbAttachment debug = attachments.FirstOrDefault(
+                        item => string.Equals(item.Purpose, "debug", StringComparison.OrdinalIgnoreCase));
                     ReportProgress(progress, "Bridge KMB analysis complete.");
                     return new KimodoGenerationResultDto
                     {
-                        // Preserve the existing single-motion contract for callers that send
-                        // exactly one ClipConstraint, while exposing every attachment above.
+                        motionJsonCompact = first?.MotionData != null
+                            ? KimodoRawMotionUtility.ToCompactJson(first.MotionData)
+                            : string.Empty,
                         motionData = first?.MotionData,
                         motionBytes = first?.MotionBytes,
                         motionFormat = outputFormat,
                         rawStatus = status,
                         message = string.IsNullOrWhiteSpace(responseMessage) ? "Bridge KMB analysis complete." : responseMessage,
+                        motionRepFingerprint = header?.Value<string>("motion_rep_fingerprint") ?? string.Empty,
+                        resolvedSeed = header?.Value<int?>("resolved_seed"),
                         startFrame = first?.StartFrame ?? 0,
                         endFrameExclusive = first?.EndFrameExclusive ?? 0,
                         analysisJson = analysisJson,
                         mp4Path = header?.Value<string>("mp4_path"),
-                        kmbAttachments = attachments
+                        kmbAttachments = attachments,
+                        debugMotionData = debug?.MotionData,
+                        debugSegmentsJson = header?["debug_segments"]?.ToString(Newtonsoft.Json.Formatting.None),
+                        debugConstraintsJson = header?["debug_constraints"]?.ToString(Newtonsoft.Json.Formatting.None)
                     };
                 }
 
@@ -839,6 +851,7 @@ namespace KimodoBridge
                 {
                     Index = index,
                     Offset = offset,
+                    Purpose = item.Value<string>("purpose") ?? string.Empty,
                     MotionBytes = bytes,
                     MotionData = motion,
                     StartFrame = start,

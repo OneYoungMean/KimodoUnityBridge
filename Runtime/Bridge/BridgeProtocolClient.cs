@@ -313,6 +313,18 @@ namespace KimodoBridge
                     }
                     payload["timeline_segments"] = timelineSegments;
                 }
+                if (!string.IsNullOrWhiteSpace(request.stage_plan_json))
+                {
+                    payload["stage_plan"] = JObject.Parse(request.stage_plan_json);
+                }
+                if (!string.IsNullOrWhiteSpace(request.window_constraints_json))
+                {
+                    payload["window_constraints"] = JObject.Parse(request.window_constraints_json);
+                }
+                if (request.debug_generation)
+                {
+                    payload["debug"] = true;
+                }
             }
             if (request.prompt != null)
             {

@@ -26,10 +26,6 @@ namespace KimodoBridge.Editor
         public int OutputFrameCount;
         public KimodoConstraintWindowSpec BeginWindow = KimodoConstraintWindowSpec.FromModelFrames(1, 1);
         public KimodoConstraintWindowSpec EndWindow = KimodoConstraintWindowSpec.FromModelFrames(1, 1);
-        public bool AutoBeginAnchor;
-        public bool DeferNormalization;
-        public bool DeferBeginConstraint;
-        public bool DeferEndConstraint;
         public KimodoTimelineInOutConstraintContext TimelineContext;
         public KimodoTimelineInOutConstraintContext BeginTimelineContext;
         public KimodoTimelineInOutConstraintContext EndTimelineContext;
@@ -37,21 +33,6 @@ namespace KimodoBridge.Editor
         public bool HasExplicitEndSource;
         public int BeginSourceFrame = -1;
         public int EndSourceFrame = -1;
-        public List<KimodoMarkerSampleResult> ManualSamples = new List<KimodoMarkerSampleResult>();
     }
 
-    internal sealed class KimodoInOutConstraintResult
-    {
-        public List<KimodoMarkerSampleResult> CombinedSamples = new List<KimodoMarkerSampleResult>();
-        public string ConstraintsJson = string.Empty;
-        public bool HasSyntheticAutoBeginConstraint;
-        public bool DenseRootPath;
-        public KimodoConstraintWindow DeferredInWindow = new KimodoConstraintWindow();
-        public KimodoConstraintWindow DeferredOutWindow = new KimodoConstraintWindow();
-        public KimodoConstraintWindow BeginWindow = new KimodoConstraintWindow();
-        public KimodoConstraintWindow EndWindow = new KimodoConstraintWindow();
-        public KimodoMarkerSampleResult BeginBoundarySample;
-        public List<KimodoMarkerSampleResult> BeginBoundarySamples = new List<KimodoMarkerSampleResult>();
-        public List<KimodoMarkerSampleResult> EndBoundarySamples = new List<KimodoMarkerSampleResult>();
-    }
 }

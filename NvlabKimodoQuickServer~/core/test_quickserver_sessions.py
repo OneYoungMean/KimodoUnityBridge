@@ -17,7 +17,7 @@ import torch
 from core import ardy_backend
 from core import kimodo_runtime
 from core import quickserver_cli
-from core.protocol.kmb_motion import parse_clip_mask, parse_kmb1 as parse_kmb1_payload
+from core.protocol.kmb_motion import KmbMotion, encode_kmb1, parse_clip_mask, parse_kmb1 as parse_kmb1_payload, parse_kmb_clip
 from core.protocol.timeline_segments import TimelineSegment, parse_timeline_segments
 from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 from kimodo.model import kimodo_model
@@ -211,7 +211,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         model = RecordingModel()
         with patch.object(kimodo_runtime, "_load_constraints", return_value=[]), patch.object(kimodo_runtime, "_out"):
             output, prompt = kimodo_runtime._run_generate(
-                {"duration": 11.0, "prompt": "walk"},
+                {"duration": 11.0, "prompt": "walk", "window_constraints": {"num_transition_frames": 7}},
                 model,
                 emit_progress=False,
             )
@@ -220,7 +220,464 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(prompt, "walk.")
         self.assertEqual(model.args[:2], (["walk.", "walk."], [165, 165]))
         self.assertTrue(model.kwargs["multi_prompt"])
-        self.assertEqual(model.kwargs["num_transition_frames"], 5)
+        self.assertEqual(model.kwargs["num_transition_frames"], 7)
+
+    def test_kimodo_transition_frame_count_must_be_positive_integer(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __call__(self, *args, **kwargs):
+                raise AssertionError("invalid window settings must fail before model execution")
+
+        for value in (0, -1, True, 1.5, "3"):
+            with self.subTest(value=value), patch.object(kimodo_runtime, "_load_constraints", return_value=[]):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    kimodo_runtime._run_generate(
+                        {"duration": 1.0, "window_constraints": {"num_transition_frames": value}},
+                        RecordingModel(),
+                        emit_progress=False,
+                    )
+
+    def test_stage_plan_crops_final_output_and_preserves_debug_stage_ranges(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, prompts, segment_frames, **kwargs):
+                self.call_count += 1
+                frames = sum(segment_frames)
+                return {
+                    'posed_joints': np.zeros((1, frames, 2, 3), dtype=np.float32),
+                    'smooth_root_pos': np.zeros((1, frames, 3), dtype=np.float32),
+                    'global_root_heading': np.tile(
+                        np.array([[[0.0, 1.0]]], dtype=np.float32), (1, frames, 1)
+                    ),
+                }
+
+        model = RecordingModel()
+        request = {
+            'duration': 5.0 / 30.0,
+            'prompt': 'walk',
+            'stage_plan': {
+                'trajectory': {'enabled': True},
+                'output_start_frame': 1,
+                'output_frame_count': 3,
+            },
+        }
+        with patch.object(kimodo_runtime, '_load_constraints', return_value=[]), patch.object(kimodo_runtime, '_out'):
+            output, _ = kimodo_runtime._run_generate(request, model, emit_progress=False)
+
+        self.assertEqual(model.call_count, 2)
+        final, metadata = kimodo_runtime._prepare_generation_output(request, output)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(final), 3)
+        self.assertEqual(metadata, {})
+
+        request['debug'] = True
+        debug_final, metadata = kimodo_runtime._prepare_generation_output(request, output)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(debug_final), 3)
+        self.assertEqual(len(metadata['debug_segments']), 2)
+        self.assertEqual(metadata['debug_segments'][0]['debug_start_frame'], 0)
+        self.assertEqual(metadata['debug_segments'][1]['debug_start_frame'], 5)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata['_debug_motion_output']), 10)
+
+    def test_stage_plan_does_not_normalize_an_empty_constraint_set(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __call__(self, prompts, segment_frames, **kwargs):
+                frame_count = sum(segment_frames)
+                return {
+                    'posed_joints': np.zeros((1, frame_count, 2, 3), dtype=np.float32),
+                }
+
+        request = {
+            'duration': 1.0,
+            'prompt': 'walk',
+            'stage_plan': {
+                'trajectory': {'enabled': True},
+            },
+        }
+        with patch.object(kimodo_runtime, '_load_constraints', return_value=[]), patch('kimodo.constraints.normalize_constraints_to_anchor') as normalize, patch.object(kimodo_runtime, '_out'):
+            kimodo_runtime._run_generate(request, RecordingModel(), emit_progress=False)
+
+        normalize.assert_not_called()
+
+    def test_stage_plan_target_frame_count_controls_every_stage(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __init__(self):
+                self.frame_counts = []
+
+            def __call__(self, prompts, segment_frames, **kwargs):
+                frame_count = sum(segment_frames)
+                self.frame_counts.append(frame_count)
+                return {
+                    'posed_joints': np.zeros((1, frame_count, 2, 3), dtype=np.float32),
+                    'smooth_root_pos': np.zeros((1, frame_count, 3), dtype=np.float32),
+                }
+
+        model = RecordingModel()
+        request = {
+            'duration': 5.0 / 30.0,
+            'prompt': 'walk',
+            'stage_plan': {
+                'target_frame_count': 7,
+                'trajectory': {'enabled': True},
+            },
+        }
+        with patch.object(kimodo_runtime, '_load_constraints', return_value=[]), patch.object(kimodo_runtime, '_out'):
+            output, _ = kimodo_runtime._run_generate(request, model, emit_progress=False)
+
+        self.assertEqual(model.frame_counts, [7, 7])
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(output), 7)
+
+    def test_stage_plan_override_distance_runs_without_stage1_output(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __init__(self):
+                self.call_count = 0
+
+            def __call__(self, prompts, segment_frames, **kwargs):
+                self.call_count += 1
+                frames = sum(segment_frames)
+                return {
+                    "posed_joints": np.zeros((1, frames, 2, 3), dtype=np.float32),
+                    "smooth_root_pos": np.zeros((1, frames, 3), dtype=np.float32),
+                }
+
+        model = RecordingModel()
+        loaded_constraints = []
+
+        def capture_constraints(value, *_args, **_kwargs):
+            loaded_constraints.append(json.loads(value or "[]"))
+            return []
+
+        request = {
+            "duration": 5.0 / 30.0,
+            "stage_plan": {
+                "target_frame_count": 5,
+                "trajectory": {
+                    "enabled": True,
+                    "root_trajectory": True,
+                    "override_distance": True,
+                    "override_path_angle": True,
+                    "distance": 4.0,
+                    "path_begin_angle_degrees": 0.0,
+                    "path_end_angle_degrees": 90.0,
+                },
+            },
+        }
+        with patch.object(kimodo_runtime, "_load_constraints", side_effect=capture_constraints), patch.object(kimodo_runtime, "_out"):
+            output, _ = kimodo_runtime._run_generate(request, model, emit_progress=False)
+
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(output), 5)
+        self.assertEqual(len(loaded_constraints), 2)
+        for constraints in loaded_constraints:
+            root = next(item for item in constraints if item.get("type") == "root2d")
+            self.assertEqual(root["frame_indices"], list(range(5)))
+        path = np.asarray(loaded_constraints[0][-1]["smooth_root_2d"], dtype=np.float32)
+        np.testing.assert_allclose(path[-1], [-8 / math.pi, 8 / math.pi], atol=1e-6)
+
+    def test_stage1_measures_walking_distance_and_stage3_uses_the_actual_stage2_path(self):
+        def motion(distance):
+            return {
+                "posed_joints": np.zeros((1, 2, 2, 3), dtype=np.float32),
+                "smooth_root_pos": np.asarray([[[0, 0, 0], [0, 0, distance]]], dtype=np.float32),
+            }
+
+        outputs = {
+            "Stage 1": motion(2.0),
+            "Stage 2": motion(4.0),
+            "Stage 3": motion(4.0),
+        }
+        calls = []
+
+        def invoke(name, constraints_json, _purpose, _frames):
+            calls.append((name, json.loads(constraints_json)))
+            return outputs[name]
+
+        request = {
+            "stage_plan": {
+                "target_frame_count": 2,
+                "trajectory": {"enabled": True, "override_path_angle": True},
+            },
+        }
+
+        output, artifacts, distance = kimodo_runtime._execute_generation_plan(
+            request, SimpleNamespace(fps=30.0), "[]", invoke
+        )
+
+        self.assertEqual([name for name, _ in calls], ["Stage 1", "Stage 2", "Stage 3"])
+        self.assertAlmostEqual(distance, 2.0)
+        stage2_root = next(item for item in calls[1][1] if item.get("type") == "root2d")
+        self.assertEqual(stage2_root["smooth_root_2d"], [[0.0, 0.0], [0.0, 2.0]])
+        final_root = next(item for item in calls[-1][1] if item.get("type") == "root2d")
+        self.assertEqual(final_root["smooth_root_2d"], [[0.0, 0.0], [0.0, 4.0]])
+        self.assertEqual(len(artifacts), 3)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(output), 2)
+
+    def test_stage2_path_angle_uses_unity_yaw_in_model_root_coordinates(self):
+        baseline = {
+            "posed_joints": np.zeros((1, 3, 2, 3), dtype=np.float32),
+            "smooth_root_pos": np.asarray([[[0, 0, 0], [0, 0, 1], [0, 0, 2]]], dtype=np.float32),
+        }
+        plan = {
+            "trajectory": {
+                "enabled": True,
+                "override_path_angle": True,
+                "path_begin_angle_degrees": 0.0,
+                "path_end_angle_degrees": 90.0,
+            }
+        }
+
+        constraint = kimodo_runtime._apply_stage2_trajectory(plan, baseline, 3, None)
+
+        self.assertEqual(constraint["smooth_root_2d"][0], [0.0, 0.0])
+        self.assertLess(constraint["smooth_root_2d"][-1][0], 0.0,
+                        "Unity yaw +90 faces +X, represented as negative model-space X.")
+        np.testing.assert_allclose(constraint["smooth_root_2d"][-1], [-4 / math.pi, 4 / math.pi], atol=1e-6)
+        self.assertNotIn("global_root_heading", constraint)
+
+    def test_stage2_bezier_uses_visible_duration_and_shortest_angle_across_context(self):
+        plan = {"output_start_frame": 2, "output_frame_count": 5, "trajectory": {
+            "override_path_angle": True, "override_distance": True, "distance": 4,
+            "path_begin_angle_degrees": 350, "path_end_angle_degrees": 10,
+        }}
+        actual = kimodo_runtime._apply_stage2_trajectory(plan, None, 9, None)
+        points = np.asarray(actual["smooth_root_2d"])
+        np.testing.assert_allclose(points[2], [0, 0], atol=1e-6)
+        radius = 4 / math.radians(20)
+        np.testing.assert_allclose(points[6], [0, 2 * radius * math.sin(math.radians(10))], atol=1e-6)
+        self.assertLess(points[0, 1], points[2, 1])
+        self.assertGreater(points[8, 1], points[6, 1])
+
+    def test_distance_override_preserves_authored_path_shape_without_a_baseline(self):
+        plan = {"output_start_frame": 1, "output_frame_count": 3,
+                "trajectory": {"override_distance": True, "distance": 4}}
+        authored = {"type": "root2d", "frame_indices": [0, 1, 2, 3, 4],
+                    "smooth_root_2d": [[-1, 0], [0, 0], [1, 0], [1, 1], [2, 1]]}
+        actual = kimodo_runtime._apply_stage2_trajectory(plan, None, 5, None, json.dumps([authored]))
+        np.testing.assert_allclose(actual["smooth_root_2d"], [[-2, 0], [0, 0], [2, 0], [2, 2], [4, 2]])
+
+    def test_stage_plan_root_replacement_keeps_pose_and_clip_constraints(self):
+        original = [
+            {"type": "fullbody", "frame": 3, "pose": {"track": "Main", "index": 0}},
+            {"type": "clip", "purpose": "inside", "attachment": 1},
+            {"type": "root2d", "frame_indices": [0], "smooth_root_2d": [[1.0, 2.0]]},
+        ]
+        replacement = {"type": "root2d", "frame_indices": [0, 5], "smooth_root_2d": [[0, 0], [0, 3]]}
+
+        actual = json.loads(kimodo_runtime._replace_root2d_constraints(json.dumps(original), replacement))
+
+        self.assertEqual(actual[:2], original[:2])
+        self.assertEqual(actual[2], replacement)
+
+    def test_post_apply_fullbody_replaces_xz_and_yaw_but_keeps_height_and_body(self):
+        from scipy.spatial.transform import Rotation
+        trajectory = KmbMotion(**{**self._small_kmb(2).__dict__,
+            "root_positions": np.asarray([[10.0, 1.0, 20.0], [11.0, 2.0, 21.0]], dtype=np.float32)})
+        trajectory.local_rot_quats[:, 0] = [math.sqrt(0.5), 0, math.sqrt(0.5), 0]
+        constraints = [{
+            "type": "fullbody",
+            "frame_indices": [0, 1],
+            "root_positions": [[1.0, 0.3, 2.0], [3.0, 0.4, 4.0]],
+            "smooth_root_2d": [[1.0, 2.0], [3.0, 4.0]],
+            "local_joints_rot": [[[0.0, 0.0, 0.0], [0.2, 0, 0]], [[0.1, 0.0, 0.0], [0.3, 0, 0]]],
+        }]
+
+        actual = json.loads(kimodo_runtime._replace_fullbody_root_tracks(json.dumps(constraints), trajectory))
+
+        self.assertEqual(actual[0]["root_positions"], [[10.0, 0.3, 20.0], [11.0, 0.4, 21.0]])
+        self.assertEqual(actual[0]["smooth_root_2d"], [[10.0, 20.0], [11.0, 21.0]])
+        for index in range(2):
+            self.assertEqual(actual[0]["local_joints_rot"][index][1], constraints[0]["local_joints_rot"][index][1])
+            expected = Rotation.from_euler("y", math.pi / 2) * Rotation.from_rotvec(constraints[0]["local_joints_rot"][index][0])
+            np.testing.assert_allclose(Rotation.from_rotvec(actual[0]["local_joints_rot"][index][0]).as_matrix(), expected.as_matrix(), atol=1e-6)
+
+    def test_inside_post_apply_rewrites_root_samples_without_changing_body_pose(self):
+        names = ("root", "hip")
+        parents = (-1, 0)
+        source = KmbMotion(
+            payload=b"",
+            model_name="test",
+            fps=30.0,
+            joint_names=names,
+            joint_parents=parents,
+            root_positions=np.asarray([[0, 0, 0], [1, 0, 1]], dtype=np.float32),
+            local_rot_quats=np.asarray([
+                [[1, 0, 0, 0], [1, 0, 0, 0]],
+                [[1, 0, 0, 0], [1, 0, 0, 0]],
+            ], dtype=np.float32),
+            foot_contacts=None,
+        )
+        trajectory = KmbMotion(
+            payload=b"",
+            model_name="test",
+            fps=30.0,
+            joint_names=names,
+            joint_parents=parents,
+            root_positions=np.asarray([[10, 1, 20], [11, 2, 21], [12, 3, 22]], dtype=np.float32),
+            local_rot_quats=np.asarray([
+                [[1, 0, 0, 0], [1, 0, 0, 0]],
+                [[math.sqrt(0.5), 0, math.sqrt(0.5), 0], [1, 0, 0, 0]],
+                [[math.sqrt(0.5), 0, -math.sqrt(0.5), 0], [1, 0, 0, 0]],
+            ], dtype=np.float32),
+            foot_contacts=None,
+        )
+        attachments = [encode_kmb1(source)]
+        item = {
+            "type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+            "start_time": 1 / 30, "duration": 2 / 30, "purpose": "inside",
+            "post_apply": True,
+            "target_frame_indices": [1, 2],
+            "mask": {"root_position": [True, True, True], "root_heading": True,
+                     "root_rotation": True, "joints": []},
+        }
+
+        rewritten = kimodo_runtime._replace_inside_clip_root_tracks(
+            json.dumps([item]), attachments, trajectory, 30.0
+        )
+        updated_item = json.loads(rewritten)[0]
+        updated = parse_kmb_clip(updated_item, tuple(attachments), 30.0).motion
+
+        self.assertEqual(updated_item["attachment"], 1)
+        np.testing.assert_allclose(updated.root_positions[:, [0, 2]], trajectory.root_positions[1:3, [0, 2]])
+        np.testing.assert_allclose(updated.root_positions[:, 1], source.root_positions[:, 1])
+        np.testing.assert_allclose(updated.local_rot_quats[:, 1], source.local_rot_quats[:, 1])
+        np.testing.assert_allclose(updated.local_rot_quats[:, 0], trajectory.local_rot_quats[1:3, 0], atol=1e-6)
+
+    def test_outside_post_apply_offsets_each_window_to_the_matching_stage2_anchor(self):
+        names = ("root", "hip")
+        parents = (-1, 0)
+        source = KmbMotion(
+            payload=b"",
+            model_name="test",
+            fps=30.0,
+            joint_names=names,
+            joint_parents=parents,
+            root_positions=np.asarray([[0, 0, 0], [1, 0, 1]], dtype=np.float32),
+            local_rot_quats=np.tile(np.asarray([1, 0, 0, 0], dtype=np.float32), (2, 2, 1)),
+            foot_contacts=None,
+        )
+        attachments = [encode_kmb1(source), encode_kmb1(source), encode_kmb1(source)]
+        trajectory = KmbMotion(
+            payload=b"",
+            model_name="test",
+            fps=30.0,
+            joint_names=names,
+            joint_parents=parents,
+            root_positions=np.asarray([[10, 1, 20], [11, 2, 21], [12, 3, 22]], dtype=np.float32),
+            local_rot_quats=np.tile(np.asarray([1, 0, 0, 0], dtype=np.float32), (3, 2, 1)),
+            foot_contacts=None,
+        )
+        constraints = [
+            {
+                "type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 0.0, "duration": 2 / 30, "purpose": "outside_in",
+                "post_apply": True, "target_frame_indices": [0, 1],
+                "mask": {"root_position": [True, True, True], "root_heading": True,
+                         "root_rotation": True, "joints": []},
+            },
+            {
+                "type": "clip", "format": "kmb_attachment_v1", "attachment": 1,
+                "start_time": 1 / 30, "duration": 2 / 30, "purpose": "outside_out",
+                "post_apply": True, "target_frame_indices": [1, 2],
+                "mask": {"root_position": [True, True, True], "root_heading": True,
+                         "root_rotation": True, "joints": []},
+            },
+            {
+                "type": "clip", "format": "kmb_attachment_v1", "attachment": 2,
+                "start_time": 0.0, "duration": 2 / 30, "purpose": "outside_in",
+                "post_apply": False, "target_frame_indices": [0, 1],
+                "mask": {"root_position": [True, True, True], "root_heading": True,
+                         "root_rotation": True, "joints": []},
+            },
+        ]
+
+        rewritten = kimodo_runtime._apply_outside_clip_anchor_offsets(
+            json.dumps(constraints), attachments, trajectory, 30.0
+        )
+        updated = json.loads(rewritten)
+
+        in_motion = parse_kmb_clip(updated[0], tuple(attachments), 30.0).motion
+        out_motion = parse_kmb_clip(updated[1], tuple(attachments), 30.0).motion
+        np.testing.assert_allclose(in_motion.root_positions, [[10, 0, 20], [11, 0, 21]])
+        np.testing.assert_allclose(out_motion.root_positions, [[11, 0, 21], [12, 0, 22]])
+        self.assertEqual(updated[2], constraints[2])
+        np.testing.assert_allclose(in_motion.local_rot_quats, source.local_rot_quats)
+
+    def test_transition_sample_count_selects_sparse_seam_frames(self):
+        class RecordingModel:
+            fps = 30.0
+
+            def __init__(self):
+                self.transition_settings = []
+
+            def __call__(self, prompts, segment_frames, **kwargs):
+                self.transition_settings.append((kwargs["num_transition_frames"], kwargs["num_transition_samples"]))
+                frame_count = sum(segment_frames)
+                return {"posed_joints": np.zeros((1, frame_count, 2, 3), dtype=np.float32)}
+
+        model = RecordingModel()
+        request = {
+            "duration": 2.0,
+            "timeline_segments": [
+                {"prompt": "walk", "duration": 1.0},
+                {"prompt": "turn", "duration": 1.0},
+            ],
+            "window_constraints": {"window_frames": 8, "sample_count": 3},
+            "stage_plan": {
+                "target_frame_count": 60,
+                "trajectory": {"enabled": True},
+            },
+        }
+        with patch.object(kimodo_runtime, "_load_constraints", return_value=[]), patch.object(kimodo_runtime, "_out"):
+            kimodo_runtime._run_generate(request, model, emit_progress=False)
+
+        self.assertEqual(model.transition_settings, [(8, 3), (8, 3)])
+
+    def test_loop_clip_uses_stage2_body_window_and_configured_axis_locks(self):
+        names = ("root", "hip")
+        parents = (-1, 0)
+        motion = KmbMotion(
+            payload=b"",
+            model_name="test",
+            fps=30.0,
+            joint_names=names,
+            joint_parents=parents,
+            root_positions=np.asarray([[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0], [5, 0, 0]], dtype=np.float32),
+            local_rot_quats=np.tile(np.asarray([1, 0, 0, 0], dtype=np.float32), (6, 2, 1)),
+            foot_contacts=None,
+        )
+        attachments = []
+        model = SimpleNamespace(fps=30.0)
+        plan = {
+            "target_frame_count": 6,
+            "loop": {
+                "enabled": True, "window_frames": 4, "sample_count": 2,
+                "lock_position_x": True, "lock_position_y": False, "lock_position_z": True,
+                "lock_rotation_x": False, "lock_rotation_y": True, "lock_rotation_z": False,
+            },
+        }
+        with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(motion)):
+            items, padding = kimodo_runtime._loop_clip_constraints({"posed_joints": np.zeros((1, 6, 2, 3))}, model, plan, attachments)
+
+        self.assertEqual(padding, 2)
+        self.assertEqual(items[0]["target_frame_indices"], [0, 1, 2])
+        self.assertEqual(items[0]["source_frame_indices"], [0, 2])
+        item = items[1]
+        parsed = parse_kmb_clip(item, tuple(attachments), 30.0)
+        self.assertEqual(parsed.target_frame_indices, (5, 6, 7))
+        np.testing.assert_allclose(parsed.motion.root_positions[:, 0], [0, 1, 2])
+        self.assertEqual(item["mask"]["root_position"], [True, True, True])
+        self.assertTrue(item["mask"]["root_heading"])
+        self.assertEqual(item["mask"]["joints"][0]["position"], [True, True, True])
+        self.assertTrue(item["mask"]["joints"][0]["rotation"])
 
     def test_kimodo_timeline_segments_preserve_prompt_boundaries(self):
         class RecordingModel:
@@ -244,6 +701,252 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
         self.assertEqual(model.args[0], ["walk.", "turn."])
         self.assertEqual(model.args[1], [60, 300])
+
+    def test_backend_stage_selection_uses_settings_and_real_constraints(self):
+        for path, distance, expected in ((False, False, False), (True, False, True), (True, True, False)):
+            plan = kimodo_runtime._normalize_stage_plan({"stage_plan": {"trajectory": {
+                "enabled": True, "override_path_angle": path, "override_distance": distance,
+            }}})
+            self.assertEqual(plan["stage1"]["enabled"], expected)
+        request = {"stage_plan": {"loop": {"enabled": True, "window_frames": 4}},
+                   "constraints_json": json.dumps([{"type": "clip", "purpose": "outside_out", "post_apply": True}])}
+        plan = kimodo_runtime._normalize_stage_plan(request)
+        self.assertFalse(plan["loop"]["enabled"])
+        self.assertTrue(plan["post_apply"]["outside"])
+        self.assertTrue(plan["stage2"]["enabled"])
+        request["constraints_json"] = json.dumps([{"type": "clip", "purpose": "inside", "post_apply": True}])
+        self.assertTrue(kimodo_runtime._normalize_stage_plan(request)["loop"]["enabled"])
+        request["stage_plan"]["trajectory"] = {"enabled": True}
+        request["constraints_json"] = json.dumps([{"type": "clip", "purpose": "inside"}])
+        with self.assertRaisesRegex(ValueError, "requires post_apply=true"):
+            kimodo_runtime._normalize_stage_plan(request)
+
+    def test_inside_reference_keyframe_modes_and_foot_fallback(self):
+        motion = self._small_kmb(8)
+        contacts = np.zeros((8, 4), dtype=np.float32)
+        contacts[:2, :2] = 1
+        contacts[6:, 2:] = 1
+        motion = KmbMotion(**{**motion.__dict__, "foot_contacts": contacts})
+        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 0, "duration": 8 / 30, "purpose": "inside", "sample_count": 2}
+        for mode, expected in (("uniform", [0, 7]), ("foot_exchange", [4]), ("mixed", [0, 4, 7])):
+            with self.subTest(mode=mode):
+                attachments = [encode_kmb1(motion)]
+                result = json.loads(kimodo_runtime._sample_reference_keyframes(
+                    json.dumps([{**item, "sampling_mode": mode}]), attachments, 30.0,
+                    {"target_frame_count": 8}, []))
+                self.assertEqual(result[0]["source_frame_indices"], expected)
+                self.assertEqual(parse_kmb_clip(result[0], tuple(attachments), 30.0).motion.num_frames, 8)
+                self.assertEqual(len(attachments), 1)
+        attachments = [encode_kmb1(self._small_kmb(8))]
+        warnings = []
+        with patch.object(kimodo_runtime, "_out"):
+            result = json.loads(kimodo_runtime._sample_reference_keyframes(
+                json.dumps([{**item, "sampling_mode": "foot_exchange"}]), attachments, 30.0,
+                {"output_frame_count": 5}, warnings))
+        self.assertEqual(result[0]["source_frame_indices"], [0, 4])
+        self.assertEqual(len(warnings), 1)
+
+    def test_outside_post_apply_alone_is_deferred_until_stage3(self):
+        reference = self._small_kmb(2)
+        attachments = [encode_kmb1(reference)]
+        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 0, "duration": 2 / 30, "purpose": "outside_out", "post_apply": True}
+        stage2 = KmbMotion(**{**reference.__dict__, "root_positions": reference.root_positions + [10, 1, 20]})
+        output = {"posed_joints": np.zeros((1, 2, 2, 3), dtype=np.float32),
+                  "root_positions": stage2.root_positions[None]}
+        calls = []
+        def invoke(name, constraints, purpose, frame_count):
+            calls.append((name, json.loads(constraints)))
+            return output
+        request = {"stage_plan": {"target_frame_count": 2}}
+        with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(stage2)):
+            kimodo_runtime._execute_generation_plan(request, SimpleNamespace(fps=30.0), json.dumps([item]), invoke,
+                                                    stage_attachments=attachments)
+        self.assertEqual(calls[0], ("Stage 2", []))
+        final = next(item for item in calls[1][1] if item.get("purpose") == "outside_out")
+        actual = parse_kmb_clip(final, tuple(attachments), 30.0).motion.root_positions
+        np.testing.assert_allclose(actual[:, [0, 2]], stage2.root_positions[:, [0, 2]])
+        np.testing.assert_allclose(actual[:, 1], reference.root_positions[:, 1])
+
+    def test_loop_keeps_inside_and_crops_extended_debug_artifact_to_requested_length(self):
+        reference = self._small_kmb(6)
+        attachments = [encode_kmb1(reference)]
+        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 0, "duration": 6 / 30, "purpose": "inside", "post_apply": True}
+        calls = []
+        def invoke(name, constraints, purpose, frame_count):
+            calls.append((name, frame_count, json.loads(constraints)))
+            return {"posed_joints": np.zeros((1, frame_count, 2, 3), dtype=np.float32),
+                    "root_positions": np.arange(frame_count * 3, dtype=np.float32).reshape(1, frame_count, 3)}
+        request = {"debug": True, "stage_plan": {"target_frame_count": 6,
+                   "output_frame_count": 6, "loop": {"enabled": True, "window_frames": 3, "sample_count": 2}}}
+        with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(reference)):
+            output, _, _ = kimodo_runtime._execute_generation_plan(request, SimpleNamespace(fps=30.0), json.dumps([item]), invoke,
+                                                                  stage_attachments=attachments)
+        self.assertEqual([(name, frames) for name, frames, _ in calls], [("Stage 2", 6), ("Stage 3", 8)])
+        self.assertEqual([item.get("purpose") for item in calls[1][2] if item.get("type") == "clip"],
+                         ["loop_begin", "loop_end", "inside"])
+        final, metadata = kimodo_runtime._prepare_generation_output(request, output)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(final), 6)
+        np.testing.assert_allclose(final["root_positions"][0, 0], [6, 7, 8])
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata["_debug_motion_output"]), 14)
+        self.assertEqual(metadata["debug_segments"][1]["debug_end_frame_exclusive"], 14)
+        self.assertEqual(request["stage_plan"]["target_frame_count"], 6)
+
+    def test_debug_reference_constraints_include_poses_and_their_exact_target_frames(self):
+        motion = self._small_kmb(2)
+        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 1 / 30, "duration": 2 / 30, "purpose": "inside",
+                "target_frame_indices": [1, 8]}
+        records = json.loads(kimodo_runtime._debug_constraint_records(json.dumps([item]), [encode_kmb1(motion)], 30.0))
+        self.assertEqual(records[0]["frame_indices"], [1, 8])
+        self.assertEqual(records[0]["type"], "fullbody")
+        self.assertEqual(records[0]["reference"], item)
+        np.testing.assert_allclose(records[0]["root_positions"], motion.root_positions)
+        self.assertEqual(np.asarray(records[0]["local_joints_rot"]).shape, (2, 2, 3))
+
+    def test_final_output_is_cropped_from_the_complete_result_instead_of_last_debug_window(self):
+        final = {"posed_joints": np.zeros((1, 8, 2, 3), dtype=np.float32)}
+        last_window = {"posed_joints": np.zeros((1, 3, 2, 3), dtype=np.float32)}
+        request = {"debug": True, "stage_plan": {"target_frame_count": 8}}
+        final["_generation_artifacts"] = [kimodo_runtime.GenerationArtifact(
+            "last window", 5, 8, last_window, "[]", debug_constraints_json="[]")]
+        output, metadata = kimodo_runtime._prepare_generation_output(request, final)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(output), 8)
+        self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata["_debug_motion_output"]), 3)
+
+    def test_loop_window_limit_uses_sample_density_and_reports_clamping(self):
+        model = SimpleNamespace(fps=30)
+        for samples, expected in ((1, 1), (2, 4), (4, 6)):
+            plan = {"target_frame_count": 8, "loop": {"enabled": True, "window_frames": 8, "sample_count": samples}}
+            warnings = []
+            with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(self._small_kmb(8))), patch.object(kimodo_runtime, "_out"):
+                items, padding = kimodo_runtime._loop_clip_constraints({}, model, plan, [], warnings)
+            self.assertEqual(padding, expected - 1)
+            self.assertEqual(len(warnings), 1)
+            self.assertEqual(len(items[0]["source_frame_indices"]), min(samples, expected))
+
+    def test_heading_only_override_reaches_inside_fullbody_and_loop_references(self):
+        from scipy.spatial.transform import Rotation
+
+        reference = self._small_kmb(6)
+        attachments = [encode_kmb1(reference)]
+        clip = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                "start_time": 0, "duration": 6 / 30, "purpose": "inside", "post_apply": True}
+        point = {"type": "fullbody", "frame_indices": [2], "root_positions": [[0, 0.3, 0]],
+                 "local_joints_rot": [[[0.2, 0, 0], [0.1, 0, 0]]]}
+        output = {"posed_joints": np.zeros((1, 6, 2, 3), dtype=np.float32),
+                  "root_positions": reference.root_positions[None]}
+        calls = []
+
+        def invoke(name, constraints, purpose, frame_count):
+            calls.append((name, json.loads(constraints)))
+            return output
+
+        request = {"stage_plan": {"target_frame_count": 6, "trajectory": {
+            "enabled": True, "override_heading": True, "heading_degrees": 90},
+            "loop": {"enabled": True, "window_frames": 3, "sample_count": 2}}}
+        with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(reference)):
+            kimodo_runtime._execute_generation_plan(request, SimpleNamespace(fps=30), json.dumps([clip, point]),
+                                                    invoke, stage_attachments=attachments)
+        self.assertEqual([name for name, _ in calls], ["Stage 2", "Stage 3"])
+        final = calls[-1][1]
+        yaw = Rotation.from_euler("y", -math.pi / 2)
+        for purpose in ("inside", "loop_begin", "loop_end"):
+            item = next(item for item in final if item.get("purpose") == purpose)
+            motion = parse_kmb_clip(item, tuple(attachments), 30).motion
+            actual = Rotation.from_quat(motion.local_rot_quats[0, 0, [1, 2, 3, 0]])
+            np.testing.assert_allclose(actual.as_matrix(), yaw.as_matrix(), atol=1e-6)
+        body = next(item for item in final if item.get("type") == "fullbody")
+        actual = Rotation.from_rotvec(body["local_joints_rot"][0][0])
+        np.testing.assert_allclose(actual.as_matrix(), (yaw * Rotation.from_euler("x", 0.2)).as_matrix(), atol=1e-6)
+        self.assertEqual(body["root_positions"][0][1], 0.3)
+        self.assertEqual(body["local_joints_rot"][0][1], [0.1, 0, 0])
+        np.testing.assert_allclose(reference.local_rot_quats[:, 0], np.tile([1, 0, 0, 0], (6, 1)))
+
+    def test_loop_opening_window_and_alignment_use_frame_zero_with_or_without_foot_events(self):
+        from scipy.spatial.transform import Rotation
+
+        for context in (0, 2):
+            motion = self._small_kmb(context + 8)
+            rotations = motion.local_rot_quats.copy()
+            rotations[:, 0] = Rotation.from_euler("y", np.arange(motion.num_frames) * 0.1).as_quat()[:, [3, 0, 1, 2]]
+            contacts = np.zeros((motion.num_frames, 4), dtype=np.float32)
+            contacts[:context + 2, :2] = 1
+            contacts[context + 6:, 2:] = 1
+            self.assertEqual(kimodo_runtime._foot_exchange_midpoints(contacts[context:]), [4])
+            for foot_contacts in (None, contacts):
+                with self.subTest(context=context, has_foot_events=foot_contacts is not None):
+                    reference = KmbMotion(**{**motion.__dict__, "local_rot_quats": rotations, "foot_contacts": foot_contacts})
+                    attachments = []
+                    plan = {"target_frame_count": motion.num_frames, "output_start_frame": context,
+                            "output_frame_count": 8, "loop": {"enabled": True, "window_frames": 3, "sample_count": 2}}
+                    with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(reference)):
+                        items, padding = kimodo_runtime._loop_clip_constraints({}, SimpleNamespace(fps=30), plan, attachments)
+                    opening, tail = [parse_kmb_clip(item, tuple(attachments), 30).motion for item in items]
+                    for item, start in zip(items, (context, context + 7)):
+                        self.assertEqual(item["anchor_source_frame"], context)
+                        self.assertEqual(item["source_start_frame"], context)
+                        self.assertEqual(item["source_end_frame_exclusive"], context + 3)
+                        self.assertEqual(item["target_frame_indices"], list(range(start, start + 3)))
+                        self.assertEqual(item["source_frame_indices"], [0, 2])
+                    self.assertEqual(padding, 2)
+                    np.testing.assert_allclose(opening.root_positions, reference.root_positions[context:context + 3])
+                    np.testing.assert_allclose(opening.local_rot_quats, reference.local_rot_quats[context:context + 3])
+                    np.testing.assert_allclose(tail.root_positions[0], reference.root_positions[context + 7], atol=1e-6)
+                    rotation = Rotation.from_euler("y", 0.7)
+                    expected = rotation.apply(opening.root_positions - opening.root_positions[0]) + reference.root_positions[context + 7]
+                    np.testing.assert_allclose(tail.root_positions, expected, atol=1e-6)
+                    np.testing.assert_allclose(tail.local_rot_quats[0, 0], reference.local_rot_quats[context + 7, 0], atol=1e-6)
+
+    def test_ardy_single_frame_reference_has_one_conditioning_frame_after_velocity_encoding(self):
+        calls = []
+        class MotionRep:
+            def __call__(self, *, root_positions, **kwargs):
+                calls.append(len(root_positions))
+                self.assertion = len(root_positions) >= 2
+                return root_positions.clone()
+        motion_rep = MotionRep()
+        tensor = ardy_backend._motion_to_tensor(self._small_kmb(1), SimpleNamespace(device="cpu", motion_rep=motion_rep), 0, 1)
+        self.assertEqual(calls, [2])
+        self.assertTrue(motion_rep.assertion)
+        self.assertEqual(tuple(tensor.shape), (1, 1, 3))
+
+    def test_ardy_staged_clip_and_point_constraints_share_one_anchor_and_restore(self):
+        from ardy.geometry import quaternion_to_matrix
+        skeleton = SimpleNamespace(device=torch.device("cpu"), root_idx=0, hip_joint_idx=(1, 2),
+                                   bone_order_names=("root", "right", "left"), joint_parents=torch.tensor([-1, 0, 0]))
+        def fk(local, roots):
+            offsets = torch.tensor([[0., 0., 0.], [-1., 0., 0.], [1., 0., 0.]])
+            positions = offsets @ local[:, 0].transpose(-1, -2) + roots[:, None]
+            return local, positions, None
+        skeleton.fk = fk
+        quats = np.tile(np.asarray([1, 0, 0, 0], dtype=np.float32), (4, 3, 1))
+        quats[:, 0] = [math.sqrt(0.5), 0, math.sqrt(0.5), 0]
+        motion = KmbMotion(b"", "test", 20., skeleton.bone_order_names, (-1, 0, 0),
+                           np.asarray([[10 + frame, 2, 20] for frame in range(4)], dtype=np.float32), quats, None)
+        original = encode_kmb1(motion)
+        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0, "start_time": -0.2, "duration": 0.2}
+        point = {"type": "root2d", "frame_indices": [0], "smooth_root_2d": [[14, 20]]}
+        model = SimpleNamespace(device="cpu", skeleton=skeleton, motion_rep=SimpleNamespace(skeleton=skeleton))
+        value, attachments, origin = ardy_backend._normalize_fixed_clip_constraints(
+            json.dumps([item, point]), (original,), model, SimpleNamespace(source_fps=20., model_name="test"))
+        records = json.loads(value)
+        normalized = parse_kmb_clip(records[-1], attachments, 20.).motion
+        np.testing.assert_allclose(normalized.root_positions[0], [0, 2, 0], atol=1e-5)
+        normalized_root_rotation = quaternion_to_matrix(torch.from_numpy(normalized.local_rot_quats[:, 0]))
+        torch.testing.assert_close(normalized_root_rotation, torch.eye(3).expand(4, 3, 3), atol=1e-5, rtol=1e-5)
+        output = {"root_positions": normalized.root_positions[None], "posed_joints": normalized.root_positions[None, :, None]}
+        restored = kimodo_runtime._restore_kimodo_output_origin(output, origin, model)
+        np.testing.assert_allclose(restored["root_positions"][0], motion.root_positions, atol=1e-5)
+        self.assertEqual(attachments[0], original)
+
+    @staticmethod
+    def _small_kmb(frames):
+        return KmbMotion(b"", "test", 30., ("root", "hip"), (-1, 0),
+                         np.column_stack((np.arange(frames), np.zeros((frames, 2)))).astype(np.float32),
+                         np.tile(np.asarray([1, 0, 0, 0], dtype=np.float32), (frames, 2, 1)), None)
 
     def test_quickserver_generate_uses_shared_segmented_kimodo_runner(self):
         model = SimpleNamespace()
@@ -282,7 +985,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(constraint.frame_indices.device.type, "meta")
         self.assertEqual(index_dict["global_joints_positions"][0].device.type, "meta")
 
-    def test_fixed_ardy_root2d_constraints_preserve_the_wire_coordinates(self):
+    def test_fixed_ardy_root2d_constraints_normalize_and_keep_the_restore_origin(self):
         session = self._fake_ardy_session()
         session._normalize_constraint_origin = True
         skeleton = SimpleNamespace(device=torch.device("cpu"), root_idx=0)
@@ -303,8 +1006,9 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             initial=True,
         )
 
-        np.testing.assert_allclose(session.constraints[0].root_2d.cpu(), [[-0.539, 0.0]], atol=1e-7)
-        self.assertIsNone(session.constraint_origin)
+        np.testing.assert_allclose(session.constraints[0].root_2d.cpu(), [[0.0, 0.0]], atol=1e-7)
+        np.testing.assert_allclose(session.constraint_origin[0].cpu(), [-0.539, 0.0], atol=1e-7)
+        self.assertAlmostEqual(float(session.constraint_origin[1]), math.pi / 2, places=6)
 
     def test_mp4_is_an_optional_extra_output_not_a_motion_format(self):
         self.assertEqual(
@@ -431,7 +1135,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
 
     def test_root2d_target_protocol_is_rejected(self):
         model = SimpleNamespace(fps=30.0, skeleton=object())
-        with self.assertRaisesRegex(ValueError, "root2d_target was removed"):
+        with self.assertRaisesRegex(ValueError, "ARDY-only navigation constraint"):
             kimodo_runtime._load_constraints(
                 '[{"type":"root2d_target","target_root_2d":[100.0,0.0]}]',
                 model,
@@ -1416,11 +2120,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 apply_from=40,
                 initial=False,
             )
-            self.assertEqual([target.position for target in session.root_2d_targets], [(5.0, 0.0), (6.0, 2.0)])
-            self.assertEqual([target.arrival_frame for target in session.root_2d_targets], [50, 69])
-            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d", "root2d"])
-            self.assertEqual(loaded[-1][0]["frame_indices"][-1], 50)
-            self.assertEqual(loaded[-1][1]["frame_indices"][-1], 69)
+            self.assertEqual(session.root_2d_targets, [])
+            self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
+            self.assertEqual(loaded[-1][0]["frame_indices"][-1], 69)
+            self.assertEqual(loaded[-1][0]["smooth_root_2d"][-1], [6.0, 2.0])
 
             session._set_constraints(
                 [{"type": "root2d", "frame_indices": [12], "smooth_root_2d": [[-3.0, 2.0]]}],
@@ -1429,17 +2132,17 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
                 apply_from=40,
                 initial=False,
             )
-            self.assertEqual([target.position for target in session.root_2d_targets], [(-3.0, 2.0)])
+            self.assertEqual(session.root_2d_targets, [])
             self.assertEqual([item["type"] for item in loaded[-1]], ["root2d"])
+            self.assertEqual(loaded[-1][0]["frame_indices"][-1], 52)
+            self.assertEqual(loaded[-1][0]["smooth_root_2d"][-1], [-3.0, 2.0])
 
             session._set_constraints([], (), model, apply_from=40, initial=False)
             self.assertEqual(session.root_2d_targets, [])
             self.assertEqual(session.constraints, [])
 
-    def test_root2d_protocol_uses_global_settings_and_does_not_normalize_coordinates(self):
+    def test_streaming_root2d_protocol_preserves_explicit_trajectory_coordinates(self):
         session = self._fake_ardy_session()
-        session._normalize_constraint_origin = True
-        session.settings = ardy_backend.ArdySettings(160, 160, 20, True, max_speed=2.25, max_acceleration=3.5)
         skeleton = SimpleNamespace(device=torch.device("cpu"))
         model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=skeleton))
 
@@ -1459,9 +2162,8 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
 
         self.assertIsNone(session.constraint_origin)
-        self.assertEqual([target.position for target in session.root_2d_targets], [(10.0, 20.0), (13.0, 24.0)])
-        self.assertEqual([target.max_speed for target in session.root_2d_targets], [2.25, 2.25])
-        self.assertEqual([target.max_acceleration for target in session.root_2d_targets], [3.5, 3.5])
+        self.assertEqual(session.root_2d_targets, [])
+        np.testing.assert_allclose(session.constraints[0].root_2d[[0, -1]].cpu(), [[10.0, 20.0], [13.0, 24.0]])
 
     def test_root_target_cursor_sync_preserves_cached_future(self):
         session = self._fake_ardy_session()
@@ -1928,6 +2630,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
         session = ardy_backend.ArdySession.__new__(ardy_backend.ArdySession)
         session.profile = profile
+        session.progress = None
         session.settings = ardy_backend.ArdySettings(160, 160, 20, False)
         session.prompt = "idle"
         session.diffusion_steps = 10

@@ -259,7 +259,6 @@ namespace KimodoBridge.Editor
                         SourceTimelineClip = inputSourceClip,
                         Group = group
                     };
-                    input.Request.DebugCaptureUntrimmedMotion = true;
                     KimodoPlayableClip passClip = placeholder.asset as KimodoPlayableClip;
                     AttachPassTargets(input.Request.DebugConstraintPasses, passClip);
                     group.NextStart = placeholder.end + gap;
@@ -289,16 +288,134 @@ namespace KimodoBridge.Editor
         {
             if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
                 return;
-            TryFillReservedClip(sourceClip, request, result);
+            if (!TryWriteBackendDebugSegments(sourceClip, request, result))
+                TryFillReservedClip(sourceClip, request, result);
             TryFillOverviewClip(sourceClip, request, result);
             TryAttachConstraintMarkers(request, result?.DebugConstraintPasses);
             RefreshTimeline();
+        }
+
+        private static bool TryWriteBackendDebugSegments(
+            KimodoPlayableClip sourceClip,
+            KimodoEditorGenerateRequest request,
+            KimodoEditorGenerationResult result)
+        {
+            if (request?.DebugRuntimeMotion == null ||
+                string.IsNullOrWhiteSpace(request.DebugSegmentsJson) ||
+                request.DebugTimelineGroup?.Track == null)
+                return false;
+
+            try
+            {
+                JArray segments = JArray.Parse(request.DebugSegmentsJson);
+                JArray constraintArtifacts = string.IsNullOrWhiteSpace(request.DebugConstraintsJson)
+                    ? new JArray()
+                    : JArray.Parse(request.DebugConstraintsJson);
+                if (segments.Count == 0) return false;
+
+                KimodoDebugTimelineGroup group = request.DebugTimelineGroup;
+                float frameRate = request.DebugRuntimeMotion.FrameRate > 0f
+                    ? request.DebugRuntimeMotion.FrameRate
+                    : KimodoMotionModelProfiles.ResolveGenerationFrameRate(request.ModelName);
+                double timelineFrameRate = ResolveTimelineFrameRate(group.Timeline);
+                double gap = 5.0 / timelineFrameRate;
+                KimodoDebugTimelineReservation firstReservation = request.DebugTimelineReservation;
+
+                foreach (JToken token in segments)
+                {
+                    if (token is not JObject segment) continue;
+                    int start = segment.Value<int?>("debug_start_frame") ?? -1;
+                    int end = segment.Value<int?>("debug_end_frame_exclusive") ?? -1;
+                    if (start < 0 || end <= start || end > request.DebugRuntimeMotion.FrameCount)
+                        throw new InvalidOperationException($"Debug segment range [{start},{end}) is outside the returned motion.");
+                    if (!KimodoRawMotionUtility.TrySlice(
+                            request.DebugRuntimeMotion, start, end - start,
+                            out KimodoRawMotionData motion, out string sliceError))
+                        throw new InvalidOperationException(sliceError);
+
+                    KimodoDebugTimelineReservation reservation = firstReservation;
+                    if (reservation == null)
+                    {
+                        double duration = Math.Max(1.0 / timelineFrameRate, motion.FrameCount / (double)frameRate);
+                        double timelineStart = group.NextStart;
+                        TimelineClip placeholder = CreateDebugPlaceholder(
+                            group,
+                            sourceClip,
+                            request,
+                            segment.Value<string>("name") ?? "Backend Stage",
+                            $"{segment.Value<string>("name") ?? "Backend Stage"} {sourceClip?.name ?? request.ModelName}",
+                            timelineStart,
+                            duration,
+                            1.0);
+                        reservation = new KimodoDebugTimelineReservation
+                        {
+                            TimelineClip = placeholder,
+                            SourceTimelineClip = request.TimelineClipSnapshot,
+                            Group = group
+                        };
+                    }
+                    firstReservation = null;
+                    string passName = segment.Value<string>("name") ?? segment.Value<string>("purpose") ?? "Backend Stage";
+                    KimodoPlayableClip debugTarget = reservation.TimelineClip?.asset as KimodoPlayableClip;
+                    if (debugTarget != null) debugTarget.debugPassName = passName;
+                    TryWriteRawMotion(sourceClip, request, reservation, motion);
+                    if (reservation.TimelineClip != null)
+                        group.NextStart = Math.Max(group.NextStart, reservation.TimelineClip.end + gap);
+
+                    JObject constraintArtifact = constraintArtifacts.Children<JObject>()
+                        .FirstOrDefault(item => string.Equals(
+                            item.Value<string>("artifact"),
+                            segment.Value<string>("name"),
+                            StringComparison.Ordinal));
+                    if (constraintArtifact?["constraints"] is JArray constraints && constraints.Count > 0)
+                    {
+                        result?.DebugConstraintPasses.Add(new KimodoDebugConstraintPass
+                        {
+                            Name = passName,
+                            AddedConstraintsJson = constraints.ToString(Newtonsoft.Json.Formatting.None),
+                            CombinedConstraintsJson = constraints.ToString(Newtonsoft.Json.Formatting.None),
+                            ModelName = request.ModelName,
+                            FrameRate = Mathf.RoundToInt(frameRate),
+                            FrameCount = motion.FrameCount,
+                            DebugClipTarget = debugTarget
+                        });
+                    }
+                }
+                request.DebugTimelineReservation = null;
+                EditorUtility.SetDirty(group.Track);
+                EditorUtility.SetDirty(group.Timeline);
+                if (group.Director != null) EditorUtility.SetDirty(group.Director);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning(
+                    $"[Kimodo][DebugTimeline] Could not split backend debug output: " +
+                    $"{ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         internal static void TryWriteGroup(IList<RawClipInput> inputs)
         {
             if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
                 return;
+            RawClipInput debugInput = (inputs ?? Array.Empty<RawClipInput>()).FirstOrDefault(input =>
+                input?.Request?.DebugRuntimeMotion != null &&
+                !string.IsNullOrWhiteSpace(input.Request.DebugSegmentsJson));
+            if (debugInput != null)
+            {
+                KimodoDebugTimelineReservation reservation = debugInput.Request.DebugTimelineReservation;
+                debugInput.Request.DebugTimelineReservation = null;
+                try
+                {
+                    TryWriteBackendDebugSegments(debugInput.SourceClip, debugInput.Request, debugInput.Result);
+                }
+                finally
+                {
+                    debugInput.Request.DebugTimelineReservation = reservation;
+                }
+            }
             foreach (RawClipInput input in inputs ?? Array.Empty<RawClipInput>())
             {
                 if (input == null) continue;

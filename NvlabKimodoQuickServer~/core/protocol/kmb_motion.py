@@ -61,6 +61,7 @@ class ParsedKmbClip:
     motion: KmbMotion
     target_start_frame: int
     mask: KmbClipMask | None
+    target_frame_indices: tuple[int, ...] | None = None
 
 
 def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> KmbMotion:
@@ -252,6 +253,17 @@ def parse_clip_mask(
     return KmbClipMask(tuple(root_position), root_heading, root_rotation, tuple(joints))
 
 
+def clip_source_frame_indices(item: dict, frame_count: int, error_type=ValueError) -> tuple[int, ...]:
+    indices = item.get("source_frame_indices")
+    if indices is None:
+        return tuple(range(frame_count))
+    if (not isinstance(indices, list) or not indices or
+            any(isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= frame_count for index in indices) or
+            any(right <= left for left, right in zip(indices, indices[1:]))):
+        raise error_type("Clip source_frame_indices must be unique, increasing indices within the reference KMB.")
+    return tuple(indices)
+
+
 def parse_kmb_clip(
     item: dict[str, Any],
     attachments: tuple[bytes, ...],
@@ -271,5 +283,21 @@ def parse_kmb_clip(
         raise error_type(
             f"Clip constraint duration resolves to {duration_frames} frames but its KMB contains {motion.num_frames}."
         )
+    target_frame_indices = item.get("target_frame_indices")
+    if target_frame_indices is not None:
+        if (
+            not isinstance(target_frame_indices, list)
+            or len(target_frame_indices) != motion.num_frames
+            or any(isinstance(index, bool) or not isinstance(index, int) for index in target_frame_indices)
+        ):
+            raise error_type("Clip constraint target_frame_indices must contain one integer per KMB frame.")
+        if any(right <= left for left, right in zip(target_frame_indices, target_frame_indices[1:])):
+            raise error_type("Clip constraint target_frame_indices must be strictly increasing.")
+        target_frame_indices = tuple(target_frame_indices)
     mask = parse_clip_mask(item, motion.joint_names, error_type) if item.get("mask") is not None else None
-    return ParsedKmbClip(motion, _seconds_to_protocol_frame_index(start_time, fps), mask)
+    return ParsedKmbClip(
+        motion,
+        _seconds_to_protocol_frame_index(start_time, fps),
+        mask,
+        target_frame_indices,
+    )

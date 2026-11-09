@@ -6,18 +6,17 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoClipConstraintProtocolTests
     {
         [Test]
-        public void ArdyOutsideBeginBoundary_UsesHistoryInsteadOfSyntheticSingleFrameClip()
+        public void EmptyArdyConstraintPayloadDoesNotSynthesizeABeginClip()
         {
-            Assert.That(
-                KimodoTimelineClipConstraintBuilder.ShouldBuildArdyBeginBoundary(
-                    KimodoMotionModelProfiles.ArdyCoreModelName,
-                    KimodoInOutConstraintMode.Outside),
-                Is.False);
-            Assert.That(
-                KimodoTimelineClipConstraintBuilder.ShouldBuildArdyBeginBoundary(
-                    KimodoMotionModelProfiles.ArdyCoreModelName,
-                    KimodoInOutConstraintMode.Inside),
-                Is.True);
+            var attachments = new List<byte[]>();
+            string json = new KimodoConstraintPayload
+            {
+                json = "[]",
+                clips = new List<KimodoClipConstraint>()
+            }.Serialize(KimodoMotionModelProfiles.ArdyCoreModelName, attachments);
+
+            Assert.That(json, Is.EqualTo("[]"));
+            Assert.That(attachments, Is.Empty);
         }
 
         [Test]

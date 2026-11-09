@@ -134,7 +134,7 @@ For a task that depends on keyframe-level motion:
 
 Represent every transition between adjacent animation Clips with `animation.generate`'s `inout` constraint and completed source Clips for the relevant In and/or Out boundaries. Inspect the generated `inout_sampling` and evaluate the assembled Timeline seam.
 
-When a transition is short, increase the In/Out `window_frames` and, where useful, `sample_count` to provide a wider boundary context. The window is capped by available source-Clip frames and generated duration, and the requested sample count must fit distinct model frames. For `outside`, context is padded and cropped while preserving the requested output duration; for `inside`, the wider windows constrain the returned Clip's own start/end. Use the available source range and returned `inout_sampling` to determine whether the transition has enough context for verification.
+When a transition is short, increase the Outside `window_frames` and, where useful, `sample_count` to provide a wider boundary context. The window is capped by available source-Clip frames, and the requested sample count must fit distinct model frames. Outside context is padded and cropped while preserving the requested output duration. The separate `inside` constraint uses the original AnimationClip's overlapping body poses; `post_apply` uses generated root XZ and Yaw while preserving the source height, Pitch/Roll, and body pose. Use the available source range and returned `inout_sampling` to determine whether the transition has enough context for verification.
 
 ## Prompt wording
 

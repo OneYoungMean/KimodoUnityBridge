@@ -492,12 +492,8 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException("Timeline could not create a KimodoPlayableClip.");
             }
             playableClip.name = timelineClip.displayName;
-            // Command-created clips always retain AutoBegin. Explicit In/Out
-            // samples still take precedence during constraint normalization;
-            // the synthetic anchor is removed when a real boundary exists.
-            playableClip.autoBeginAnchor = true;
-            // Command generation keeps the historical two-pass Out alignment
-            // default; explicit inout.post_apply values can override each side.
+            // Command In/Out windows default to trajectory alignment; explicit
+            // inout.post_apply values can override each side.
             playableClip.postApplyOutConstraint = true;
             if (useExplicitInOut)
             {
@@ -597,8 +593,6 @@ namespace KimodoUnityBridge.Command
             if (!IsSceneContextBound(trace.Session))
                 throw new InvalidOperationException("Scene context was closed before generation could be started.");
             double reservedEnd = trace.StartSeconds + trace.DurationSeconds;
-            foreach (CommandInOutEvidencePlan plan in trace.InOutEvidencePlans.Where(item => !item.IsIn))
-                reservedEnd = Math.Max(reservedEnd, trace.StartSeconds + trace.DurationSeconds + plan.Window.SourceWindowDurationSeconds);
             trace.Character.NextStartSeconds = reservedEnd + ClipSafeZoneSeconds;
         }
 
@@ -1544,7 +1538,6 @@ namespace KimodoUnityBridge.Command
             public TimelineClip TimelineClip { get; set; }
             public KimodoPlayableClip PlayableClip { get; set; }
             public JObject InOutSampling { get; set; }
-            public List<CommandInOutEvidencePlan> InOutEvidencePlans { get; } = new List<CommandInOutEvidencePlan>();
             public TimelineAnimationRecord Animation { get; set; }
         }
 

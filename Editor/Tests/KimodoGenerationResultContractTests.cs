@@ -130,9 +130,9 @@ namespace KimodoUnityBridge.Generation.Tests
         }
 
         [Test]
-        public void TrimRuntimeResultForOutput_PreservesNonMotionMetadataAndAttachments()
+        public void PrepareFinalMotionForBaking_PreservesNonMotionMetadataAndAttachments()
         {
-            KimodoRawMotionData source = CreateMotion(4, 1, 30f);
+            KimodoRawMotionData source = CreateMotion(3, 1, 30f);
             var attachment = new KimodoBridgeKmbAttachment
             {
                 Index = 2,
@@ -165,9 +165,10 @@ namespace KimodoUnityBridge.Generation.Tests
                 TargetFrameCount = 2,
                 TargetFrameRate = 30f,
                 RuntimeFrameCount = 4,
-                RuntimeTrimStartFrame = 1
+                RuntimeTrimStartFrame = 1,
+                RequestEndpointSample = true
             };
-            KimodoGenerationResultDto trimmed = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+            KimodoGenerationResultDto trimmed = KimodoEditorGeneratePipeline.PrepareFinalMotionForBaking(
                 request,
                 result,
                 KimodoMotionModelProfiles.DefaultModelName);
@@ -182,30 +183,31 @@ namespace KimodoUnityBridge.Generation.Tests
             Assert.That(trimmed.kmbAttachments, Is.SameAs(attachments));
             Assert.That(trimmed.kmbAttachments[0], Is.SameAs(attachment));
             Assert.That(trimmed.motionData.FrameCount, Is.EqualTo(2));
-            Assert.That(trimmed.startFrame, Is.EqualTo(11));
-            Assert.That(trimmed.endFrameExclusive, Is.EqualTo(13));
+            Assert.That(trimmed.startFrame, Is.EqualTo(10));
+            Assert.That(trimmed.endFrameExclusive, Is.EqualTo(12));
             Assert.That(trimmed.motionBytes, Is.Not.Null);
             Assert.That(trimmed.motionBytes, Is.Not.SameAs(originalMotionBytes));
-            Assert.That(trimmed.analysisJson, Does.Contain("\"frame\":1"));
+            Assert.That(trimmed.analysisJson, Does.Contain("\"frame\":0"));
             Assert.That(trimmed.analysisJson, Does.Not.Contain("\"frame\":3"));
         }
 
         [TestCase(0, 4)]
         [TestCase(3, 9)]
-        public void TrimRuntimeResultForOutput_DiscardsContextAndKeepsExactOutputFrames(int prefix, int runtimeFrames)
+        public void PrepareFinalMotionForBaking_UsesServerCroppedFramesDespiteRequestContext(int prefix, int runtimeFrames)
         {
-            var result = new KimodoGenerationResultDto { motionData = CreateMotion(runtimeFrames, 1, 30f) };
+            var result = new KimodoGenerationResultDto { motionData = CreateMotion(2, 1, 30f) };
             var request = new KimodoEditorGenerateRequest
             { TargetFrameCount = 2, TargetFrameRate = 30, RuntimeFrameCount = runtimeFrames, RuntimeTrimStartFrame = prefix };
-            var output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(request, result,
+            var output = KimodoEditorGeneratePipeline.PrepareFinalMotionForBaking(request, result,
                 KimodoMotionModelProfiles.DefaultModelName);
+            Assert.That(output, Is.SameAs(result));
             Assert.That(output.motionData.FrameCount, Is.EqualTo(2));
-            Assert.That(output.motionData.rootPositions[0].x, Is.EqualTo(prefix));
-            Assert.That(output.motionData.rootPositions[1].x, Is.EqualTo(prefix + 1));
+            Assert.That(output.motionData.rootPositions[0].x, Is.EqualTo(0));
+            Assert.That(output.motionData.rootPositions[1].x, Is.EqualTo(1));
         }
 
         [Test]
-        public void TrimRuntimeResultForOutput_CapturesRealEndpointAndKeepsRequestedFrames()
+        public void PrepareFinalMotionForBaking_CapturesRealEndpointAndKeepsRequestedFrames()
         {
             var result = new KimodoGenerationResultDto
             {
@@ -221,7 +223,7 @@ namespace KimodoUnityBridge.Generation.Tests
                 RequestEndpointSample = true
             };
 
-            KimodoGenerationResultDto output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
+            KimodoGenerationResultDto output = KimodoEditorGeneratePipeline.PrepareFinalMotionForBaking(
                 request,
                 result,
                 KimodoMotionModelProfiles.DefaultModelName);
@@ -259,76 +261,30 @@ namespace KimodoUnityBridge.Generation.Tests
         }
 
         [Test]
-        public void TrimRuntimeResultForOutput_WithNoTrimReturnsTheOriginalResult()
+        public void ConnectedRequest_LeavesOutsideContextCroppingToBackend()
         {
-            var result = new KimodoGenerationResultDto
+            var request = new KimodoGenerationRequestDto
             {
-                motionFormat = "analysis_only",
-                rawStatus = "done",
-                message = "analysis",
-                motionJsonCompact = string.Empty,
-                motionBytes = Array.Empty<byte>(),
-                kmbAttachments = Array.Empty<KimodoBridgeKmbAttachment>(),
-                motionRepFingerprint = "fp",
-                resolvedSeed = 9,
-                analysisJson = "{\"analysis\":true}"
+                stage_plan_json = "{\"trajectory\":{\"enabled\":true}}"
             };
-            var request = new KimodoEditorGenerateRequest
-            {
-                TargetFrameCount = 2,
-                TargetFrameRate = 30f,
-                RuntimeFrameCount = 2,
-                RuntimeTrimStartFrame = 0
-            };
-
-            KimodoGenerationResultDto output = KimodoEditorGeneratePipeline.TrimRuntimeResultForOutput(
-                request,
-                result,
-                KimodoMotionModelProfiles.DefaultModelName);
-
-            Assert.That(output, Is.SameAs(result));
-            Assert.That(output.motionJsonCompact, Is.Empty);
-            Assert.That(output.motionBytes, Is.Empty);
-            Assert.That(output.kmbAttachments, Is.Empty);
-            Assert.That(output.analysisJson, Is.EqualTo("{\"analysis\":true}"));
+            KimodoPlayableClipGenerationExecutionService.SetBackendOutputRange(request, 142, 15, 121);
+            var plan = JObject.Parse(request.stage_plan_json);
+            Assert.That(plan.Value<int>("target_frame_count"), Is.EqualTo(142));
+            Assert.That(plan.Value<int>("output_start_frame"), Is.EqualTo(15));
+            Assert.That(plan.Value<int>("output_frame_count"), Is.EqualTo(121));
+            Assert.That(plan["trajectory"].Value<bool>("enabled"), Is.True);
         }
 
-        [Test]
-        public void TrimGeneratedMotionForOutputRange_RemovesStageThreeWindowsAndLoopTail()
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(4)]
+        public void PrepareFinalMotionForBaking_RejectsUnexpectedBackendOutputLength(int frames)
         {
-            const int bodyFrames = 90;
-            const int inWindowFrames = 12;
-            const int outWindowFrames = 15;
-            const int loopTailFrames = 29;
-            KimodoRawMotionData stage3Motion = CreateMotion(
-                inWindowFrames + bodyFrames + outWindowFrames + loopTailFrames,
-                1,
-                30f);
-            var result = new KimodoEditorGenerationResult
-            {
-                MotionJsonCompact = KimodoRawMotionUtility.ToCompactJson(stage3Motion),
-                MotionBytes = KimodoRawMotionUtility.ToFlatBuffer(
-                    stage3Motion,
-                    KimodoMotionModelProfiles.DefaultModelName),
-                AnalysisJson = "{\"keyframes\":[{\"frame\":11},{\"frame\":12},{\"frame\":101},{\"frame\":102}]}"
-            };
-
-            KimodoEditorGeneratePipeline.TrimGeneratedMotionForOutputRange(
-                result,
-                inWindowFrames,
-                bodyFrames,
-                KimodoMotionModelProfiles.DefaultModelName);
-
-            Assert.That(KimodoRawMotionUtility.TryParse(result.MotionJsonCompact, out KimodoRawMotionData trimmed, out string jsonError), Is.True, jsonError);
-            Assert.That(trimmed.FrameCount, Is.EqualTo(bodyFrames));
-            Assert.That(trimmed.DurationSeconds, Is.EqualTo(3f).Within(1e-6f));
-            Assert.That(trimmed.rootPositions[0].x, Is.EqualTo(inWindowFrames));
-            Assert.That(trimmed.rootPositions[bodyFrames - 1].x, Is.EqualTo(inWindowFrames + bodyFrames - 1));
-            Assert.That(KimodoRawMotionUtility.TryParseFlatBuffer(result.MotionBytes, out KimodoRawMotionData trimmedBytes, out string bytesError), Is.True, bytesError);
-            Assert.That(trimmedBytes.FrameCount, Is.EqualTo(bodyFrames));
-            Assert.That(result.AnalysisJson, Does.Contain("\"frame\":0"));
-            Assert.That(result.AnalysisJson, Does.Contain("\"frame\":89"));
-            Assert.That(result.AnalysisJson, Does.Not.Contain("\"frame\":90"));
+            var result = new KimodoGenerationResultDto { motionData = CreateMotion(frames, 1, 30f) };
+            var request = new KimodoEditorGenerateRequest { TargetFrameCount = 2 };
+            Assert.That(() => KimodoEditorGeneratePipeline.PrepareFinalMotionForBaking(
+                request, result, KimodoMotionModelProfiles.DefaultModelName),
+                Throws.InvalidOperationException.With.Message.Contains("expected 2"));
         }
 
         [Test]

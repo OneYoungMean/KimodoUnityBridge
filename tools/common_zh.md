@@ -134,7 +134,7 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 
 每个相邻动画 Clip 过渡，都使用 `animation.generate` 的 `inout` 约束显式表达，并为相关 In／Out 边界指定已完成的源 Clip。检查生成结果中的 `inout_sampling`，并评估组装后 Timeline 的衔接处。
 
-过渡时间很短时，增加 In／Out 的 `window_frames`；有帮助时也增加 `sample_count`，以提供更宽的边界上下文。窗口长度受源 Clip 可用帧数和生成时长限制，采样数必须适配不同的模型帧。`outside` 会先补入上下文再裁切，并保持请求的输出时长；`inside` 则约束返回 Clip 自身的起止窗口。根据可用源帧范围和返回的 `inout_sampling` 判断上下文是否足以验证过渡。
+过渡时间很短时，增加 Outside 的 `window_frames`；有帮助时也增加 `sample_count`，以提供更宽的边界上下文。窗口受源 Clip 可用帧数限制，采样数必须对应不同的模型帧。Outside 会先补入上下文再裁切，并保持请求的输出时长。独立的 `inside` 约束使用原始 AnimationClip 与生成结果重叠范围内的身体姿势；`post_apply` 使用生成轨迹的根 XZ 和 Yaw，同时保留原动画的高度、Pitch/Roll 与身体姿势。根据可用源帧范围和返回的 `inout_sampling` 判断过渡上下文是否足够。
 
 ## Prompt 表述
 

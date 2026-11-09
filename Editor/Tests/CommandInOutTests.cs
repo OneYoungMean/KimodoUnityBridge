@@ -69,14 +69,12 @@ namespace KimodoUnityBridge.Command.Tests
             }
         }
 
-        [TestCase(false, true, -15, -1, 1.5)]
-        [TestCase(false, false, 60, 74, 0.0)]
-        [TestCase(true, true, 0, 14, 0.0)]
-        [TestCase(true, false, 45, 59, 1.5)]
-        public void Windows_ConvertCommandFramesAndPreserveSampleOrder(bool inside, bool isIn, int first, int last, double sourceStart)
+        [TestCase(true, -15, -1, 1.5)]
+        [TestCase(false, 60, 74, 0.0)]
+        public void Windows_ConvertOutsideFramesAndPreserveSampleOrder(bool isIn, int first, int last, double sourceStart)
         {
             var side = JObject.Parse(@"{'source':{'clip':'Walk'},'window_frames':30,'sample_count':5}");
-            var window = command_context.ResolveCommandInOutWindow(side, inside, isIn, 2, 60, 30);
+            var window = command_context.ResolveCommandInOutWindow(side, isIn, 2, 60, 30);
             Assert.That(window.CommandFrameCount60, Is.EqualTo(30));
             Assert.That(window.ModelFrameCount, Is.EqualTo(15));
             Assert.That(window.OutputFrames.First(), Is.EqualTo(first));
@@ -94,7 +92,7 @@ namespace KimodoUnityBridge.Command.Tests
         {
             var side = JObject.Parse(@"{'source':{'clip':'Walk'}}");
             side["window_frames"] = frames; side["sample_count"] = count;
-            Assert.That(() => command_context.ResolveCommandInOutWindow(side, false, true, duration, 60, 30),
+            Assert.That(() => command_context.ResolveCommandInOutWindow(side, true, duration, 60, 30),
                 Throws.TypeOf<InvalidOperationException>().With.Message.Contains(error));
         }
 
@@ -102,11 +100,11 @@ namespace KimodoUnityBridge.Command.Tests
         public void SingleSample_UsesExplicitBoundaryAndDefaultsToOneModelFrame()
         {
             var side = JObject.Parse(@"{'source':{'clip':'Walk','frame':60}}");
-            var window = command_context.ResolveCommandInOutWindow(side, false, true, 2, 60, 30);
+            var window = command_context.ResolveCommandInOutWindow(side, true, 2, 60, 30);
             CollectionAssert.AreEqual(new[] { 1.0 }, window.SourceTimes);
             CollectionAssert.AreEqual(new[] { -1 }, window.OutputFrames);
             side["window_frames"] = 30;
-            window = command_context.ResolveCommandInOutWindow(side, false, true, 2, 60, 30);
+            window = command_context.ResolveCommandInOutWindow(side, true, 2, 60, 30);
             CollectionAssert.AreEqual(new[] { 1.0 }, window.SourceTimes);
             CollectionAssert.AreEqual(new[] { -1 }, window.OutputFrames);
         }
@@ -115,7 +113,7 @@ namespace KimodoUnityBridge.Command.Tests
         [TestCase("{'constraints':[{'inout':{'mode':'typo'}}]}", false, "mode")]
         [TestCase("{'constraints':[{'inout':{},'frame':0}]}", false, "standalone")]
         [TestCase("{'constraints':[{'inout':{}},{'inout':{}}]}", false, "standalone")]
-        [TestCase("{'constraints':[{'inout':{}}]}", true, "loop")]
+        [TestCase("{'constraints':[{'inout':{}}]}", true, "requires")]
         public void InvalidInOut_IsRejectedBeforeSampling(string json, bool loop, string error)
         {
             var configure = typeof(command_context).GetMethod("ConfigureCommandInOutClip", PrivateStatic);
@@ -125,11 +123,10 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(exception.InnerException.Message, Does.Contain(error));
         }
 
-        [TestCase(false)]
-        [TestCase(true)]
-        public void CommandSampling_UsesExplicitClipsAndBuildsPaddedRequest(bool inside)
+        [TestCase(KimodoMotionModelProfiles.DefaultModelName)]
+        [TestCase(KimodoMotionModelProfiles.ArdySomaModelName)]
+        public void CommandSampling_UsesExplicitOutsideClipsAndBuildsPaddedRequest(string model)
         {
-            const string model = KimodoMotionModelProfiles.DefaultModelName;
             Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(model, out var avatar, out var error), Is.True, error);
             Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(avatar, "CommandInOutFixture", out var skeleton, out error), Is.True, error);
             var directorObject = new GameObject("CommandInOutDirector");
@@ -176,14 +173,15 @@ namespace KimodoUnityBridge.Command.Tests
                 unindexedOccupant.displayName = "UnindexedOccupant";
                 var sessionType = typeof(command_context).GetNestedType("TimelineSessionRecord", BindingFlags.NonPublic);
                 var session = Activator.CreateInstance(sessionType, new object[] {
-                    Guid.NewGuid(), "InOutTest", director, timeline, "", false, directorObject, null, 0
+                    Guid.NewGuid(), "InOutTest", director, timeline, "", directorObject
                 });
                 ((List<command_context.TimelineCharacterRecord>)sessionType.GetProperty("Characters").GetValue(session)).Add(character);
                 character.NextStartSeconds = 8.0;
+                typeof(command_context).GetMethod("RefreshCharacterTimelineAppendPosition", PrivateStatic)
+                    .Invoke(null, new object[] { character });
                 var traceType = typeof(command_context).GetNestedType("TimelineGenerationTrace", BindingFlags.NonPublic);
-                var trace = Activator.CreateInstance(traceType, new object[] { session, character, 8.0, 2.0 });
-                var arguments = JObject.Parse(@"{'constraints':[{'inout':{'in':{'source':{'clip':'Previous'},'window_frames':30,'sample_count':5},'out':{'source':{'clip':'Next'},'window_frames':12,'sample_count':3}}}]}");
-                arguments["constraints"][0]["inout"]["mode"] = inside ? "inside" : "outside";
+                var trace = Activator.CreateInstance(traceType, new object[] { session, character, character.NextStartSeconds, 2.0 });
+                var arguments = JObject.Parse(@"{'constraints':[{'inout':{'mode':'outside','in':{'source':{'clip':'Previous'},'window_frames':30,'sample_count':5},'out':{'source':{'clip':'Next'},'window_frames':12,'sample_count':3}}}]}");
                 var configure = typeof(command_context).GetMethod("ConfigureCommandInOutClip", PrivateStatic);
                 Assert.That(configure, Is.Not.Null);
                 director.RebuildGraph();
@@ -192,64 +190,27 @@ namespace KimodoUnityBridge.Command.Tests
                     new object[] { arguments.DeepClone(), trace, null, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() }), Is.True);
                 var diagnostics = (JObject)traceType.GetProperty("InOutSampling").GetValue(trace);
                 arguments["constraints"][0]["inout"]["in"]["post_apply"] = false;
-                void Reject(int targetFrames, List<KimodoMarkerSampleResult> points, string message)
-                {
-                    var exception = Assert.Throws<TargetInvocationException>(() => configure.Invoke(null,
-                        new object[] { arguments, trace, null, model, targetFrames, 30f, false, points }));
-                    Assert.That(exception.InnerException.Message, Does.Contain(message));
-                }
-                Reject(inside ? 20 : 300, new List<KimodoMarkerSampleResult>(), inside ? "overlap" : "exceeding");
-                if (inside)
-                {
-                    Reject(60, new List<KimodoMarkerSampleResult> { new KimodoMarkerSampleResult { sampleTime = 0 } }, "conflicts");
-                    arguments["constraints"][0]["inout"]["in"]["sample_count"] = 1;
-                    arguments["constraints"][0]["inout"]["out"]["sample_count"] = 1;
-                    Assert.That((bool)configure.Invoke(null,
-                        new object[] { arguments.DeepClone(), trace, null, model, 20, 30f, false, new List<KimodoMarkerSampleResult>() }), Is.True);
-                    var endpointDiagnostics = (JObject)traceType.GetProperty("InOutSampling").GetValue(trace);
-                    CollectionAssert.AreEqual(new[] { 0 }, endpointDiagnostics["in"]["output_model_frames"].Values<int>());
-                    CollectionAssert.AreEqual(new[] { 19 }, endpointDiagnostics["out"]["output_model_frames"].Values<int>());
-                    arguments["constraints"][0]["inout"]["in"]["sample_count"] = 5;
-                    arguments["constraints"][0]["inout"]["out"]["sample_count"] = 3;
-                }
+                Assert.That((bool)configure.Invoke(null,
+                    new object[] { arguments, trace, null, model, 600, 30f, false, new List<KimodoMarkerSampleResult>() }), Is.True,
+                    "Long requests are divided into windows by the backend.");
                 Assert.That(diagnostics["in"]["source_timeline_frames_60"], Is.TypeOf<JArray>());
                 Assert.That(diagnostics["runtime_model_frame_count"], Is.Not.Null);
                 Assert.That(diagnostics["crop_start_model_frame"], Is.Not.Null);
 
-                typeof(command_context).GetMethod("PrepareCommandOutsideEvidencePosition", PrivateStatic)
-                    .Invoke(null, new object[] { trace });
-                typeof(command_context).GetMethod("ValidateCommandTimelineRange", PrivateStatic)
-                    .Invoke(null, new object[] { trace });
                 var playable = (KimodoPlayableClip)typeof(command_context).GetMethod("CreateGenerationPlayableClip", PrivateStatic)
                     .Invoke(null, new object[] { trace, "CommandOutput", true });
                 var output = (TimelineClip)traceType.GetProperty("TimelineClip").GetValue(trace);
-                typeof(command_context).GetMethod("CreateCommandOutsideEvidenceClips", PrivateStatic)
-                    .Invoke(null, new object[] { trace });
                 TimelineClip[] evidenceClips = track.GetClips()
                     .Where(clip => clip.asset is AnimationPlayableAsset && !(clip.asset is KimodoPlayableClip))
                     .Where(clip => (clip.displayName ?? string.Empty).StartsWith("InOut ", StringComparison.Ordinal))
                     .OrderBy(clip => clip.start)
                     .ToArray();
-                Assert.That(evidenceClips, Has.Length.EqualTo(inside ? 0 : 2));
-                if (!inside)
-                {
-                    Assert.That(output.start, Is.EqualTo(9.0 + command_context.ClipSafeZoneSeconds + 0.5).Within(1e-8),
-                        "The evidence In clip gets a non-overlapping Timeline window after an unindexed clip.");
-                    Assert.That(evidenceClips[0].end, Is.EqualTo(output.start).Within(1e-8));
-                    Assert.That(evidenceClips[1].start, Is.EqualTo(output.end).Within(1e-8));
-                    Assert.That(((AnimationPlayableAsset)evidenceClips[0].asset).clip, Is.SameAs(sourceClip));
-                    Assert.That(((AnimationPlayableAsset)evidenceClips[1].asset).clip, Is.SameAs(sourceClip));
-                    Assert.That(evidenceClips[0].duration, Is.EqualTo(0.5).Within(1e-8));
-                    Assert.That(evidenceClips[1].duration, Is.EqualTo(0.2).Within(1e-8));
-                    Assert.That(evidenceClips[0].timeScale, Is.EqualTo(1.2).Within(1e-8));
-                    Assert.That(evidenceClips[1].timeScale, Is.EqualTo(1.2).Within(1e-8));
-                    Assert.That(evidenceClips[0].clipIn, Is.EqualTo(character.Animations[0].TimelineClip.ToLocalTime(1.5)).Within(1e-8));
-                    Assert.That(evidenceClips[1].clipIn, Is.EqualTo(character.Animations[1].TimelineClip.ToLocalTime(4.0)).Within(1e-8));
-                    Assert.That(character.Animations[0].TimelineClip.start, Is.EqualTo(0));
-                    Assert.That(character.Animations[0].TimelineClip.duration, Is.EqualTo(2));
-                    Assert.That(character.Animations[1].TimelineClip.start, Is.EqualTo(4));
-                    Assert.That(character.Animations[1].TimelineClip.duration, Is.EqualTo(2));
-                }
+                Assert.That(evidenceClips, Is.Empty);
+                Assert.That(output.start, Is.EqualTo(9.0 + command_context.ClipSafeZoneSeconds).Within(1e-8));
+                Assert.That(character.Animations[0].TimelineClip.start, Is.EqualTo(0));
+                Assert.That(character.Animations[0].TimelineClip.duration, Is.EqualTo(2));
+                Assert.That(character.Animations[1].TimelineClip.start, Is.EqualTo(4));
+                Assert.That(character.Animations[1].TimelineClip.duration, Is.EqualTo(2));
                 Assert.That(output.start, Is.GreaterThanOrEqualTo(
                     unindexedOccupant.end + command_context.ClipSafeZoneSeconds - 1e-8),
                     "The generated block must start after every actual Timeline clip.");
@@ -258,15 +219,11 @@ namespace KimodoUnityBridge.Command.Tests
                     "Explicit sources must not mix with automatically inferred Session boundaries.");
                 Assert.That(playable.postApplyOutConstraint, Is.True,
                     "Command-created clips enable Postapply Out without exposing a command option.");
-                Assert.That(playable.autoBeginAnchor, Is.True,
-                    "Command-created clips must retain the automatic begin anchor; real explicit samples take precedence during normalization.");
                 Assert.That(output.duration, Is.EqualTo(2));
 
                 configure.Invoke(null,
                     new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
-                Assert.That(playable.inOutConstraintMode, Is.EqualTo(inside
-                    ? KimodoInOutConstraintMode.Inside
-                    : KimodoInOutConstraintMode.Outside));
+                Assert.That(playable.inOutConstraintMode, Is.EqualTo(KimodoInOutConstraintMode.Outside));
                 Assert.That(playable.inConstraintSourceAsset, Is.SameAs(character.Animations[0].TimelineClip.asset));
                 Assert.That(playable.outConstraintSourceAsset, Is.SameAs(character.Animations[1].TimelineClip.asset));
                 arguments["constraints"][0]["inout"]["in"]["post_apply"] = false;
@@ -281,30 +238,30 @@ namespace KimodoUnityBridge.Command.Tests
                     "In constraint post-application defaults to enabled.");
                 var sharedRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
                     playable, "stand", externalConstraint: null, token: CancellationToken.None,
-                    timelineClipOverride: output,
-                    deferInConstraint: playable.postApplyInConstraint,
-                    deferOutConstraint: playable.postApplyOutConstraint);
+                    timelineClipOverride: output);
                 Assert.That(sharedRequest.TargetFrameCount, Is.EqualTo(60));
-                Assert.That(sharedRequest.RuntimeFrameCount, Is.EqualTo(inside ? 60 : 81));
-                Assert.That(sharedRequest.RuntimeTrimStartFrame, Is.EqualTo(inside ? 0 : 15));
-                Assert.That(sharedRequest.InConstraintWindow.HasConstraints, Is.True);
-                Assert.That(sharedRequest.OutConstraintWindow.HasConstraints, Is.True);
-                int[] inFrames = JArray.Parse(sharedRequest.InConstraintWindow.Json)
-                    .Values<JObject>()
-                    .Where(constraint => constraint.Value<string>("type") == "fullbody")
-                    .SelectMany(constraint => constraint["frame_indices"].Values<int>())
-                    .Distinct().OrderBy(frame => frame).ToArray();
-                CollectionAssert.AreEqual(
-                    diagnostics["in"]["runtime_model_frames"].Values<int>().OrderBy(frame => frame).ToArray(),
-                    inFrames);
-                int[] outFrames = JArray.Parse(sharedRequest.OutConstraintWindow.Json)
-                    .Values<JObject>()
-                    .Where(constraint => constraint.Value<string>("type") == "fullbody")
-                    .SelectMany(constraint => constraint["frame_indices"].Values<int>())
-                    .Distinct().OrderBy(frame => frame).ToArray();
-                CollectionAssert.AreEqual(
-                    diagnostics["out"]["runtime_model_frames"].Values<int>().OrderBy(frame => frame).ToArray(),
-                    outFrames);
+                Assert.That(sharedRequest.RuntimeFrameCount, Is.EqualTo(81));
+                Assert.That(sharedRequest.RuntimeTrimStartFrame, Is.EqualTo(15));
+                KimodoClipConstraint inWindow = sharedRequest.Constraints.clips.Single(item => item.purpose == "outside_in");
+                KimodoClipConstraint outWindow = sharedRequest.Constraints.clips.Single(item => item.purpose == "outside_out");
+                Assert.That(inWindow.postApply, Is.True);
+                Assert.That(outWindow.postApply, Is.True);
+                CollectionAssert.AreEqual(Enumerable.Range(0, 15), inWindow.targetFrameIndices);
+                CollectionAssert.AreEqual(Enumerable.Range(75, 6), outWindow.targetFrameIndices);
+                Assert.That(inWindow.sampleCount, Is.EqualTo(5));
+                Assert.That(outWindow.sampleCount, Is.EqualTo(3));
+                CaptureDiagnosticRequest("unity_" + model + "_outside", sharedRequest);
+                if (KimodoMotionModelProfiles.TryGetArdy(model, out var profile))
+                {
+                    byte[] history = KimodoEditorGeneratePipeline.BuildInitialArdyHistoryPayload(sharedRequest, profile);
+                    Assert.That(history, Is.Not.Null);
+                    sharedRequest.Constraints = new KimodoConstraintPayload { json = "[]" };
+                    KimodoEditorGeneratePipeline.PrependArdyHistoryConstraint(sharedRequest.Constraints.clips, history, profile);
+                    Assert.That(sharedRequest.Constraints.clips, Has.Count.EqualTo(1));
+                    Assert.That(KimodoRawMotionUtility.TryParseFlatBuffer(history, out var historyMotion, out error), Is.True, error);
+                    Assert.That(historyMotion.FrameCount, Is.EqualTo(profile.MaxContextFrames - profile.HorizonFrames));
+                    CaptureDiagnosticRequest("unity_ardy_history_only", sharedRequest);
+                }
             }
             finally
             {
@@ -318,6 +275,27 @@ namespace KimodoUnityBridge.Command.Tests
                 if (sourceClip != null) Object.DestroyImmediate(sourceClip);
                 skeleton.Dispose();
             }
+        }
+
+        private static void CaptureDiagnosticRequest(string name, KimodoEditorGenerateRequest request)
+        {
+            string root = Environment.GetEnvironmentVariable("KIMODO_DIAGNOSTIC_CAPTURE_DIR");
+            if (string.IsNullOrWhiteSpace(root)) return;
+            string folder = Path.Combine(root, name);
+            Directory.CreateDirectory(folder);
+            var attachments = new List<byte[]>();
+            string constraints = request.Constraints.Serialize(request.ModelName, attachments);
+            var payload = new JObject
+            {
+                ["cmd"] = "generate", ["model"] = request.ModelName, ["prompt"] = request.Prompt,
+                ["duration"] = request.EffectiveBackendRuntimeDurationSeconds,
+                ["seed"] = 1729, ["diffusion_steps"] = 10, ["output_format"] = "kmb_v1",
+                ["constraints_json"] = constraints, ["stage_plan"] = JObject.Parse(request.StagePlanJson),
+                ["window_constraints"] = JObject.Parse(request.WindowConstraintsJson), ["debug"] = true
+            };
+            File.WriteAllText(Path.Combine(folder, "request.json"), payload.ToString());
+            for (int index = 0; index < attachments.Count; index++)
+                File.WriteAllBytes(Path.Combine(folder, $"reference_{index}.kmb"), attachments[index]);
         }
 
         [Test]
@@ -512,6 +490,13 @@ namespace KimodoUnityBridge.Command.Tests
 
             JObject generate = definitions["tools"].Values<JObject>().Single(c => c.Value<string>("name") == "animation.generate");
             Assert.That(generate["inputSchema"]?["properties"]?["prompt"]?.Value<string>("description"), Does.Contain("25 words or fewer"));
+
+            var constraintManual = JObject.Parse(command_dispatcher.Invoke("kimodo.help", "{\"section\":\"constraints\"}"));
+            var constraintTypes = constraintManual["constraints"].Values<JObject>().ToArray();
+            JObject inside = constraintTypes.Single(item => item.Value<string>("type") == "inside");
+            Assert.That(inside["shape"]?["properties"]?["inside"]?["properties"]?["post_apply"], Is.Not.Null);
+            JObject inout = constraintTypes.Single(item => item.Value<string>("type") == "inout");
+            CollectionAssert.AreEqual(new[] { "outside" }, inout["shape"]?["properties"]?["inout"]?["properties"]?["mode"]?["enum"]?.Values<string>());
         }
 
         [Test]

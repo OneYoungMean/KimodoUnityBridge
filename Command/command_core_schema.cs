@@ -162,7 +162,7 @@ namespace KimodoUnityBridge.Command
                     "Submit one animation generation request for a character in the current scene context.",
                     new[] { "Describe one semantic action in prompt, or supply raw_instruction.role=generate with the exact JSON returned by generation.get(include_request_json=true).", "Use structured fields for exact pose, root, effector, duration, trajectory, loop, and Clip-window requirements; see kimodo.help(section=constraints) for constraint selection.", "Use point constraints and source Clip windows as documented in kimodo.help(section=constraints).", "Use wait_seconds for cooperative Editor waiting; generation.get continues a running task." },
                     new[] { "The accepted response contains request_id, status, preflight check results, and warnings. Root speed above 7 m/s warns; above 10 m/s blocks generation. Root acceleration above 10 m/s² warns; above 15 m/s blocks generation. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.", "On completion, generation.get returns Clip metadata, asset path, animation_id, generation diagnostics, and post_analysis.analysis_path when analysis is enabled. Set analyze=false to omit the post-generation analysis pass." },
-                    new[] { "A completed result is appended as a Timeline Clip; existing completed Clips are retained.", "When no explicit first-frame or In/Out anchor takes precedence, AutoBegin adds a Root2D constraint at the character's original scene Hips position and heading." },
+                    new[] { "A completed result is appended as a Timeline Clip; existing completed Clips are retained." },
                     new[] { "Map explicit path and direction requirements to supported trajectory fields; use confirmed scene/analysis evidence to resolve details the prompt leaves unspecified. Leave other optional fields at their schema defaults.", "analyze controls the full post-generation animation.analysis pass and defaults to true.", "Command checks validate supported request boundaries. Evaluate semantic and artistic quality with the task's acceptance criteria and analysis evidence." },
                     SessionContextCommand, PoseGetCommand, GetGenerationCommand, CancelGenerationCommand, AnimationAnalysisCommand),
                 PoseGetCommand => CommandDocumentation(
@@ -911,13 +911,7 @@ namespace KimodoUnityBridge.Command
                 ["end_angle"] = new JObject { ["type"] = "number" },
                 ["distance"] = new JObject { ["type"] = "number", ["minimum"] = 0 },
                 ["heading"] = new JObject { ["type"] = "number" },
-                ["relative_offset"] = new JObject
-                {
-                    ["type"] = "array", ["minItems"] = 3, ["maxItems"] = 3,
-                    ["items"] = new JObject { ["type"] = "number" },
-                    ["description"] = "World-space target position for the generated Clip. Root X/Z are normalized into the initial facing frame before Humanoid conversion; the initial yaw is transferred to the Timeline Clip rotation, and the generated root Y curve is preserved with its final frame-zero value accounted for in the Clip offset."
-                }
-            }, "Optional Root2D path and output placement settings. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition; relative_offset places the Clip in World space while preserving generated vertical root motion for Humanoid conversion and transferring initial yaw to the Clip rotation.");
+            }, "Optional Root2D path settings. Any angle enables path override; distance replaces the measured path length; heading is applied after path composition.");
         }
 
         private static PropertyDefinition OptionalGeneration()
@@ -1051,7 +1045,7 @@ namespace KimodoUnityBridge.Command
             {
                 ["type"] = "array",
                 ["description"] = description,
-                ["items"] = new JObject { ["oneOf"] = new JArray(pointItem, rootPathItem, InOutConstraintSchema()) }
+                ["items"] = new JObject { ["oneOf"] = new JArray(pointItem, rootPathItem, InOutConstraintSchema(), InsideConstraintSchema()) }
             }, false);
         }
 
@@ -1061,7 +1055,7 @@ namespace KimodoUnityBridge.Command
                 Required("clip", "string", "Safe completed source Clip name in the current scene context."),
                 Optional("character", "string", "Source character; defaults to the generation character. Use the generation character for source Clip sampling."),
                 new PropertyDefinition("frame", new JObject { ["type"] = "integer", ["minimum"] = 0,
-                    ["description"] = "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Defaults: outside In=last model frame / Out=first; inside In=first / Out=last." }, false));
+                    ["description"] = "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Outside In defaults to the source Clip's last frame; Outside Out defaults to its first frame." }, false));
             JObject side = Properties(
                 new PropertyDefinition("source", source, true),
                 new PropertyDefinition("window_frames", new JObject { ["type"] = "integer", ["minimum"] = 1, ["default"] = 1,
@@ -1075,12 +1069,38 @@ namespace KimodoUnityBridge.Command
             JObject outSide = (JObject)side.DeepClone();
             outSide["properties"]["post_apply"]["default"] = true;
             JObject config = Properties(
-                new PropertyDefinition("mode", new JObject { ["type"] = "string", ["enum"] = new JArray("outside", "inside"), ["default"] = "outside",
-                    ["description"] = "Outside pads generation with source context then crops it off; inside constrains the returned clip's start/end windows. Output duration is preserved." }, false),
+                new PropertyDefinition("mode", new JObject { ["type"] = "string", ["enum"] = new JArray("outside"), ["default"] = "outside",
+                    ["description"] = "Outside constrains the returned clip from source motion before or after it; the generated output duration is preserved." }, false),
                 new PropertyDefinition("in", inSide, false),
                 new PropertyDefinition("out", outSide, false));
             config["anyOf"] = new JArray(new JObject { ["required"] = new JArray("in") }, new JObject { ["required"] = new JArray("out") });
             return Properties(new PropertyDefinition("inout", config, true));
+        }
+
+        private static JObject InsideConstraintSchema()
+        {
+            JObject source = Properties(
+                Required("clip", "string", "Completed source Clip used for the Inside body-pose constraint."),
+                Optional("character", "string", "Source character; defaults to the generation character."));
+            JObject config = Properties(
+                new PropertyDefinition("source", source, true),
+                new PropertyDefinition("sampling_mode", new JObject
+                {
+                    ["type"] = "string", ["enum"] = new JArray("uniform", "foot_exchange", "mixed"),
+                    ["default"] = "uniform", ["description"] = "Reference keyframes: uniform, foot-exchange midpoints, or both."
+                }, false),
+                new PropertyDefinition("sample_count", new JObject
+                {
+                    ["type"] = "integer", ["minimum"] = 1, ["default"] = 2,
+                    ["description"] = "Uniform keyframe count; mixed also retains foot-exchange midpoints."
+                }, false),
+                new PropertyDefinition("post_apply", new JObject
+                {
+                    ["type"] = "boolean",
+                    ["default"] = true,
+                    ["description"] = "Before Stage 3, use Stage 2 root XZ and Yaw over the overlapping range; retain the source Clip's height, Pitch/Roll, and body poses."
+                }, false));
+            return Properties(new PropertyDefinition("inside", config, true));
         }
 
         private static PropertyDefinition RequiredPoseSource(string name)

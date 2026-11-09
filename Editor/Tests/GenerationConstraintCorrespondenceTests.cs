@@ -614,7 +614,6 @@ namespace KimodoUnityBridge.Command.Tests
                     playable = (KimodoPlayableClip)timelineClip.asset;
                     playable.bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
                     playable.inOutConstraintMode = KimodoInOutConstraintMode.None;
-                    playable.autoBeginAnchor = false;
                     playable.generateLoop = false;
                     Assert.That(KimodoInOutConstraintAdapter.TryResolveTimelineContext(
                         timelineClip, out _, out error), Is.True, error);

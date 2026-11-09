@@ -222,6 +222,8 @@ class Kimodo(nn.Module):
         root_margin: float = 0.04,
         # progress bar
         progress_bar=tqdm,
+        num_transition_samples: Optional[int] = None,
+        generation_callback=None,
     ) -> torch.Tensor:
         device = self.device
 
@@ -269,7 +271,7 @@ class Kimodo(nn.Module):
             )
 
             if not is_first_motion:
-                nb_transition_frames = num_transition_frames
+                nb_transition_frames = min(num_transition_frames, generated_motions[-1].shape[1])
 
                 if nb_transition_frames < 1:
                     raise ValueError(f"num_transition_frames must be at least 1, got {nb_transition_frames}")
@@ -287,23 +289,39 @@ class Kimodo(nn.Module):
                 )
                 smooth_root_2d = last_output["smooth_root_pos"][..., [0, 2]]
 
+                transition_sample_count = (
+                    nb_transition_frames
+                    if num_transition_samples is None
+                    else min(int(num_transition_samples), nb_transition_frames)
+                )
+                if transition_sample_count < 1:
+                    raise ValueError(
+                        "num_transition_samples must be within [1, num_transition_frames]."
+                    )
+                transition_sample_indices = torch.linspace(
+                    0,
+                    nb_transition_frames - 1,
+                    steps=transition_sample_count,
+                    device=device,
+                ).round().long()
+
                 # add constraints at the begining to allow natural transitions
                 constraint_lst_transition = []
                 for batch_id in range(bs):
                     new_constraint = FullBodyConstraintSet(
                         self.skeleton,
-                        torch.arange(num_transition_frames),
-                        last_output["posed_joints"][batch_id, :num_transition_frames],
-                        last_output["global_rot_mats"][batch_id, :num_transition_frames],
-                        smooth_root_2d[batch_id, :num_transition_frames],
+                        transition_sample_indices,
+                        last_output["posed_joints"][batch_id, transition_sample_indices],
+                        last_output["global_rot_mats"][batch_id, transition_sample_indices],
+                        smooth_root_2d[batch_id, transition_sample_indices],
                     )
                     # separate end-effector constraint to capture hand/feet rotations
                     new_ee_constraint = EndEffectorConstraintSet(
                         self.skeleton,
-                        torch.arange(num_transition_frames),
-                        last_output["posed_joints"][batch_id, :num_transition_frames],
-                        last_output["global_rot_mats"][batch_id, :num_transition_frames],
-                        smooth_root_2d[batch_id, :num_transition_frames],
+                        transition_sample_indices,
+                        last_output["posed_joints"][batch_id, transition_sample_indices],
+                        last_output["global_rot_mats"][batch_id, transition_sample_indices],
+                        smooth_root_2d[batch_id, transition_sample_indices],
                         joint_names=["LeftHand", "RightHand", "LeftFoot", "RightFoot"],
                     )
 
@@ -405,14 +423,16 @@ class Kimodo(nn.Module):
                 else:
                     motion = motion_with_transition
 
-                transition_frames = motion[:, :num_transition_frames]
-                motion = motion[:, num_transition_frames:]
+                if generation_callback is not None:
+                    generation_callback(idx, current_frame - nb_transition_frames, motion, constraint_lst_transition[0])
+                transition_frames = motion[:, :nb_transition_frames]
+                motion = motion[:, nb_transition_frames:]
 
                 # Linearly combine the previous segment tail with the new segment's
                 # constrained transition, then keep only the requested new frames.
-                alpha = torch.linspace(1, 0, num_transition_frames, device=device)[:, None]
+                alpha = torch.linspace(1, 0, nb_transition_frames, device=device)[:, None]
                 new_transition_frames = (
-                    latest_frames[:, :num_transition_frames] * alpha + (1 - alpha) * transition_frames
+                    latest_frames[:, :nb_transition_frames] * alpha + (1 - alpha) * transition_frames
                 )
                 generated_motions.append(new_transition_frames)
 
@@ -438,6 +458,8 @@ class Kimodo(nn.Module):
                     lengths=lengths,
                 )
 
+            if is_first_motion and generation_callback is not None:
+                generation_callback(idx, current_frame, motion, [])
             generated_motions.append(motion)
             current_frame += num_frame
 
@@ -485,6 +507,8 @@ class Kimodo(nn.Module):
         root_margin: float = 0.04,
         # progress bar
         progress_bar=tqdm,
+        num_transition_samples: Optional[int] = None,
+        generation_callback=None,
     ) -> dict:
         """Generate motion from text prompts and optional kinematic constraints.
 
@@ -563,6 +587,8 @@ class Kimodo(nn.Module):
                 post_processing,
                 root_margin,
                 progress_bar,
+                num_transition_samples=num_transition_samples,
+                generation_callback=generation_callback,
             )
 
         # Input checking

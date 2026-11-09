@@ -16,20 +16,115 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
 from tqdm.auto import tqdm
 
 from core import quickserver_assets as assets
-from core.protocol.kmb_motion import KmbClipMask, parse_constraints, parse_kmb_clip
+from core.protocol.kmb_motion import KmbClipMask, KmbMotion, clip_source_frame_indices, encode_kmb1, parse_constraints, parse_kmb1, parse_kmb_clip
 from core.protocol.timeline_segments import parse_timeline_segments
 from kimodo.frame_time import seconds_to_frame_count
 
 
 class GenerateCancelledError(Exception):
     pass
+
+
+@dataclass
+class GenerationArtifact:
+    """One backend-owned generation result kept for the lifetime of a request.
+
+    The motion dictionary is deliberately retained instead of being written to a
+    temporary file.  Later stages can consume it directly, while the finalizer
+    can choose either the final cropped artifact or the complete debug sequence.
+    Frame ranges are always absolute request-frame ranges.
+    """
+
+    name: str
+    start_frame: int
+    end_frame_exclusive: int
+    output: dict
+    constraints_json: str
+    purpose: str = ""
+    debug_constraints_json: str = ""
+
+    @property
+    def frame_count(self) -> int:
+        return max(0, self.end_frame_exclusive - self.start_frame)
+
+
+def _motion_output_frame_count(output: dict | None) -> int:
+    if not isinstance(output, dict):
+        return 0
+    value = output.get("posed_joints")
+    try:
+        array = np.asarray(value)
+        return int(array.shape[1]) if array.ndim >= 2 else 0
+    except Exception:
+        return 0
+
+
+def _crop_motion_output(output: dict, start_frame: int, frame_count: int) -> dict:
+    """Crop common model time-series fields without mutating the source artifact."""
+    if not isinstance(output, dict):
+        return output
+    total = _motion_output_frame_count(output)
+    if total <= 0:
+        return dict(output)
+    start = max(0, min(int(start_frame), total))
+    end = max(start, min(total, start + max(0, int(frame_count))))
+    cropped = dict(output)
+    for key, value in output.items():
+        if key.startswith("_") or not isinstance(value, np.ndarray):
+            continue
+        if value.ndim >= 2 and value.shape[1] == total:
+            cropped[key] = value[:, start:end].copy()
+    return cropped
+
+
+def _concatenate_motion_outputs(outputs: list[dict]) -> dict:
+    """Join time-series fields from real stage outputs in call order."""
+    valid = [output for output in outputs if _motion_output_frame_count(output) > 0]
+    if not valid:
+        raise ValueError("Debug generation has no motion artifacts to concatenate.")
+    keys = set.intersection(*({
+        key for key, value in output.items()
+        if not key.startswith("_") and isinstance(value, np.ndarray)
+        and value.ndim >= 2 and value.shape[1] == _motion_output_frame_count(output)
+    } for output in valid))
+    joined = {}
+    for key in keys:
+        arrays = [output[key] for output in valid]
+        if any(array.shape[:1] + array.shape[2:] != arrays[0].shape[:1] + arrays[0].shape[2:] for array in arrays[1:]):
+            continue
+        joined[key] = np.concatenate(arrays, axis=1)
+    if "posed_joints" not in joined:
+        raise ValueError("Debug generation artifacts do not share a compatible posed_joints layout.")
+    return joined
+
+
+def _output_walking_distance(output: dict | None) -> float | None:
+    """Measure planar travel distance from a generated root trajectory."""
+    if not isinstance(output, dict):
+        return None
+    positions = output.get("smooth_root_pos")
+    if positions is None:
+        positions = output.get("smooth_root_2d")
+    if positions is None:
+        positions = output.get("root_positions")
+    if positions is None:
+        return None
+    points = np.asarray(positions)
+    if points.ndim == 3:
+        points = points[0]
+    if points.ndim != 2 or points.shape[0] < 2 or points.shape[1] < 2:
+        return None
+    if points.shape[1] >= 3:
+        points = points[:, [0, 2]]
+    distance = float(np.linalg.norm(np.diff(points.astype(np.float32), axis=0), axis=1).sum())
+    return distance if math.isfinite(distance) else None
 
 
 def _default_bridge_log_path(root: str) -> str:
@@ -583,29 +678,28 @@ def _load_clip_constraint(item: dict, model, attachments: tuple[bytes, ...]):
     if not math.isclose(float(motion.fps), float(model.fps), rel_tol=0.0, abs_tol=1e-5):
         raise ValueError(f"ClipConstraint FPS mismatch: expected {model.fps}, got {motion.fps}.")
 
-    target_start = parsed_clip.target_start_frame
-    source_start = 0
-    source_end = motion.num_frames
-
-    if target_start + (source_end - source_start) <= 0:
+    if parsed_clip.target_frame_indices is None:
+        target_indices = parsed_clip.target_start_frame + np.arange(motion.num_frames, dtype=np.int64)
+    else:
+        target_indices = np.asarray(parsed_clip.target_frame_indices, dtype=np.int64)
+    selected = np.asarray(clip_source_frame_indices(item, motion.num_frames), dtype=np.int64)
+    source_indices = selected[target_indices[selected] >= 0]
+    if source_indices.size == 0:
         raise ValueError("Normal Kimodo cannot consume a ClipConstraint entirely before generation time zero.")
-    if target_start < 0:
-        source_start += -target_start
-        target_start = 0
     device = getattr(model, "device", getattr(skeleton, "device", "cpu"))
-    quats = torch.as_tensor(motion.local_rot_quats[source_start:source_end], dtype=torch.float32, device=device)
+    quats = torch.as_tensor(motion.local_rot_quats[source_indices], dtype=torch.float32, device=device)
     norms = torch.linalg.vector_norm(quats, dim=-1, keepdim=True)
     if bool((norms < 1e-6).any()):
         raise ValueError("ClipConstraint contains a zero-length local rotation quaternion.")
     local_rots = quaternion_to_matrix(quats / norms)
     local_rots = _convert_constraint_local_rots_to_skeleton(local_rots, skeleton)
-    roots = torch.as_tensor(motion.root_positions[source_start:source_end], dtype=torch.float32, device=device)
+    roots = torch.as_tensor(motion.root_positions[source_indices], dtype=torch.float32, device=device)
     global_rots, positions, _ = skeleton.fk(local_rots, roots)
     if parsed_clip.mask is None:
         raise ValueError("Clip constraint mask must be an object.")
     root_position, root_heading, position_axes, rotation_joints = _clip_constraint_mask(
         parsed_clip.mask, skeleton, list(skeleton.bone_order_names))
-    frame_indices = target_start + torch.arange(source_end - source_start, device=device, dtype=torch.long)
+    frame_indices = torch.as_tensor(target_indices[source_indices], device=device, dtype=torch.long)
     return ClipConstraintSet(
         skeleton,
         frame_indices,
@@ -1060,9 +1154,30 @@ def _finalize_generation_result(
     from core import animation_analysis
 
     resolved_format = output_format or _resolve_requested_output_format(request)
+    response_metadata = dict(metadata or {})
+    output, generated_metadata = _prepare_generation_output(request, output)
+    response_metadata.update(generated_metadata)
+    debug_output = response_metadata.pop("_debug_motion_output", None)
     analysis = animation_analysis.build_generation_analysis(request, model, output) if output else None
     payload = None
-    if resolved_format == "kmb_v1":
+    if resolved_format == "kmb_v1" and isinstance(debug_output, dict):
+        final_payload = _build_generate_flatbuffer_payload(model, output, sample_index=0) if output else b""
+        debug_payload = _build_generate_flatbuffer_payload(model, debug_output, sample_index=0)
+        payload = final_payload + debug_payload
+        final_frames = _motion_output_frame_count(output)
+        debug_frames = _motion_output_frame_count(debug_output)
+        response = {
+            "status": "done",
+            "output_format": "kmb_attachments_v1",
+            "byte_length": len(payload),
+            "kmb_attachments": [
+                {"index": 0, "offset": 0, "byte_length": len(final_payload),
+                 "start_frame": 0, "end_frame_exclusive": final_frames, "purpose": "final"},
+                {"index": 1, "offset": len(final_payload), "byte_length": len(debug_payload),
+                 "start_frame": 0, "end_frame_exclusive": debug_frames, "purpose": "debug"},
+            ],
+        }
+    elif resolved_format == "kmb_v1":
         payload = _build_generate_flatbuffer_payload(model, output, sample_index=0) if output else None
         response = {
             "status": "done",
@@ -1083,8 +1198,8 @@ def _finalize_generation_result(
         if not output:
             raise ValueError("output_mp4 requires generated motion.")
         response["mp4_path"] = _build_generate_mp4_file(model, output, prompt, sample_index=0)
-    if metadata:
-        response.update(metadata)
+    if response_metadata:
+        response.update(response_metadata)
     if analysis is not None:
         response["analysis"] = analysis
     return response, payload
@@ -1131,6 +1246,778 @@ def _generation_segment_frames(num_frames: int, fps: float, max_duration_seconds
     return [base_frames + (1 if index < extra_frames else 0) for index in range(segment_count)]
 
 
+def _normalize_stage_plan(request: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate the backend orchestration settings carried by a fixed-length request."""
+    value = request.get("stage_plan")
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("stage_plan must be an object.")
+    if value.get("version", 1) != 1:
+        raise ValueError("stage_plan.version must be 1.")
+    trajectory = value.get("trajectory", {})
+    loop = value.get("loop", {})
+    post_apply = value.get("post_apply", {})
+    sections = (
+        ("trajectory", trajectory),
+        ("loop", loop),
+        ("post_apply", post_apply),
+    )
+    if any(not isinstance(section, dict) for _, section in sections):
+        raise ValueError("stage_plan trajectory, loop, and post_apply sections must be objects.")
+    for section_name, section in sections:
+        for key, item in section.items():
+            if key.startswith(("override_", "lock_")) or key in ("enabled", "root_trajectory", "inside", "outside", "fullbody_effector"):
+                if not isinstance(item, bool):
+                    raise ValueError(f"stage_plan.{section_name}.{key} must be a boolean.")
+    normalized = {
+        "version": 1,
+        "trajectory": dict(trajectory),
+        "loop": dict(loop),
+        "post_apply": dict(post_apply),
+    }
+    for key in ("target_frame_count", "output_start_frame", "output_frame_count"):
+        item = value.get(key)
+        if item is not None and (isinstance(item, bool) or not isinstance(item, int) or item < 0):
+            raise ValueError(f"stage_plan.{key} must be a non-negative integer.")
+        normalized[key] = item
+    if normalized["target_frame_count"] is not None and normalized["target_frame_count"] < 1:
+        raise ValueError("stage_plan.target_frame_count must be positive.")
+    distance = trajectory.get("distance")
+    if distance is not None and (isinstance(distance, bool) or not isinstance(distance, (int, float)) or not math.isfinite(float(distance)) or distance < 0):
+        raise ValueError("stage_plan.trajectory.distance must be a finite non-negative number.")
+    for key in ("path_begin_angle_degrees", "path_end_angle_degrees", "heading_degrees"):
+        item = trajectory.get(key)
+        if item is not None and (isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item))):
+            raise ValueError(f"stage_plan.trajectory.{key} must be finite.")
+    for key in ("window_frames", "sample_count"):
+        item = loop.get(key)
+        if item is not None and (isinstance(item, bool) or not isinstance(item, int) or item < 1):
+            raise ValueError(f"stage_plan.loop.{key} must be a positive integer.")
+    if loop.get("enabled") and loop.get("sample_count", 2) > loop.get("window_frames", 0):
+        raise ValueError("stage_plan.loop.sample_count cannot exceed window_frames.")
+    records = parse_constraints(request.get("constraints_json"))
+    trajectory_enabled = bool(trajectory.get("enabled", False))
+    if trajectory_enabled and any(item.get("type") == "clip" and item.get("purpose") == "inside" and item.get("post_apply") is not True for item in records):
+        raise ValueError("Inside with an additional trajectory requires post_apply=true.")
+    normalized["post_apply"]["inside"] = any(
+        item.get("type") == "clip" and item.get("purpose") == "inside" and item.get("post_apply") is True
+        for item in records
+    )
+    normalized["post_apply"]["outside"] = any(
+        item.get("type") == "clip" and item.get("purpose") in ("outside_in", "outside_out") and item.get("post_apply") is True
+        for item in records
+    )
+    normalized["post_apply"]["fullbody_effector"] = trajectory_enabled and any(
+        item.get("type") in ("fullbody", "end-effector", "left-hand", "right-hand", "left-foot", "right-foot")
+        for item in records
+    )
+    if any(item.get("type") == "clip" and item.get("purpose") == "outside_out" for item in records):
+        normalized["loop"]["enabled"] = False
+    measure_distance = trajectory_enabled and bool(trajectory.get("override_path_angle")) and not trajectory.get("override_distance", False)
+    normalized["trajectory"]["scale_to_measured_distance"] = measure_distance
+    normalized["stage1"] = {"enabled": measure_distance}
+    normalized["stage2"] = {"enabled": trajectory_enabled or bool(normalized["loop"].get("enabled")) or any(normalized["post_apply"].get(key, False) for key in ("inside", "outside", "fullbody_effector"))}
+    normalized["stage3"] = {"enabled": True}
+    return normalized
+
+
+def _foot_exchange_midpoints(contacts) -> list[int]:
+    if contacts is None:
+        return []
+    values = np.asarray(contacts) > 0.5
+    if values.ndim != 2 or values.shape[1] != 4 or len(values) < 2:
+        return []
+    result = set()
+    for channels, opposite in ((slice(0, 2), slice(2, 4)), (slice(2, 4), slice(0, 2))):
+        lifted = ~values[:, channels].any(axis=1)
+        landed = values[:, opposite].all(axis=1)
+        lifts = np.flatnonzero(lifted[1:] & ~lifted[:-1]) + 1
+        landings = np.flatnonzero(landed[1:] & ~landed[:-1]) + 1
+        for lift in lifts:
+            following = landings[landings > lift]
+            if len(following):
+                result.add((int(lift) + int(following[0])) // 2)
+    return sorted(result)
+
+
+def _sample_reference_keyframes(base_json, attachments, fps, plan, warnings):
+    records = parse_constraints(base_json)
+    for item in records:
+        if item.get("type") != "clip" or item.get("purpose") not in ("inside", "outside_in", "outside_out"):
+            continue
+        mode = item.get("sampling_mode", "uniform")
+        count = item.get("sample_count", 2)
+        if mode not in ("uniform", "foot_exchange", "mixed"):
+            raise ValueError("Inside sampling_mode must be uniform, foot_exchange, or mixed.")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise ValueError("Inside sample_count must be a positive integer.")
+        parsed = parse_kmb_clip(item, tuple(attachments), fps)
+        motion = parsed.motion
+        if item.get("purpose") != "inside":
+            if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+                raise ValueError("Outside sample_count must be a positive integer.")
+            indices = (np.asarray([motion.num_frames - 1 if item["purpose"] == "outside_in" else 0]) if count == 1 else
+                       np.rint(np.linspace(0, motion.num_frames - 1, min(count, motion.num_frames))).astype(np.int64))
+            item["source_frame_indices"] = [int(index) for index in indices]
+            continue
+        targets = np.asarray(parsed.target_frame_indices if parsed.target_frame_indices is not None else
+                             parsed.target_start_frame + np.arange(motion.num_frames), dtype=np.int64)
+        start = int(plan.get("output_start_frame") or 0)
+        end = start + int(plan.get("output_frame_count") or plan.get("target_frame_count") or motion.num_frames)
+        available = np.flatnonzero((targets >= start) & (targets < end))
+        if len(available) == 0:
+            raise ValueError("Inside reference has no frames overlapping the generation range.")
+        uniform = available[np.rint(np.linspace(0, len(available) - 1, min(count, len(available)))).astype(np.int64)]
+        foot_frames = [index for index in _foot_exchange_midpoints(motion.foot_contacts) if index in available]
+        if mode != "uniform" and not foot_frames:
+            message = "Inside foot-exchange events could not be resolved; using uniform reference keyframes."
+            warnings.append(message)
+            _out({"status": "progress", "message": "Warning: " + message})
+        selected = sorted(int(index) for index in (
+            set(foot_frames if mode == "foot_exchange" and foot_frames else uniform) |
+            (set(foot_frames) if mode == "mixed" else set())))
+        # Keep dense source motion for velocity encoding; only conditioning is sparse.
+        item["source_frame_indices"] = selected
+    return json.dumps(records, separators=(",", ":"))
+
+
+def _replace_root2d_constraints(base_json: str, replacement: dict | None) -> str:
+    """Replace only Root2D records, preserving every pose and ClipConstraint."""
+    try:
+        base = parse_constraints(base_json) if base_json else []
+    except Exception as exc:
+        raise ValueError(f"constraints_json cannot replace Root2D constraints: {exc}") from exc
+    kept = [item for item in base if str(item.get("type", "")).lower() != "root2d"]
+    if replacement is not None:
+        kept.append(replacement)
+    return json.dumps(kept, separators=(",", ":"))
+
+
+def _replace_root_yaw(source_quats, target_quats):
+    """Replace only yaw; retain the source root's pitch and roll."""
+    from scipy.spatial.transform import Rotation
+
+    source = Rotation.from_quat(np.asarray(source_quats)[..., [1, 2, 3, 0]])
+    target = Rotation.from_quat(np.asarray(target_quats)[..., [1, 2, 3, 0]])
+    source_matrix, target_matrix = source.as_matrix(), target.as_matrix()
+    source_yaw = np.arctan2(source_matrix[..., 0, 2], source_matrix[..., 2, 2])
+    target_yaw = np.arctan2(target_matrix[..., 0, 2], target_matrix[..., 2, 2])
+    updated = (Rotation.from_euler("y", target_yaw - source_yaw) * source).as_quat()
+    return updated[..., [3, 0, 1, 2]].astype(np.float32)
+
+
+def _override_reference_heading(motion: KmbMotion, trajectory: dict) -> KmbMotion:
+    if not trajectory.get("enabled") or not trajectory.get("override_heading"):
+        return motion
+    angle = -math.radians(float(trajectory.get("heading_degrees", 0.0)))
+    root_index = next(index for index, parent in enumerate(motion.joint_parents) if parent < 0)
+    rotations = motion.local_rot_quats.copy()
+    rotations[:, root_index] = _replace_root_yaw(
+        rotations[:, root_index], [math.cos(angle / 2), 0, math.sin(angle / 2), 0])
+    return replace(motion, payload=b"", local_rot_quats=rotations)
+
+
+def _replace_fullbody_root_tracks(base_json: str, trajectory_motion) -> str:
+    """Take Stage 2 XZ and yaw, retaining authored height and body pose."""
+    from scipy.spatial.transform import Rotation
+
+    records = parse_constraints(base_json) if base_json else []
+    roots = np.asarray(trajectory_motion.root_positions, dtype=np.float32)
+    root_index = next(index for index, parent in enumerate(trajectory_motion.joint_parents) if parent < 0)
+    for item in records:
+        if item.get("type") not in ("fullbody", "end-effector", "left-hand", "right-hand", "left-foot", "right-foot"):
+            continue
+        frames = item.get("frame_indices")
+        positions = item.get("root_positions")
+        if not isinstance(frames, list) or not isinstance(positions, list) or len(frames) != len(positions):
+            continue
+        for index, frame in enumerate(frames):
+            if isinstance(frame, int) and 0 <= frame < len(roots):
+                positions[index][0], positions[index][2] = float(roots[frame, 0]), float(roots[frame, 2])
+                for key in ("smooth_root_2d", "root_2d"):
+                    if isinstance(item.get(key), list) and index < len(item[key]):
+                        item[key][index] = roots[frame, [0, 2]].tolist()
+                rotations = item.get("local_joints_rot")
+                if isinstance(rotations, list) and index < len(rotations):
+                    source = Rotation.from_rotvec(rotations[index][root_index]).as_quat()
+                    updated = _replace_root_yaw(source[[3, 0, 1, 2]], trajectory_motion.local_rot_quats[frame, root_index])
+                    rotations[index][root_index] = Rotation.from_quat(updated[[1, 2, 3, 0]]).as_rotvec().tolist()
+    return json.dumps(records, separators=(",", ":"))
+
+
+def _transform_kmb_motion(motion: KmbMotion, rotation: np.ndarray, offset: np.ndarray) -> KmbMotion:
+    """Apply one rigid transform to the entire reference, preserving local body pose."""
+    from scipy.spatial.transform import Rotation
+
+    root_index = next(index for index, parent in enumerate(motion.joint_parents) if parent < 0)
+    quats = motion.local_rot_quats.copy()
+    root_rotation = Rotation.from_quat(quats[:, root_index, [1, 2, 3, 0]])
+    transformed = (Rotation.from_matrix(rotation) * root_rotation).as_quat()
+    quats[:, root_index] = transformed[:, [3, 0, 1, 2]]
+    return KmbMotion(
+        payload=b"", model_name=motion.model_name, fps=motion.fps,
+        joint_names=motion.joint_names, joint_parents=motion.joint_parents,
+        root_positions=(motion.root_positions @ rotation.T + offset).astype(np.float32),
+        local_rot_quats=quats, foot_contacts=motion.foot_contacts,
+    )
+
+
+def _replace_inside_clip_root_tracks(base_json: str, attachments: list[bytes], trajectory_motion, fps: float) -> str:
+    """Retain Inside body poses and height; apply Stage 2 XZ and yaw at matching frames."""
+    records = parse_constraints(base_json) if base_json else []
+    trajectory_roots = np.asarray(trajectory_motion.root_positions, dtype=np.float32)
+    for item in records:
+        if item.get("type") != "clip" or str(item.get("purpose", "")).lower() != "inside" or item.get("post_apply") is not True:
+            continue
+        parsed = parse_kmb_clip(item, tuple(attachments), fps)
+        source = parsed.motion
+        if parsed.target_frame_indices is None:
+            target_indices = parsed.target_start_frame + np.arange(source.num_frames, dtype=np.int64)
+        else:
+            target_indices = np.asarray(parsed.target_frame_indices, dtype=np.int64)
+        roots = source.root_positions.copy()
+        quats = source.local_rot_quats.copy()
+        root_index = next(index for index, parent in enumerate(source.joint_parents) if parent < 0)
+        updated = False
+        for source_index, target_frame in enumerate(target_indices):
+            if 0 <= int(target_frame) < len(trajectory_roots):
+                roots[source_index, [0, 2]] = trajectory_roots[int(target_frame), [0, 2]]
+                quats[source_index, root_index] = _replace_root_yaw(
+                    quats[source_index, root_index], trajectory_motion.local_rot_quats[int(target_frame), root_index])
+                updated = True
+        if not updated:
+            continue
+        rewritten = KmbMotion(
+            payload=b"",
+            model_name=source.model_name,
+            fps=source.fps,
+            joint_names=source.joint_names,
+            joint_parents=source.joint_parents,
+            root_positions=roots,
+            local_rot_quats=quats,
+            foot_contacts=source.foot_contacts,
+        )
+        item["attachment"] = len(attachments)
+        attachments.append(encode_kmb1(rewritten))
+    return json.dumps(records, separators=(",", ":"))
+
+
+def _apply_outside_clip_anchor_offsets(
+    base_json: str,
+    attachments: list[bytes],
+    trajectory_motion,
+    fps: float,
+) -> str:
+    """Apply one planar anchor rotation and XZ offset to each Outside window."""
+    records = parse_constraints(base_json) if base_json else []
+    trajectory_roots = np.asarray(trajectory_motion.root_positions, dtype=np.float32)
+    for item in records:
+        if (
+            item.get("type") != "clip"
+            or str(item.get("purpose", "")).lower() not in ("outside_in", "outside_out")
+            or item.get("post_apply") is not True
+        ):
+            continue
+        parsed = parse_kmb_clip(item, tuple(attachments), fps)
+        source = parsed.motion
+        if parsed.target_frame_indices is None:
+            target_indices = parsed.target_start_frame + np.arange(source.num_frames, dtype=np.int64)
+        else:
+            target_indices = np.asarray(parsed.target_frame_indices, dtype=np.int64)
+        valid_source_indices = np.flatnonzero(
+            (target_indices >= 0) & (target_indices < len(trajectory_roots))
+        )
+        if valid_source_indices.size == 0:
+            continue
+        if str(item.get("purpose", "")).lower() == "outside_in":
+            source_anchor_index = int(valid_source_indices[-1])
+        else:
+            source_anchor_index = int(valid_source_indices[0])
+        target_anchor_frame = int(target_indices[source_anchor_index])
+        from scipy.spatial.transform import Rotation
+
+        source_root_index = next(index for index, parent in enumerate(source.joint_parents) if parent < 0)
+        target_root_index = next(index for index, parent in enumerate(trajectory_motion.joint_parents) if parent < 0)
+        source_rotation = Rotation.from_quat(source.local_rot_quats[source_anchor_index, source_root_index, [1, 2, 3, 0]]).as_matrix()
+        target_rotation = Rotation.from_quat(trajectory_motion.local_rot_quats[target_anchor_frame, target_root_index, [1, 2, 3, 0]]).as_matrix()
+        source_yaw = math.atan2(source_rotation[0, 2], source_rotation[2, 2])
+        target_yaw = math.atan2(target_rotation[0, 2], target_rotation[2, 2])
+        rotation = Rotation.from_euler("y", target_yaw - source_yaw).as_matrix().astype(np.float32)
+        offset = trajectory_roots[target_anchor_frame] - rotation @ source.root_positions[source_anchor_index]
+        offset[1] = 0.0
+        rewritten = _transform_kmb_motion(source, rotation, offset)
+        item["attachment"] = len(attachments)
+        attachments.append(encode_kmb1(rewritten))
+    return json.dumps(records, separators=(",", ":"))
+
+
+def _loop_clip_constraints(output: dict, model: Any, plan: dict[str, Any], attachments: list[bytes], warnings=None) -> tuple[list[dict], int]:
+    """Use Stage 2's opening body window as the aligned loop-tail reference."""
+    loop = plan.get("loop", {})
+    if not loop.get("enabled"):
+        return [], 0
+    motion = parse_kmb1(_build_generate_flatbuffer_payload(model, output, sample_index=0))
+    motion = _override_reference_heading(motion, plan.get("trajectory", {}))
+    source_start = int(plan.get("output_start_frame") or 0)
+    core_count = int(plan.get("output_frame_count") or motion.num_frames - source_start)
+    requested_window = int(loop.get("window_frames", 1))
+    requested_samples = int(loop.get("sample_count", 2))
+    max_window = max(1, core_count * (requested_samples - 1) // requested_samples)
+    window_count = min(requested_window, max_window, motion.num_frames - source_start)
+    if window_count < requested_window:
+        message = f"Loop window reduced from {requested_window} to {window_count} model frames for {core_count} output frames and {requested_samples} samples."
+        if warnings is not None:
+            warnings.append(message)
+        _out({"status": "progress", "message": "Warning: " + message})
+    sample_count = min(requested_samples, window_count)
+    if window_count <= 0 or sample_count <= 0:
+        return [], 0
+    destination_start = source_start + core_count - 1
+    root_index = next((index for index, parent in enumerate(motion.joint_parents) if int(parent) < 0), 0)
+    offsets = (np.asarray([window_count - 1]) if sample_count == 1 else
+               np.rint(np.linspace(0, window_count - 1, sample_count)).astype(np.int64))
+    source_indices = source_start + np.arange(window_count)
+    source_root = motion.root_positions[source_start]
+    destination_root = motion.root_positions[destination_start].copy()
+    for axis, key in enumerate("xyz"):
+        if loop.get(f"lock_position_{key}", False):
+            destination_root[axis] = source_root[axis]
+    from scipy.spatial.transform import Rotation
+
+    source_rotation = Rotation.from_quat(motion.local_rot_quats[source_start, root_index, [1, 2, 3, 0]])
+    destination_rotation = Rotation.from_quat(motion.local_rot_quats[destination_start, root_index, [1, 2, 3, 0]])
+    source_yaw = math.atan2(source_rotation.as_matrix()[0, 2], source_rotation.as_matrix()[2, 2])
+    destination_yaw = math.atan2(destination_rotation.as_matrix()[0, 2], destination_rotation.as_matrix()[2, 2])
+    source_tilt = (Rotation.from_euler("y", -source_yaw) * source_rotation).as_euler("zxy")
+    destination_tilt = (Rotation.from_euler("y", -destination_yaw) * destination_rotation).as_euler("zxy")
+    destination_rotation = Rotation.from_euler("y", source_yaw if loop.get("lock_rotation_y") else destination_yaw) * Rotation.from_euler("zxy", [
+        source_tilt[0] if loop.get("lock_rotation_z") else destination_tilt[0],
+        source_tilt[1] if loop.get("lock_rotation_x") else destination_tilt[1], 0.0,
+    ])
+    rotation = (destination_rotation * source_rotation.inv()).as_matrix().astype(np.float32)
+    window = KmbMotion(
+        payload=b"",
+        model_name=motion.model_name,
+        fps=motion.fps,
+        joint_names=motion.joint_names,
+        joint_parents=motion.joint_parents,
+        root_positions=motion.root_positions[source_indices].copy(),
+        local_rot_quats=motion.local_rot_quats[source_indices].copy(),
+        foot_contacts=motion.foot_contacts[source_indices].copy() if motion.foot_contacts is not None else None,
+    )
+    mask = {
+        "root_position": [True, True, True],
+        "root_heading": True,
+        "root_rotation": True,
+        "joints": [
+            {"joint_name": name, "position": [True, True, True], "rotation": True}
+            for index, name in enumerate(motion.joint_names)
+            if index != root_index
+        ],
+    }
+    result = []
+    tail = _transform_kmb_motion(window, rotation, destination_root - rotation @ source_root)
+    for reference, start, purpose in ((window, source_start, "loop_begin"), (tail, destination_start, "loop_end")):
+        attachment_index = len(attachments)
+        attachments.append(encode_kmb1(reference))
+        result.append({
+            "type": "clip", "format": "kmb_attachment_v1", "attachment": attachment_index,
+            "start_time": start / float(motion.fps),
+            "duration": window_count / float(motion.fps), "purpose": purpose, "mask": mask,
+            "anchor_source_frame": source_start,
+            "source_start_frame": source_start,
+            "source_end_frame_exclusive": source_start + window_count,
+            "source_frame_indices": [int(index) for index in offsets],
+            "target_frame_indices": list(range(start, start + window_count)),
+        })
+    return result, window_count - 1
+
+
+def _output_root2d_constraint(output: dict, frame_start: int = 0, frame_count: int | None = None) -> dict | None:
+    """Convert a generated artifact trajectory into protocol Root2D samples."""
+    if not isinstance(output, dict):
+        return None
+    positions = output.get("smooth_root_pos")
+    if positions is None:
+        positions = output.get("smooth_root_2d")
+    if positions is None:
+        positions = output.get("root_positions")
+    if positions is None:
+        return None
+    positions = np.asarray(positions)
+    if positions.ndim == 3:
+        positions = positions[0]
+    if positions.ndim != 2 or positions.shape[1] < 2:
+        return None
+    if positions.shape[1] >= 3:
+        positions = positions[:, [0, 2]]
+    total = len(positions)
+    start = max(0, int(frame_start))
+    end = total if frame_count is None else min(total, start + max(0, int(frame_count)))
+    if end <= start:
+        return None
+    positions = positions[start:end]
+    frame_indices = list(range(start, end))
+    headings = output.get("global_root_heading")
+    if headings is not None:
+        headings = np.asarray(headings)
+        if headings.ndim == 3:
+            headings = headings[0]
+        headings = headings[start:end]
+        if headings.ndim != 2 or headings.shape[1] < 2:
+            headings = None
+    item = {
+        "type": "root2d",
+        "frame_indices": frame_indices,
+        "smooth_root_2d": np.asarray(positions, dtype=np.float32).tolist(),
+    }
+    if headings is not None:
+        item["global_root_heading"] = np.asarray(headings[:, :2], dtype=np.float32).tolist()
+    return item
+
+
+def _artifact_metadata(artifact: GenerationArtifact, debug_start: int) -> dict[str, Any]:
+    return {
+        "name": artifact.name,
+        "start_frame": artifact.start_frame,
+        "end_frame_exclusive": artifact.end_frame_exclusive,
+        "debug_start_frame": debug_start,
+        "debug_end_frame_exclusive": debug_start + artifact.frame_count,
+        "purpose": artifact.purpose,
+        "constraint_count": len(parse_constraints(artifact.debug_constraints_json or artifact.constraints_json)),
+    }
+
+
+def _debug_constraint_records(constraints_json, attachments, fps):
+    """Make reference poses self-contained so Unity can show timed debug markers."""
+    from scipy.spatial.transform import Rotation
+
+    result = []
+    for item in parse_constraints(constraints_json):
+        if item.get("type") != "clip":
+            result.append(item)
+            continue
+        parsed = parse_kmb_clip(item, tuple(attachments), fps)
+        motion = parsed.motion
+        selected = list(clip_source_frame_indices(item, motion.num_frames))
+        targets = list(parsed.target_frame_indices) if parsed.target_frame_indices is not None else list(range(parsed.target_start_frame, parsed.target_start_frame + motion.num_frames))
+        rotations = Rotation.from_quat(motion.local_rot_quats[selected][..., [1, 2, 3, 0]].reshape(-1, 4))
+        result.append({
+            "type": "fullbody",
+            "frame_indices": [targets[index] for index in selected],
+            "root_positions": motion.root_positions[selected].tolist(),
+            "local_joints_rot": rotations.as_rotvec().reshape(len(selected), len(motion.joint_names), 3).tolist(),
+            "reference": item,
+        })
+    return json.dumps(result, separators=(",", ":"))
+
+
+def _slice_debug_constraints(records_json, start_frame, frame_count):
+    result = []
+    for item in parse_constraints(records_json):
+        frames = item.get("frame_indices", [])
+        selected = [index for index, frame in enumerate(frames) if start_frame <= frame < start_frame + frame_count]
+        if not selected:
+            continue
+        copied = dict(item)
+        for key, values in item.items():
+            if isinstance(values, list) and len(values) == len(frames):
+                copied[key] = [values[index] for index in selected]
+        copied["frame_indices"] = [frames[index] - start_frame for index in selected]
+        result.append(copied)
+    return json.dumps(result, separators=(",", ":"))
+
+
+def _debug_transition_constraints(constraints, origin, model):
+    from scipy.spatial.transform import Rotation
+    from kimodo.tools import to_numpy
+
+    result = []
+    for constraint in constraints:
+        item = to_numpy(constraint.get_save_info())
+        rotations = np.asarray(item["local_joints_rot"])
+        smooth = np.asarray(item["smooth_root_2d"])
+        restored = _restore_kimodo_output_origin({
+            "root_positions": item["root_positions"],
+            "local_rot_mats": Rotation.from_rotvec(rotations.reshape(-1, 3)).as_matrix().reshape(*rotations.shape[:2], 3, 3),
+            "smooth_root_pos": np.stack((smooth[:, 0], np.zeros(len(smooth)), smooth[:, 1]), axis=1),
+        }, origin, model)
+        item["root_positions"] = restored["root_positions"]
+        item["local_joints_rot"] = Rotation.from_matrix(restored["local_rot_mats"].reshape(-1, 3, 3)).as_rotvec().reshape(rotations.shape)
+        item["smooth_root_2d"] = restored["smooth_root_pos"][:, [0, 2]]
+        item = {key: value.tolist() if isinstance(value, np.ndarray) else value for key, value in item.items()}
+        item["purpose"] = "window_transition"
+        result.append(item)
+    return result
+
+
+def _crop_planned_output(plan: dict[str, Any], output: dict) -> dict:
+    total_frames = _motion_output_frame_count(output)
+    start_frame = int(plan.get('output_start_frame') or 0)
+    frame_count = plan.get('output_frame_count')
+    if frame_count is None:
+        frame_count = plan.get('target_frame_count')
+    if frame_count is None:
+        frame_count = total_frames - start_frame
+    frame_count = int(frame_count)
+    if start_frame + frame_count > total_frames:
+        raise ValueError(
+            f'stage_plan output range [{start_frame},{start_frame + frame_count}) exceeds '
+            f'the final artifact length of {total_frames} frames.'
+        )
+    return _crop_motion_output(output, start_frame, frame_count)
+
+
+def _execute_generation_plan(
+    request: dict[str, Any],
+    model: Any,
+    base_constraints_json: str,
+    invoke,
+    cancel_event: threading.Event | None = None,
+    stage_attachments: list[bytes] | None = None,
+) -> tuple[dict, list[GenerationArtifact], float | None]:
+    """Run the request's backend-owned stages through a model-specific invoker."""
+    plan = _normalize_stage_plan({**request, "constraints_json": base_constraints_json})
+    if plan is None:
+        raise ValueError("stage_plan is required for backend stage orchestration.")
+    if stage_attachments is None:
+        stage_attachments = []
+    warnings = []
+    base_constraints_json = _sample_reference_keyframes(base_constraints_json, stage_attachments, float(model.fps), plan, warnings)
+
+    artifacts: list[GenerationArtifact] = []
+
+    base_frame_count = int(plan.get("target_frame_count") or seconds_to_frame_count(float(request.get("duration", 5.0)), float(model.fps)))
+
+    def run(name: str, constraints_json: str, purpose: str, frame_count: int = base_frame_count) -> dict:
+        if cancel_event is not None and cancel_event.is_set():
+            raise GenerateCancelledError("Generation canceled.")
+        output = invoke(name, constraints_json, purpose, frame_count)
+        actual_frames = _motion_output_frame_count(output)
+        if actual_frames <= 0:
+            raise ValueError(f"{name} returned no motion frames.")
+        windows = output.pop("_generation_windows", [])
+        artifacts.extend(windows or [GenerationArtifact(
+            name=name,
+            start_frame=0,
+            end_frame_exclusive=actual_frames,
+            output=output,
+            constraints_json=constraints_json,
+            purpose=purpose,
+            debug_constraints_json=_debug_constraint_records(constraints_json, stage_attachments, float(model.fps))
+                if request.get("debug") is True else "",
+        )])
+        return output
+
+    stage1 = plan["stage1"]
+    stage2 = plan["stage2"]
+    trajectory = plan["trajectory"]
+    post_apply = plan["post_apply"]
+
+    stage1_enabled = bool(stage1["enabled"])
+    stage2_enabled = bool(stage2.get("enabled", True))
+    walking_distance: float | None = None
+    stage1_output = None
+    records = parse_constraints(base_constraints_json)
+    deferred_types = ("fullbody", "end-effector", "left-hand", "right-hand", "left-foot", "right-foot")
+    immediate_json = json.dumps([
+        item for item in records
+        if not (item.get("type") == "clip" and item.get("post_apply") is True)
+        and not (post_apply.get("fullbody_effector") and item.get("type") in deferred_types)
+    ], separators=(",", ":"))
+    if stage1_enabled:
+        stage1_output = run("Stage 1", immediate_json, "walking_distance")
+        walking_distance = _output_walking_distance(_crop_planned_output(plan, stage1_output))
+
+    stage2_json = immediate_json
+    trajectory_enabled = bool(trajectory.get("enabled", False))
+    if stage2_enabled and trajectory_enabled and (
+        stage1_output is not None or trajectory.get("override_distance", False)
+    ):
+        root_constraint = _apply_stage2_trajectory(
+            plan,
+            stage1_output,
+            int(plan.get("target_frame_count") or _motion_output_frame_count(stage1_output)),
+            walking_distance,
+            immediate_json,
+        )
+        if root_constraint is not None:
+            stage2_json = _replace_root2d_constraints(stage2_json, root_constraint)
+
+    stage2_output = None
+    if stage2_enabled:
+        stage2_output = run("Stage 2", stage2_json, "trajectory_loop")
+
+    # Deferred references join the measured trajectory only for the final pass.
+    final_json = base_constraints_json
+    trajectory_output = stage2_output or stage1_output
+    stage2_kmb_motion = None
+    if stage2_output is not None and any((
+        post_apply.get("inside", False),
+        post_apply.get("outside", False),
+        post_apply.get("fullbody_effector", False),
+        plan.get("loop", {}).get("enabled", False),
+    )):
+        stage2_kmb_motion = parse_kmb1(_build_generate_flatbuffer_payload(model, stage2_output, sample_index=0))
+        stage2_kmb_motion = _override_reference_heading(stage2_kmb_motion, trajectory)
+    if trajectory_output is not None:
+        root_constraint = _output_root2d_constraint(trajectory_output)
+        if root_constraint is not None and trajectory.get("override_heading"):
+            angle = math.radians(float(trajectory.get("heading_degrees", 0.0)))
+            root_constraint["global_root_heading"] = [[math.cos(angle), -math.sin(angle)] for _ in root_constraint["frame_indices"]]
+        if root_constraint is not None:
+            final_json = _replace_root2d_constraints(final_json, root_constraint)
+    if stage2_kmb_motion is not None and stage_attachments is not None:
+        if post_apply.get("inside", False):
+            final_json = _replace_inside_clip_root_tracks(
+                final_json, stage_attachments, stage2_kmb_motion, float(model.fps)
+            )
+        if post_apply.get("outside", False):
+            final_json = _apply_outside_clip_anchor_offsets(
+                final_json, stage_attachments, stage2_kmb_motion, float(model.fps)
+            )
+        if post_apply.get("fullbody_effector", False):
+            final_json = _replace_fullbody_root_tracks(final_json, stage2_kmb_motion)
+    loop_padding = 0
+    if stage2_output is not None and bool(plan.get("loop", {}).get("enabled", False)):
+        loop_constraints, loop_padding = _loop_clip_constraints(stage2_output, model, plan, stage_attachments, warnings)
+        loop_frames = {item["target_frame_indices"][index] for item in loop_constraints for index in item["source_frame_indices"]}
+        final_records = parse_constraints(final_json)
+        for item in final_records:
+            if item.get("type") != "root2d":
+                continue
+            keep = [index for index, frame in enumerate(item.get("frame_indices", [])) if frame not in loop_frames]
+            for key in ("frame_indices", "smooth_root_2d", "global_root_heading"):
+                if key in item:
+                    item[key] = [item[key][index] for index in keep]
+        final_json = json.dumps(loop_constraints + [item for item in final_records if item.get("type") != "root2d" or item.get("frame_indices")], separators=(",", ":"))
+
+    output = run("Stage 3", final_json, "final", base_frame_count + loop_padding)
+
+    output = dict(output)
+    output["_generation_artifacts"] = artifacts
+    output["_walking_distance"] = walking_distance
+    output["_generation_warnings"] = warnings
+    if loop_padding:
+        output["_output_range"] = (int(plan.get("output_start_frame") or 0) + loop_padding,
+                                   int(plan.get("output_frame_count") or base_frame_count))
+    return output, artifacts, walking_distance
+
+
+def _path_angle_bezier(distance: float, angle: float, times: np.ndarray) -> np.ndarray:
+    """Match the existing piecewise circular Bezier, including context outside [0,1]."""
+    if distance <= 1e-6:
+        return np.zeros((len(times), 2))
+    if abs(angle) <= 1e-5:
+        return np.stack((np.zeros_like(times), distance * times), axis=1)
+    radius = distance / angle
+    step = min(1.0, math.pi * 0.5 / abs(angle))
+    start = np.floor(times / step) * step
+    end = start + step
+    u = np.clip((times - start) / step, 0.0, 1.0)[:, None]
+    a0, a1 = angle * start, angle * end
+    p0 = radius * np.stack((1 - np.cos(a0), np.sin(a0)), axis=1)
+    p3 = radius * np.stack((1 - np.cos(a1), np.sin(a1)), axis=1)
+    handle = 4 / 3 * np.tan(np.abs(a1 - a0) / 4) * abs(radius)
+    p1 = p0 + handle[:, None] * np.stack((np.sin(a0), np.cos(a0)), axis=1)
+    p2 = p3 - handle[:, None] * np.stack((np.sin(a1), np.cos(a1)), axis=1)
+    return (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * p1 + 3 * (1 - u) * u ** 2 * p2 + u ** 3 * p3
+
+
+def _apply_stage2_trajectory(plan: dict[str, Any], output: dict | None, target_frame_count: int,
+                             walking_distance: float | None, constraints_json: str = "[]") -> dict | None:
+    trajectory = plan.get("trajectory", {})
+    root = _output_root2d_constraint(output)
+    frames = np.arange(target_frame_count)
+    start = int(plan.get("output_start_frame") or 0)
+    if root is None:
+        authored = {}
+        for item in parse_constraints(constraints_json):
+            if item.get("type") == "root2d":
+                for frame, point in zip(item["frame_indices"], item["smooth_root_2d"]):
+                    authored.setdefault(frame, point)
+        if authored:
+            indices = sorted(authored)
+            points = np.asarray([authored[frame] for frame in indices])
+            root = {"type": "root2d", "frame_indices": frames.tolist(),
+                    "smooth_root_2d": np.stack([np.interp(frames, indices, points[:, axis]) for axis in (0, 1)], axis=1).tolist()}
+        elif trajectory.get("override_distance"):
+            root = {"type": "root2d", "frame_indices": frames.tolist(),
+                    "smooth_root_2d": np.stack((np.zeros_like(frames), frames - start), axis=1).tolist()}
+        else:
+            return None
+    points = np.asarray(root["smooth_root_2d"], dtype=np.float64)
+    count = int(plan.get("output_frame_count") or target_frame_count - start)
+    end = min(len(points), start + count)
+    if start >= end:
+        raise ValueError("Trajectory output range has no model frames.")
+    origin = points[start].copy()
+    distance = trajectory.get("distance") if trajectory.get("override_distance") else walking_distance
+    measured = float(np.linalg.norm(np.diff(points[start:end], axis=0), axis=1).sum())
+    if distance is None:
+        distance = measured
+    if trajectory.get("override_path_angle"):
+        begin = float(trajectory.get("path_begin_angle_degrees", 0.0))
+        delta = (float(trajectory.get("path_end_angle_degrees", 0.0)) - begin) % 360
+        if delta > 180:
+            delta -= 360
+        times = (frames - start) / max(1, count - 1)
+        local = _path_angle_bezier(float(distance), math.radians(delta), times)
+        local[:, 0] *= -1  # Unity +X is model -X.
+        angle = math.radians(begin)
+        rotation = np.asarray([[math.cos(angle), -math.sin(angle)], [math.sin(angle), math.cos(angle)]])
+        points = origin + local @ rotation.T
+    elif trajectory.get("override_distance") and measured > 1e-6:
+        points = origin + (points - origin) * (float(distance) / measured)
+    root["smooth_root_2d"] = points.astype(np.float32).tolist()
+    if trajectory.get("override_heading"):
+        angle = math.radians(float(trajectory.get("heading_degrees", 0.0)))
+        root["global_root_heading"] = [[math.cos(angle), -math.sin(angle)] for _ in points]
+    return root
+
+
+def _prepare_generation_output(request: dict[str, Any], output: dict | None) -> tuple[dict | None, dict[str, Any]]:
+    if not isinstance(output, dict) or not isinstance(output.get("_generation_artifacts"), list):
+        return output, {}
+    output = dict(output)
+    artifacts = output.pop("_generation_artifacts")
+    output.pop("_walking_distance", None)
+    output_range = output.pop("_output_range", None)
+    generation_warnings = output.pop("_generation_warnings", [])
+    metadata = {"warnings": generation_warnings} if generation_warnings else {}
+    plan = _normalize_stage_plan(request) or {}
+    if output_range is not None:
+        plan.update(output_start_frame=output_range[0], output_frame_count=output_range[1])
+    if not artifacts:
+        return output, {}
+    if request.get("debug") is True or request.get("debug_generation") is True:
+        joined = _concatenate_motion_outputs([artifact.output for artifact in artifacts])
+        segments = []
+        constraints = []
+        debug_start = 0
+        for artifact in artifacts:
+            segment = _artifact_metadata(artifact, debug_start)
+            segments.append(segment)
+            constraints.append({
+                "artifact": artifact.name,
+                "start_frame": debug_start,
+                "end_frame_exclusive": debug_start + artifact.frame_count,
+                "constraints": parse_constraints(artifact.debug_constraints_json or artifact.constraints_json),
+            })
+            debug_start += artifact.frame_count
+        final_output = output
+        return _crop_planned_output(plan, final_output), {
+            **metadata,
+            "debug_segments": segments,
+            "debug_constraints": constraints,
+            "_debug_motion_output": joined,
+        }
+
+    final_output = output
+    return _crop_planned_output(plan, final_output), metadata
+
+
 def _run_generate(
     req: dict,
     model,
@@ -1156,7 +2043,20 @@ def _run_generate(
     if seed is not None:
         seed_everything(int(seed))
 
-    num_frames = max(1, seconds_to_frame_count(duration, model.fps))
+    plan = _normalize_stage_plan(req)
+    num_frames = max(1, int(plan["target_frame_count"]) if plan and plan.get("target_frame_count") is not None
+                     else seconds_to_frame_count(duration, model.fps))
+    window_constraints = req.get("window_constraints") or {}
+    if not isinstance(window_constraints, dict):
+        raise ValueError("window_constraints must be an object.")
+    transition_frames = window_constraints.get("window_frames", window_constraints.get("num_transition_frames", 5))
+    if isinstance(transition_frames, bool) or not isinstance(transition_frames, int) or transition_frames < 1:
+        raise ValueError("window_constraints.window_frames must be a positive integer.")
+    sample_count = window_constraints.get("sample_count", min(2, transition_frames))
+    if isinstance(sample_count, bool) or not isinstance(sample_count, int) or sample_count < 1:
+        raise ValueError("window_constraints.sample_count must be a positive integer.")
+    if sample_count > transition_frames:
+        raise ValueError("window_constraints.sample_count cannot exceed window_frames.")
     timeline_segments = parse_timeline_segments(req.get("timeline_segments"), model.fps, num_frames)
     segment_frames: list[int] = []
     prompts: list[str] = []
@@ -1168,41 +2068,97 @@ def _run_generate(
     else:
         segment_frames = _generation_segment_frames(num_frames, model.fps)
         prompts = [prompt] * len(segment_frames)
-    constraints = _load_constraints(
-        req.get("constraints_json", ""),
-        model,
-        horizon_frames=num_frames,
-        attachments=attachments,
-    )
-    from kimodo.constraints import normalize_constraints_to_anchor
-
-    constraint_origin = normalize_constraints_to_anchor(constraints)
     progress_bar = _make_cancelable_progress_bar(
         cancel_event or threading.Event(), progress_callback
     )
-    if emit_progress:
-        _out({"status": "progress", "message": f"Running diffusion ({diffusion_steps} steps)..."})
+    base_constraints_json = req.get("constraints_json", "") or "[]"
+    stage_attachments = list(attachments)
+
+    def invoke(name: str, constraints_json: str, purpose: str, frame_count: int = num_frames) -> dict:
+        """Run one independent model call with a fresh, anchor-normalized list."""
+        from kimodo.constraints import normalize_constraints_to_anchor
+
+        constraints = _load_constraints(
+            constraints_json,
+            model,
+            horizon_frames=frame_count,
+            attachments=tuple(stage_attachments),
+        )
+        # Do not normalize when a stage has no real constraints; the model
+        # origin must remain untouched in that case.
+        constraint_origin = normalize_constraints_to_anchor(constraints) if constraints else None
+        generated_windows = []
+        debug_records = _debug_constraint_records(constraints_json, stage_attachments, float(model.fps)) if req.get("debug") is True else ""
+
+        def retain_window(index, start_frame, motion, transition_constraints):
+            from kimodo.skeleton import SOMASkeleton30
+            from kimodo.tools import to_numpy
+
+            window = model.motion_rep.inverse(motion, is_normalized=False, return_numpy=False)
+            if isinstance(model.skeleton, SOMASkeleton30):
+                window = model.skeleton.output_to_SOMASkeleton77(window)
+            window = _restore_kimodo_output_origin(to_numpy(window), constraint_origin, model)
+            count = _motion_output_frame_count(window)
+            window_records = _slice_debug_constraints(debug_records, start_frame, count) if debug_records else ""
+            if req.get("debug") is True:
+                window_records = json.dumps(parse_constraints(window_records) + _debug_transition_constraints(
+                    transition_constraints, constraint_origin, model), separators=(",", ":"))
+            generated_windows.append(GenerationArtifact(
+                name=f"{name} / Window {index + 1}", start_frame=start_frame,
+                end_frame_exclusive=start_frame + count, output=window,
+                constraints_json=constraints_json, purpose=purpose, debug_constraints_json=window_records,
+            ))
+        if emit_progress:
+            _out({"status": "progress", "message": f"{name}: Running diffusion ({diffusion_steps} steps)..."})
+        stage_prompts, stage_frames = prompts, segment_frames
+        if frame_count != num_frames:
+            if timeline_segments:
+                stage_prompts, stage_frames = [], []
+                for index, segment in enumerate(timeline_segments):
+                    count = segment.frame_count + (frame_count - num_frames if index == len(timeline_segments) - 1 else 0)
+                    pieces = _generation_segment_frames(count, model.fps)
+                    stage_frames.extend(pieces)
+                    stage_prompts.extend([normalize_prompt(segment.prompt)] * len(pieces))
+            else:
+                stage_frames = _generation_segment_frames(frame_count, model.fps)
+                stage_prompts = [prompt] * len(stage_frames)
+        output = model(
+            stage_prompts,
+            stage_frames,
+            constraint_lst=constraints,
+            num_denoising_steps=diffusion_steps,
+            cfg_weight=[cfg_text_weight, 2.0],
+            num_samples=1,
+            multi_prompt=True,
+            num_transition_frames=transition_frames,
+            num_transition_samples=sample_count,
+            post_processing=True,
+            return_numpy=True,
+            progress_bar=progress_bar,
+            generation_callback=retain_window if plan is not None else None,
+        )
+        output = _restore_kimodo_output_origin(output, constraint_origin, model)
+        if generated_windows:
+            output["_generation_windows"] = generated_windows
+        return output
+
     if emit_progress and len(segment_frames) > 1:
         _out({"status": "progress", "message": f"Generating {len(segment_frames)} continuous segments..."})
 
-    output = model(
-        prompts,
-        segment_frames,
-        constraint_lst=constraints,
-        num_denoising_steps=diffusion_steps,
-        cfg_weight=[cfg_text_weight, 2.0],
-        num_samples=1,
-        # Keep the original single-request path intact; for long requests the
-        # same built-in transition path simply receives multiple segments.
-        multi_prompt=True,
-        num_transition_frames=5,
-        post_processing=True,
-        return_numpy=True,
-        progress_bar=progress_bar,
+    # A missing plan is deliberately the original one-call protocol.  The
+    # server only owns orchestration after Unity opts into stage_plan.
+    if plan is None:
+        output = invoke("Generation", base_constraints_json, "single")
+        return output, prompt
+
+    output, _, _ = _execute_generation_plan(
+        req,
+        model,
+        base_constraints_json,
+        invoke,
+        cancel_event,
+        stage_attachments,
     )
-    output = _restore_kimodo_output_origin(output, constraint_origin, model)
-    if cancel_event is not None and cancel_event.is_set():
-        raise GenerateCancelledError("Generation canceled.")
     return output, prompt
 
 

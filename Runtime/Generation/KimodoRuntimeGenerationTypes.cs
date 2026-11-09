@@ -18,6 +18,10 @@ namespace KimodoBridge
         // Optional JSON object forwarded as the protocol-level analysis_option field.
         public string analysis_option_json;
         [NonSerialized] public List<KimodoTimelineSegmentDto> timeline_segments;
+        // Optional server-owned multi-stage generation plan.
+        public string stage_plan_json;
+        public string window_constraints_json;
+        public bool debug_generation;
         // Generic KMB ClipConstraints for `analysis_option.analysis_only`.
         // They intentionally carry no ARDY mask so the server can analyze them
         // without loading a motion model or text encoder.
@@ -70,6 +74,9 @@ namespace KimodoBridge
         public string motionJsonCompact;
         [NonSerialized] public KimodoRawMotionData motionData;
         [NonSerialized] public byte[] motionBytes;
+        [NonSerialized] public KimodoRawMotionData debugMotionData;
+        public string debugSegmentsJson;
+        public string debugConstraintsJson;
         public string mp4Path;
         // `kmb_attachments_v1` keeps each analysis clip independently parseable.
         [NonSerialized] public IReadOnlyList<KimodoBridgeKmbAttachment> kmbAttachments;

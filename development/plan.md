@@ -126,7 +126,7 @@
 
 ## 代码清理待办（暂缓，由后续处理）
 
-- [x] 已将不可达的非 ARDY ClipConstraint mask-bake 分支及其专属合并/分析代码归档到 `archive/non-ardy-clip-constraint-bake-20261031/removed-code.txt`。保留 ARDY In 边界 `BuildBegin`、通用 ClipConstraint 协议与共享约束 JSON 工具；generation 轻量分析已移除，因此合并运动分析没有其他活动调用者。
+- [x] 已将不可达的非 ARDY ClipConstraint mask-bake 分支及其专属合并/分析代码归档到 `archive/non-ardy-clip-constraint-bake-20261031/removed-code.txt`。2026-11-09 后端化进一步移除自动 Begin 边界注入；通用 ClipConstraint 协议与共享约束 JSON 工具继续使用。
 - [ ] **Runtime Effector 约束尚未接通。** 四个 `Set*Constraint` Runtime API 继续作为空兼容壳；若恢复 Effector 能力，先定义同帧 pose、root 与 effectors 的规范样本，再只执行一次 Avatar retarget，并复用现有 `KimodoConstraintPosePipeline` 和 `KimodoConstraintJsonExporter` 进入 generation request。禁止各 API 各自拼协议、重复 retarget，或恢复旧的分叉求解实现。
 - [ ] 检查 `KimodoHandEffectorGoalTests` 中 AnimationHumanStream goal 与 Avatar post rotation 的 180° 偏差；确认是测试公式、Unity 版本差异还是运行时手部约束方向错误。
 - [ ] 将 FullDemo `5.RuntimeArdyDemo.unity` 中仍序列化到 `targetHumanoidAnimator` 的 8 个目标迁入 `targetHumanoidAnimators`，然后验证 ARDY 场景能启动；当前代码只读取新列表。

@@ -21,7 +21,6 @@ namespace KimodoBridge
     public enum KimodoInOutConstraintMode
     {
         None = 0,
-        Inside = 1,
         Outside = 2
     }
 
@@ -32,6 +31,8 @@ namespace KimodoBridge
         CharacterBone = 2,
         ModelBone = 3
     }
+
+    public enum KimodoInsideKeyframeMode { Uniform, FootExchange, Mixed }
 
     [System.Serializable]
     public class KimodoCurveFilterOptions
@@ -100,10 +101,6 @@ namespace KimodoBridge
         public bool overrideHeading;
         [Tooltip("Absolute Unity yaw in degrees. Positive turns right; negative turns left; zero faces Unity forward.")]
         public float headingDegrees;
-        [Tooltip("Normalize root X/Z into the initial facing frame before Humanoid conversion, transfer initial yaw to the Timeline Clip rotation, preserve generated root height in the muscle curves, and apply the requested World-space target position as the Timeline Clip offset.")]
-        public bool useRelativeOffset;
-        [Tooltip("World-space target position for the generated Clip's first root pose. The final output root Y curve is preserved and used for height compensation.")]
-        public Vector3 relativeOffset;
         [Tooltip("Run the full animation analysis automatically after generation.")]
         public bool analyzeAfterGeneration = true;
         [Tooltip("Optional generated AnimationClip asset name without extension.")]
@@ -113,15 +110,28 @@ namespace KimodoBridge
         public KimodoGenerationOutputMode generationOutputMode = KimodoGenerationOutputMode.Auto;
         [SerializeField, HideInInspector]
         private Avatar customRetargetAvatar;
-        [Tooltip("Choose whether to disable InOutConstraint, use this clip's own start/end poses, or use neighboring clip boundary poses.")]
+        [Tooltip("Choose whether to disable Outside constraints or use neighboring Clip boundary poses.")]
         public KimodoInOutConstraintMode inOutConstraintMode = KimodoInOutConstraintMode.None;
-        [Tooltip("Generate the In boundary constraint when InOut Constraint is Inside or Outside.")]
+        [Tooltip("Use this AnimationClip's body poses as an Inside constraint.")]
+        public bool insideConstraintEnabled;
+        [Tooltip("Apply the Stage 2 root trajectory to Inside constraint samples before final generation.")]
+        public bool postApplyInsideConstraint;
+        public KimodoInsideKeyframeMode insideKeyframeMode;
+        [Min(1), Tooltip("Number of uniform Inside keyframes; Mixed also includes foot-exchange midpoints.")]
+        public int insideKeyframeSampleCount = 2;
+        [SerializeField, HideInInspector]
+        public TrackAsset insideConstraintSourceTrack;
+        [SerializeField, HideInInspector]
+        public PlayableAsset insideConstraintSourceAsset;
+        [SerializeField, HideInInspector]
+        public double insideConstraintSourceClipStart = -1.0;
+        [Tooltip("Generate the Outside In boundary window.")]
         public bool enableInConstraint = true;
-        [Tooltip("Generate the Out boundary constraint when InOut Constraint is Inside or Outside.")]
+        [Tooltip("Generate the Outside Out boundary window.")]
         public bool enableOutConstraint = true;
-        [Tooltip("Defer the In constraint until after the first trajectory generation, align it in SOMA Root2D space, then use it for the second generation pass.")]
+        [Tooltip("Align the Outside In window to the generated trajectory before final generation.")]
         public bool postApplyInConstraint;
-        [Tooltip("Defer the Out constraint until after the first trajectory generation, align it in SOMA Root2D space, then use it for the second generation pass.")]
+        [Tooltip("Align the Outside Out window to the generated trajectory before final generation.")]
         public bool postApplyOutConstraint;
         [Min(1), Tooltip("Total In constraint window duration in 60 FPS command frames. Converted to the model frame rate before sampling.")]
         public int inConstraintWindowFrames60 = 1;
@@ -158,8 +168,6 @@ namespace KimodoBridge
         public float ardyHistoryWeight = 1f;
         [Tooltip("Show all constraint pose previews for this clip when selected in Timeline/Inspector.")]
         public bool showConstraint = true;
-        [Tooltip("When the first second has no effective constraint anchor, use the character's original scene Hips position and heading as a Root2D frame-0 anchor.")]
-        public bool autoBeginAnchor = true;
         public bool isGenerated;
         [HideInInspector]
         public bool isDebugRawClip;

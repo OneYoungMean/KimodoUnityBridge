@@ -219,28 +219,62 @@ namespace KimodoBridge.Editor
         {
             foreach (TimelineClip timelineClip in TimelineEditor.selectedClips ?? Array.Empty<TimelineClip>())
             {
-                if (timelineClip?.asset is not KimodoPlayableClip playable || !playable.showConstraint ||
-                    playable.inOutConstraintMode == KimodoInOutConstraintMode.None ||
-                    !KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out var source, out _)) continue;
-                int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration,
-                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(playable.bridgeModelName));
-                if (!KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(timelineClip,
-                    playable.inOutConstraintMode, playable.enableInConstraint, playable.enableOutConstraint, frameCount,
-                    out var begins, out var ends, out string warning))
+                if (timelineClip?.asset is not KimodoPlayableClip playable || !playable.showConstraint) continue;
+                bool inside = playable.insideConstraintEnabled;
+                bool outside = playable.inOutConstraintMode == KimodoInOutConstraintMode.Outside;
+                if (!inside && !outside) continue;
+                if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out var source, out _)) continue;
+                TimelineClip sampleClip = timelineClip;
+                if (inside && (playable.insideConstraintSourceTrack != null || playable.insideConstraintSourceAsset != null) &&
+                    !KimodoInOutConstraintAdapter.TryResolveSourceClip(
+                        timelineClip,
+                        playable.insideConstraintSourceTrack,
+                        playable.insideConstraintSourceAsset,
+                        playable.insideConstraintSourceClipStart,
+                        out sampleClip,
+                        out string sourceError))
                 {
-                    Debug.LogWarning($"[Kimodo][InOutConstraint] Preview: {warning}");
+                    Debug.LogWarning($"[Kimodo][InsideConstraint] Preview: {sourceError}");
                     continue;
                 }
-                var avatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(source.Track, source.Animator);
+                float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(playable.bridgeModelName);
+                int frameCount = KimodoFrameTimeUtility.SecondsToFrameCount(timelineClip.duration, frameRate);
+                var begins = new List<KimodoMarkerSampleResult>();
+                var ends = new List<KimodoMarkerSampleResult>();
+                if (inside)
+                {
+                    if (!KimodoInOutConstraintAdapter.TryResolveAnimationClip(sampleClip, out AnimationClip animation, out _)) continue;
+                    if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out var insideContext, out _)) continue;
+                    var sourceAvatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(insideContext.Track, insideContext.Animator);
+                    int available = Mathf.Min(frameCount, Mathf.FloorToInt(animation.length * frameRate + 1e-5f));
+                    if (available <= 0) continue;
+                    int count = Mathf.Min(Mathf.Max(1, playable.insideKeyframeSampleCount), available);
+                    foreach (int frame in KimodoInOutConstraintTools.BuildWindowSampleFrames(available, count, true))
+                    {
+                        if (KimodoRetargetToolsEditor.TrySampleMarkerForClip(animation, "fullbody", frame / (double)frameRate,
+                                sourceAvatar.Avatar, null, playable.bridgeModelName, out var pose, out _))
+                            begins.Add(pose);
+                    }
+                }
+                else if (!KimodoInOutConstraintAdapter.TryBuildBoundarySamplesForPreview(sampleClip,
+                    KimodoInOutConstraintMode.Outside, playable.enableInConstraint, playable.enableOutConstraint,
+                    frameCount, out begins, out ends, out string warning))
+                {
+                    Debug.LogWarning($"[Kimodo][OutsideConstraint] Preview: {warning}");
+                    continue;
+                }
+                if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out var sampleContext, out _))
+                    continue;
+                var avatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(sampleContext.Track, sampleContext.Animator);
                 var context = new ConstraintPreviewContext(KimodoUnityObjectIdUtility.IdHash(playable),
-                    KimodoUnityObjectIdUtility.IdHash(source.Animator), KimodoUnityObjectIdUtility.IdHash(source.Track),
-                    source.ModelName, KimodoRigProfileDatabase.ResolveRigTypeFromModelName(source.ModelName), avatar.Avatar);
+                    KimodoUnityObjectIdUtility.IdHash(sampleContext.Animator), KimodoUnityObjectIdUtility.IdHash(sampleContext.Track),
+                    sampleContext.ModelName, KimodoRigProfileDatabase.ResolveRigTypeFromModelName(sampleContext.ModelName), avatar.Avatar);
                 if (!groups.TryGetValue(context.PreviewKey, out var items))
                 {
                     groups.Add(context.PreviewKey, items = new List<ConstraintPreviewItem>());
                     contexts.Add(context.PreviewKey, context);
                 }
-                AddBoundaryItems(items, begins, "in", new Color(0.3f, 0.8f, 1f));
+                AddBoundaryItems(items, begins, inside ? "inside" : "in", new Color(0.3f, 0.8f, 1f));
                 AddBoundaryItems(items, ends, "out", new Color(1f, 0.65f, 0.3f));
             }
         }

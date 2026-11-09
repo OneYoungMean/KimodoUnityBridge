@@ -274,7 +274,6 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyzeClips?["items"]?["properties"]?["character"], Is.Not.Null);
             Assert.That(analyzeClips?["items"]?["properties"]?["clip"], Is.Not.Null);
             Assert.That(analyze["description"]?.Value<string>(), Does.Contain("one scene character"));
-            Assert.That(analyze["description"]?.Value<string>(), Does.Contain("Timeline-global 60 FPS frames"));
             Assert.That(document["tools"]?.Values<JObject>().Any(item => item.Value<string>("name") == "analysis.new"), Is.False);
             Assert.That(videoAnalysis["inputSchema"]?["properties"]?["video_path"], Is.Not.Null);
             Assert.That(pictureAnalysis["inputSchema"]?["properties"]?["image_path"], Is.Not.Null);
@@ -570,9 +569,8 @@ namespace KimodoUnityBridge.Command.Tests
                 liveGeneration["inputSchema"]?["properties"]?["analyze"],
                 packagedGeneration["inputSchema"]?["properties"]?["analyze"]), Is.True,
                 "The packaged help must expose the same analyze switch and default as the live schema.");
-            Assert.That(JToken.DeepEquals(
-                liveGeneration["inputSchema"]?["properties"]?["path"]?["properties"]?["relative_offset"],
-                packagedGeneration["inputSchema"]?["properties"]?["path"]?["properties"]?["relative_offset"]), Is.True);
+            Assert.That(liveGeneration["inputSchema"]?["properties"]?["path"]?["properties"]?["relative_offset"], Is.Null);
+            Assert.That(packagedGeneration["inputSchema"]?["properties"]?["path"]?["properties"]?["relative_offset"], Is.Null);
             JObject postAnalysis = (JObject)Tool(live, "generation.get")["outputSchema"]?["properties"]?["post_analysis"]?["properties"];
             Assert.That(postAnalysis["analysis_path"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(postAnalysis["result"], Is.Null,

@@ -20,11 +20,6 @@ namespace KimodoBridge.Editor
         public string ModelName = KimodoMotionModelProfiles.DefaultModelName;
         public TimelineClip PreviousTimelineClip;
         public TimelineClip NextTimelineClip;
-        // Captured only when AutoBegin is needed; preview is suspended when
-        // this context is the inspected Timeline so the scene root is stable.
-        public Vector3 OriginalRootPosition;
-        public Quaternion OriginalRootRotation = Quaternion.identity;
-        public bool HasOriginalRootSnapshot;
         // Frozen before any Timeline evaluation so generation projection uses
         // the scene origin rather than the animated Animator pose.
         public Vector3 TrackOffsetPosition;
@@ -34,80 +29,6 @@ namespace KimodoBridge.Editor
 
     internal static class KimodoInOutConstraintAdapter
     {
-        internal static bool TryBuildConstraints(
-            TimelineClip sourceClip,
-            KimodoInOutConstraintMode mode,
-            bool autoBeginAnchor,
-            bool deferNormalization,
-            bool enableIn,
-            bool enableOut,
-            int generationFrames,
-            double sampleTimeOffsetSeconds,
-            out KimodoInOutConstraintResult result,
-            out string error,
-            IReadOnlyList<KimodoMarkerSampleResult> additionalManualSamples = null,
-            bool deferEndConstraint = false,
-            bool deferBeginConstraint = false,
-            int outputStartFrame = 0,
-            int outputFrameCount = 0)
-        {
-            result = null;
-            error = string.Empty;
-
-            if (!TryResolveTimelineContext(sourceClip, out KimodoTimelineInOutConstraintContext context, out error))
-            {
-                return false;
-            }
-            KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
-                context.Track,
-                context.Animator,
-                out context.TrackOffsetPosition,
-                out context.TrackOffsetRotation,
-                out _);
-            context.HasTrackOffsetSnapshot = true;
-
-            if (!KimodoTimelineConstraintMarkerSampler.TryBuildMarkerSamplesForExport(
-                    context,
-                    out List<KimodoMarkerSampleResult> manualSamples,
-                    out error))
-            {
-                return false;
-            }
-            KimodoInOutConstraintComposer.AppendSamples(additionalManualSamples, manualSamples);
-
-            KimodoInOutConstraintRequest request = BuildTimelineRequest(
-                context,
-                mode,
-                autoBeginAnchor,
-                deferNormalization,
-                enableIn,
-                enableOut,
-                generationFrames,
-                manualSamples,
-                sampleTimeOffsetSeconds,
-                deferEndConstraint,
-                deferBeginConstraint,
-                outputStartFrame,
-                outputFrameCount);
-            if (request == null)
-            {
-                result = new KimodoInOutConstraintResult();
-                return true;
-            }
-
-            if (!KimodoInOutConstraintComposer.TryBuild(
-                    request,
-                    out result,
-                    out string warning,
-                    out error))
-            {
-                return false;
-            }
-
-            EmitNeighborWarningsIfNeeded(context, mode, enableIn, enableOut, warning);
-            return true;
-        }
-
         internal static bool TryBuildBoundarySamplesForPreview(
             TimelineClip sourceClip,
             KimodoInOutConstraintMode mode,
@@ -136,12 +57,9 @@ namespace KimodoBridge.Editor
             KimodoInOutConstraintRequest request = BuildTimelineRequest(
                 context,
                 mode,
-                autoBeginAnchor: false,
-                deferNormalization: true,
                 enableIn,
                 enableOut,
-                generationFrames,
-                manualSamples: null);
+                generationFrames);
             if (request != null && mode == KimodoInOutConstraintMode.Outside)
             {
                 KimodoInOutConstraintTools.ResolveOutsideContextFrames(sourceClip, out int before, out int after);
@@ -386,31 +304,16 @@ namespace KimodoBridge.Editor
         internal static KimodoInOutConstraintRequest BuildTimelineRequest(
             KimodoTimelineInOutConstraintContext context,
             KimodoInOutConstraintMode mode,
-            bool autoBeginAnchor,
-            bool deferNormalization,
             bool enableIn,
             bool enableOut,
-            int generationFrames,
-            List<KimodoMarkerSampleResult> manualSamples,
-            double sampleTimeOffsetSeconds = 0.0,
-            bool deferEndConstraint = false,
-            bool deferBeginConstraint = false,
-            int outputStartFrame = 0,
-            int outputFrameCount = 0)
+            int generationFrames)
         {
             if (context == null)
             {
                 return null;
             }
 
-            bool hasManualSamples = manualSamples != null && manualSamples.Count > 0;
             var playable = context.SourceClip?.asset as KimodoPlayableClip;
-            bool isArdy = KimodoMotionModelProfiles.TryGetArdy(context.ModelName, out _);
-            if (isArdy && (playable?.inConstraintSourceAsset != null || playable?.outConstraintSourceAsset != null))
-            {
-                throw new InvalidOperationException("Explicit In/Out source Clips currently require a standard motion model; ARDY uses Timeline history constraints.");
-            }
-
             KimodoLocalAvatarUtility.AvatarResolveResult targetAvatarResult = context.Track != null && context.Animator != null
                 ? KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator)
                 : default;
@@ -428,10 +331,6 @@ namespace KimodoBridge.Editor
                     {
                         throw new InvalidOperationException(sourceError);
                     }
-                }
-                else if (mode == KimodoInOutConstraintMode.Inside)
-                {
-                    source = context.SourceClip;
                 }
                 else if (mode == KimodoInOutConstraintMode.Outside)
                 {
@@ -462,7 +361,7 @@ namespace KimodoBridge.Editor
                 playable?.outConstraintSourceClipStart ?? -1.0);
             bool enableBegin = enableIn && beginSource != null;
             bool enableEnd = enableOut && endSource != null;
-            if (!enableBegin && !enableEnd && !hasManualSamples && !autoBeginAnchor)
+            if (!enableBegin && !enableEnd)
             {
                 return null;
             }
@@ -473,35 +372,21 @@ namespace KimodoBridge.Editor
                 EnableEnd = enableEnd,
                 ModelName = context.ModelName,
                 GenerationFrames = KimodoInOutConstraintTools.ClampFrameCount(generationFrames),
-                OutputStartFrame = Mathf.Max(0, outputStartFrame),
-                OutputFrameCount = Mathf.Max(0, outputFrameCount),
-                BeginWindow = isArdy
-                    ? KimodoConstraintWindowSpec.FromModelFrames(1, 1)
-                    : KimodoConstraintWindowSpec.FromCommandFrames60(
+                BeginWindow = KimodoConstraintWindowSpec.FromCommandFrames60(
                         playable?.inConstraintWindowFrames60 ?? 1,
                         playable?.inConstraintSampleCount ?? 1,
                         KimodoMotionModelProfiles.ResolveGenerationFrameRate(context.ModelName)),
-                EndWindow = isArdy
-                    ? KimodoConstraintWindowSpec.FromModelFrames(1, 1)
-                    : KimodoConstraintWindowSpec.FromCommandFrames60(
+                EndWindow = KimodoConstraintWindowSpec.FromCommandFrames60(
                         playable?.outConstraintWindowFrames60 ?? 1,
                         playable?.outConstraintSampleCount ?? 1,
                         KimodoMotionModelProfiles.ResolveGenerationFrameRate(context.ModelName)),
-                AutoBeginAnchor = autoBeginAnchor,
-                DeferNormalization = deferNormalization,
-                DeferBeginConstraint = deferBeginConstraint,
-                DeferEndConstraint = deferEndConstraint,
                 TimelineContext = context,
                 BeginTimelineContext = beginSource,
                 EndTimelineContext = endSource,
                 HasExplicitBeginSource = playable?.inConstraintSourceAsset != null,
                 HasExplicitEndSource = playable?.outConstraintSourceAsset != null,
                 BeginSourceFrame = playable?.inConstraintSourceFrame ?? -1,
-                EndSourceFrame = playable?.outConstraintSourceFrame ?? -1,
-                ManualSamples = KimodoInOutConstraintTools.BuildLocalManualSamples(
-                    manualSamples,
-                    context.SourceClip != null ? context.SourceClip.start : 0.0,
-                    sampleTimeOffsetSeconds)
+                EndSourceFrame = playable?.outConstraintSourceFrame ?? -1
             };
         }
 

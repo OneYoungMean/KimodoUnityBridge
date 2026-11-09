@@ -18,6 +18,8 @@ from core.protocol.kmb_motion import (
     MAX_KMB_BYTES,
     KmbClipMask,
     KmbMotion,
+    clip_source_frame_indices,
+    encode_kmb1,
     parse_constraints,
     parse_kmb_clip,
 )
@@ -350,6 +352,13 @@ def _motion_to_tensor(motion: KmbMotion, model: Any, start: int, end: int):
     if (norms < 1e-6).any():
         raise ArdyBackendError("KMB1 contains a zero-length local rotation quaternion.")
     roots = torch.as_tensor(motion.root_positions[start:end], dtype=torch.float32, device=model.device)
+    # Motion features include velocity. A real single-frame reference needs a
+    # temporary second sample to compute it; the conditioning still has one frame.
+    single_frame = end - start == 1
+    if single_frame:
+        quats = quats.repeat(2, 1, 1)
+        norms = norms.repeat(2, 1, 1)
+        roots = roots.repeat(2, 1)
     tensor = model.motion_rep(
         local_joint_rots=quaternion_to_matrix(quats / norms),
         root_positions=roots,
@@ -359,11 +368,76 @@ def _motion_to_tensor(motion: KmbMotion, model: Any, start: int, end: int):
         contact_slice = model.motion_rep.slice_dict.get("foot_contacts")
         if contact_slice is None:
             raise ArdyBackendError("Selected ARDY motion representation has no foot-contact channels.")
-        tensor[..., contact_slice] = torch.as_tensor(
+        contacts = torch.as_tensor(
             motion.foot_contacts[start:end], dtype=torch.float32, device=model.device
         )
+        tensor[..., contact_slice] = contacts.repeat(2, 1) if single_frame else contacts
         tensor = model.motion_rep.normalize(tensor)
+    if single_frame:
+        tensor = tensor[..., :1, :]
     return tensor.unsqueeze(0) if tensor.ndim == 2 else tensor
+
+
+def _normalize_fixed_clip_constraints(value, attachments, model, profile):
+    """Normalize real KMB and point constraints together before ARDY feature encoding."""
+    import torch
+    from types import SimpleNamespace
+    from ardy.constraints import load_constraints_lst
+    from ardy.geometry import quaternion_to_matrix
+    from kimodo.constraints import compute_global_heading, normalize_constraints_to_anchor
+    from core import kimodo_runtime
+
+    records = parse_constraints(value, ArdyBackendError)
+    if not any(item.get("type") == "clip" for item in records):
+        return value, attachments, None
+    if any(item.get("type") == "root2d_target" for item in records):
+        raise ArdyBackendError("A staged fixed-length request uses Root2D samples; root2d_target belongs to streaming sessions.")
+    skeleton = model.motion_rep.skeleton
+    plain = [item for item in records if item.get("type") != "clip"]
+    for item in plain:
+        _normalize_root_heading(item)
+    constraints = load_constraints_lst(plain, skeleton) if plain else []
+    candidates = list(constraints)
+    clips = []
+    for item in records:
+        if item.get("type") != "clip":
+            continue
+        parsed = parse_kmb_clip(item, attachments, float(profile.source_fps), ArdyBackendError)
+        motion = parsed.motion
+        _validate_kmb(motion, model, profile)
+        quats = torch.as_tensor(motion.local_rot_quats, dtype=torch.float32, device=model.device)
+        norms = torch.linalg.vector_norm(quats, dim=-1, keepdim=True)
+        if bool((norms < 1e-6).any()):
+            raise ArdyBackendError("KMB1 contains a zero-length local rotation quaternion.")
+        roots = torch.as_tensor(motion.root_positions, dtype=torch.float32, device=model.device)
+        _, positions, _ = skeleton.fk(quaternion_to_matrix(quats / norms), roots)
+        indices = (parsed.target_frame_indices if parsed.target_frame_indices is not None else
+                   np.arange(motion.num_frames) + parsed.target_start_frame)
+        selected = list(clip_source_frame_indices(item, motion.num_frames, ArdyBackendError))
+        indices = np.asarray(indices)[selected]
+        candidates.append(SimpleNamespace(
+            name="clip", frame_indices=torch.as_tensor(indices, dtype=torch.long, device=model.device),
+            root_position=min(indices) < 0 or parsed.mask is None or any(parsed.mask.root_position),
+            smooth_root_2d=roots[selected][:, [0, 2]],
+            global_root_heading=compute_global_heading(positions[selected], skeleton),
+        ))
+        clips.append((item, motion))
+    origin = normalize_constraints_to_anchor(candidates)
+    if origin is None:
+        return value, attachments, None
+    translation, yaw = origin
+    angle = -float(yaw.detach().cpu())
+    cos, sin = math.cos(angle), math.sin(angle)
+    rotation = np.asarray([[cos, 0, sin], [0, 1, 0], [-sin, 0, cos]], dtype=np.float32)
+    x, z = translation.detach().cpu().tolist()
+    offset = -np.asarray([x, 0.0, z], dtype=np.float32) @ rotation.T
+    normalized_attachments = list(attachments)
+    normalized_records = [constraint.get_save_info() for constraint in constraints]
+    for item, motion in clips:
+        item = dict(item, attachment=len(normalized_attachments))
+        normalized_attachments.append(encode_kmb1(kimodo_runtime._transform_kmb_motion(motion, rotation, offset)))
+        normalized_records.append(item)
+    return json.dumps(normalized_records, default=lambda tensor: tensor.detach().cpu().tolist()), tuple(normalized_attachments), origin
 
 
 def _normalize_root_heading(item: dict[str, Any]) -> None:
@@ -1022,24 +1096,47 @@ class ArdySession:
             )
             motion = parsed_clip.motion
             _validate_kmb(motion, model, self.profile)
-            target_offset = parsed_clip.target_start_frame
             tensor = _motion_to_tensor(motion, model, 0, motion.num_frames)
-            history_frames = min(motion.num_frames, max(0, -target_offset))
-            if history_frames:
-                if not initial:
-                    raise ArdyBackendError("Only the first Generate may provide negative-time ClipConstraints.")
-                history_tensors.append(tensor[:, :history_frames])
-                history_root_positions.append(
-                    np.asarray(motion.root_positions[:history_frames], dtype=np.float64)
-                )
-            if history_frames < motion.num_frames:
-                future_clips.append(
-                    (
-                        apply_from + max(0, target_offset),
-                        tensor[:, history_frames:].detach().cpu(),
-                        _future_clip_mask(parsed_clip.mask, motion.joint_names),
+            if parsed_clip.target_frame_indices is None and item.get("source_frame_indices") is None:
+                target_offset = parsed_clip.target_start_frame
+                history_frames = min(motion.num_frames, max(0, -target_offset))
+                if history_frames:
+                    if not initial:
+                        raise ArdyBackendError("Only the first Generate may provide negative-time ClipConstraints.")
+                    history_tensors.append(tensor[:, :history_frames])
+                    history_root_positions.append(
+                        np.asarray(motion.root_positions[:history_frames], dtype=np.float64)
                     )
-                )
+                if history_frames < motion.num_frames:
+                    clip_mask = _future_clip_mask(parsed_clip.mask, motion.joint_names)
+                    future_clips.append(
+                        (
+                            apply_from + max(0, target_offset),
+                            tensor[:, history_frames:].detach().cpu(),
+                            clip_mask,
+                        )
+                    )
+            else:
+                target_indices = np.asarray(parsed_clip.target_frame_indices if parsed_clip.target_frame_indices is not None else
+                                            parsed_clip.target_start_frame + np.arange(motion.num_frames), dtype=np.int64)
+                selected = np.asarray(clip_source_frame_indices(item, motion.num_frames, ArdyBackendError), dtype=np.int64)
+                history_indices = selected[target_indices[selected] < 0]
+                if history_indices.size:
+                    if not initial:
+                        raise ArdyBackendError("Only the first Generate may provide negative-time ClipConstraints.")
+                    history_tensors.append(tensor[:, history_indices])
+                    history_root_positions.append(np.asarray(motion.root_positions[history_indices], dtype=np.float64))
+                future_indices = selected[target_indices[selected] >= 0]
+                if future_indices.size:
+                    clip_mask = _future_clip_mask(parsed_clip.mask, motion.joint_names)
+                for source_index in future_indices:
+                    future_clips.append(
+                        (
+                            apply_from + int(target_indices[source_index]),
+                            tensor[:, int(source_index):int(source_index) + 1].detach().cpu(),
+                            clip_mask,
+                        )
+                    )
             continue
 
         if history_root_positions:
@@ -1486,6 +1583,10 @@ class ArdySession:
             output,
         )
 
+        generation_callback = getattr(self, "generation_callback", None)
+        if generation_callback is not None:
+            generation_callback(window_start, to_numpy(model.motion_rep.inverse(motion, is_normalized=True)))
+
         generated_cpu = generated.detach().cpu()
         self.motion_cpu = generated_cpu if self.motion_cpu is None else torch.cat((self.motion_cpu, generated_cpu), dim=1)
         keep = min(self.settings.history_crop_frames, int(motion.shape[1]))
@@ -1724,7 +1825,8 @@ def execute_stream_generate(
         if session is not None:
             session.close()
         session = None
-    if session is None:
+    stage_plan_request = request
+    if session is None and not (fixed_length and request.get("stage_plan") is not None):
         session = ArdySession(
             request,
             attachments,
@@ -1739,6 +1841,96 @@ def execute_stream_generate(
             "analysis_option": analysis_option,
         }
     try:
+        # Fixed-duration requests opt into the same server-owned stage
+        # orchestration as Kimodo.  Each stage gets an independent ARDY
+        # session, so no mutable request or session state leaks between
+        # generation passes.
+        if fixed_length and stage_plan_request.get("stage_plan") is not None:
+            request = stage_plan_request
+            plan = kimodo_runtime._normalize_stage_plan(request)
+            base_constraints = request.get("constraints_json", "") or "[]"
+            resolved_seed = (
+                secrets.randbelow(2**31)
+                if request.get("seed") is None
+                else int(request.get("seed"))
+            )
+            stage_attachments = list(attachments)
+
+            def invoke(name: str, constraints_json: str, purpose: str, frame_count: int) -> dict:
+                stage_request = dict(request)
+                normalized_json, normalized_attachments, origin = _normalize_fixed_clip_constraints(
+                    constraints_json, tuple(stage_attachments), model, profile
+                )
+                stage_request["constraints_json"] = normalized_json
+                stage_request["seed"] = resolved_seed
+                stage_request["duration"] = frame_count / float(profile.source_fps)
+                if request.get("timeline_segments"):
+                    segments = [dict(segment) for segment in request["timeline_segments"]]
+                    base_count = int(plan.get("target_frame_count") or seconds_to_frame_count(float(request["duration"]), profile.source_fps))
+                    segments[-1]["duration"] += (frame_count - base_count) / float(profile.source_fps)
+                    stage_request["timeline_segments"] = segments
+                stage = ArdySession(
+                    stage_request,
+                    normalized_attachments,
+                    model,
+                    profile,
+                    quickserver_root,
+                    progress,
+                    cancel_event,
+                )
+                windows = []
+                debug_records = kimodo_runtime._debug_constraint_records(
+                    constraints_json, stage_attachments, float(model.fps)
+                ) if request.get("debug") is True else ""
+
+                def retain_window(start_frame, output):
+                    output = kimodo_runtime._restore_kimodo_output_origin(
+                        output, origin if origin is not None else stage.constraint_origin, model)
+                    count = kimodo_runtime._motion_output_frame_count(output)
+                    windows.append(kimodo_runtime.GenerationArtifact(
+                        name=f"{name} / Window {len(windows) + 1}", start_frame=start_frame,
+                        end_frame_exclusive=start_frame + count, output=output, purpose=purpose,
+                        constraints_json=constraints_json,
+                        debug_constraints_json=kimodo_runtime._slice_debug_constraints(debug_records, start_frame, count)
+                            if debug_records else "",
+                    ))
+
+                stage.generation_callback = retain_window
+                try:
+                    _metadata, output = stage.generate(
+                        {
+                            "time_as_double": 0.0,
+                            "analysis_option": analysis_option,
+                        },
+                        normalized_attachments,
+                        model,
+                        cancel_event,
+                    )
+                    if output is None:
+                        raise ArdyBackendError(f"{name} returned no motion.")
+                    output = kimodo_runtime._restore_kimodo_output_origin(
+                        output, origin if origin is not None else stage.constraint_origin, model
+                    )
+                    if windows:
+                        output["_generation_windows"] = windows
+                    return output
+                finally:
+                    stage.close()
+
+            output, artifacts, _ = kimodo_runtime._execute_generation_plan(
+                request, model, base_constraints, invoke, cancel_event, stage_attachments
+            )
+            response, payload = kimodo_runtime._finalize_generation_result(
+                request,
+                model,
+                output,
+                output_format=output_format,
+                metadata={
+                    "motion_rep_fingerprint": profile.motion_rep_fingerprint,
+                    "resolved_seed": resolved_seed,
+                },
+            )
+            return None, response, payload
         started = time.perf_counter()
         metadata, output = session.generate(request, attachments, model, cancel_event)
         if output:
@@ -1771,7 +1963,7 @@ def execute_stream_generate(
         )
         return (None if fixed_length else session), response, payload
     finally:
-        if fixed_length:
+        if fixed_length and session is not None:
             session.close()
 
 

@@ -77,7 +77,7 @@ class Root2DConstraintSet:
                 )
         self.root_2d = root_2d
         self.global_root_heading = global_root_heading
-        self.frame_indices = frame_indices
+        self.frame_indices = frame_indices.to(device=skeleton.device, dtype=torch.long)
 
     def update_constraints(self, data_dict: dict, index_dict: dict) -> None:
         data_dict["root_2d"].append(self.root_2d)
@@ -122,15 +122,15 @@ class Root2DConstraintSet:
     def from_dict(cls, skeleton: SkeletonBase, dico: dict):
         device = skeleton.device
         root_2d_key = "root_2d" if "root_2d" in dico else "smooth_root_2d"
-        heading = torch.tensor(dico["global_root_heading"]) if "global_root_heading" in dico else None
+        heading = torch.tensor(dico["global_root_heading"], dtype=torch.float32, device=device) if "global_root_heading" in dico else None
         if heading is not None and heading.ndim == 2 and heading.shape[-1] == 2:
             # Kimodo-built benchmark suites store the heading as (cos, sin) pairs; this class
             # keeps angles in radians internally.
             heading = torch.atan2(heading[:, 1], heading[:, 0])
         return cls(
             skeleton,
-            frame_indices=torch.tensor(dico["frame_indices"]),
-            root_2d=torch.tensor(dico[root_2d_key], device=device),
+            frame_indices=torch.tensor(dico["frame_indices"], dtype=torch.long, device=device),
+            root_2d=torch.tensor(dico[root_2d_key], dtype=torch.float32, device=device),
             global_root_heading=heading,
         )
 
@@ -148,7 +148,7 @@ class FullBodyConstraintSet:
         to_crop: bool = False,
     ):
         self.skeleton = skeleton
-        self.frame_indices = frame_indices
+        self.frame_indices = frame_indices.to(device=skeleton.device, dtype=torch.long)
 
         if to_crop:
             global_joints_positions = global_joints_positions[frame_indices]
@@ -184,7 +184,7 @@ class FullBodyConstraintSet:
         nbjoints = self.skeleton.nbjoints
         indices_lst = create_pairs(
             self.frame_indices,
-            torch.arange(nbjoints),
+            torch.arange(nbjoints, device=self.frame_indices.device),
         )
         data_dict["global_joints_positions"].append(
             self.global_joints_positions.reshape(-1, 3)
@@ -231,19 +231,19 @@ class FullBodyConstraintSet:
 
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict):
-        frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device
-        local_rot_mats = axis_angle_to_matrix(torch.tensor(dico["local_joints_rot"], device=device))
+        frame_indices = torch.tensor(dico["frame_indices"], dtype=torch.long, device=device)
+        local_rot_mats = axis_angle_to_matrix(torch.tensor(dico["local_joints_rot"], dtype=torch.float32, device=device))
         local_rot_mats = _convert_constraint_local_rots_to_skeleton(local_rot_mats, skeleton)
         global_joints_rots, global_joints_positions, _ = skeleton.fk(
             local_rot_mats,
-            torch.tensor(dico["root_positions"], device=device),
+            torch.tensor(dico["root_positions"], dtype=torch.float32, device=device),
         )
         root_2d = None
         if "root_2d" in dico:
-            root_2d = torch.tensor(dico["root_2d"], device=device)
+            root_2d = torch.tensor(dico["root_2d"], dtype=torch.float32, device=device)
         elif "smooth_root_2d" in dico:
-            root_2d = torch.tensor(dico["smooth_root_2d"], device=device)
+            root_2d = torch.tensor(dico["smooth_root_2d"], dtype=torch.float32, device=device)
 
         return cls(
             skeleton,
@@ -269,14 +269,14 @@ class EndEffectorConstraintSet:
         to_crop: bool = False,
     ) -> None:
         self.skeleton = skeleton
-        self.frame_indices = frame_indices
+        self.frame_indices = frame_indices.to(device=skeleton.device, dtype=torch.long)
         self.joint_names = joint_names
 
         # joint_names are constant for all the frames
         rot_joint_names, pos_joint_names = self.skeleton.expand_joint_names(self.joint_names)
         # indexing works for motion_rep with smooth root only (contains pelvis index)
-        self.pos_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in pos_joint_names])
-        self.rot_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in rot_joint_names])
+        self.pos_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in pos_joint_names], dtype=torch.long, device=self.frame_indices.device)
+        self.rot_indices = torch.tensor([self.skeleton.bone_index[jname] for jname in rot_joint_names], dtype=torch.long, device=self.frame_indices.device)
 
         if to_crop:
             global_joints_positions = global_joints_positions[frame_indices]
@@ -308,7 +308,7 @@ class EndEffectorConstraintSet:
         self.root_2d = root_2d
 
     def update_constraints(self, data_dict, index_dict):
-        crop_frames_indexing = torch.arange(len(self.frame_indices))
+        crop_frames_indexing = torch.arange(len(self.frame_indices), device=self.frame_indices.device)
 
         # constraint positions
         pos_indices_real = create_pairs(
@@ -384,19 +384,19 @@ class EndEffectorConstraintSet:
 
     @classmethod
     def from_dict(cls, skeleton: SkeletonBase, dico: dict):
-        frame_indices = torch.tensor(dico["frame_indices"])
         device = skeleton.device
-        local_rot_mats = axis_angle_to_matrix(torch.tensor(dico["local_joints_rot"], device=device))
+        frame_indices = torch.tensor(dico["frame_indices"], dtype=torch.long, device=device)
+        local_rot_mats = axis_angle_to_matrix(torch.tensor(dico["local_joints_rot"], dtype=torch.float32, device=device))
         local_rot_mats = _convert_constraint_local_rots_to_skeleton(local_rot_mats, skeleton)
         global_joints_rots, global_joints_positions, _ = skeleton.fk(
             local_rot_mats,
-            torch.tensor(dico["root_positions"], device=device),
+            torch.tensor(dico["root_positions"], dtype=torch.float32, device=device),
         )
         root_2d = None
         if "root_2d" in dico:
-            root_2d = torch.tensor(dico["root_2d"], device=device)
+            root_2d = torch.tensor(dico["root_2d"], dtype=torch.float32, device=device)
         elif "smooth_root_2d" in dico:
-            root_2d = torch.tensor(dico["smooth_root_2d"], device=device)
+            root_2d = torch.tensor(dico["smooth_root_2d"], dtype=torch.float32, device=device)
 
         kwargs = {}
         if not hasattr(cls, "joint_names"):

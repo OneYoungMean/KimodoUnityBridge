@@ -37,11 +37,11 @@ namespace KimodoBridge.Editor
         private SerializedProperty pathDistanceProp;
         private SerializedProperty overrideHeadingProp;
         private SerializedProperty headingDegreesProp;
-        private SerializedProperty useRelativeOffsetProp;
-        private SerializedProperty relativeOffsetProp;
         private SerializedProperty commandGenerationStatusProp;
         private SerializedProperty commandGenerationErrorProp;
         private SerializedProperty inOutConstraintModeProp;
+        private SerializedProperty insideConstraintEnabledProp;
+        private SerializedProperty postApplyInsideConstraintProp;
         private SerializedProperty enableInConstraint;
         private SerializedProperty enableOutConstraint;
         private SerializedProperty postApplyOutConstraint;
@@ -60,7 +60,6 @@ namespace KimodoBridge.Editor
         private SerializedProperty splineWaypointCount;
         private SerializedProperty splineDensePath;
         private SerializedProperty splineIncludeHeading;
-        private SerializedProperty autoBeginAnchor;
 
         private SerializedProperty animationClipProp;
         private SerializedProperty footIKProp;
@@ -155,11 +154,11 @@ namespace KimodoBridge.Editor
             pathDistanceProp = serializedObject.FindProperty("pathDistance");
             overrideHeadingProp = serializedObject.FindProperty("overrideHeading");
             headingDegreesProp = serializedObject.FindProperty("headingDegrees");
-            useRelativeOffsetProp = serializedObject.FindProperty("useRelativeOffset");
-            relativeOffsetProp = serializedObject.FindProperty("relativeOffset");
             commandGenerationStatusProp = serializedObject.FindProperty("commandGenerationStatus");
             commandGenerationErrorProp = serializedObject.FindProperty("commandGenerationError");
             inOutConstraintModeProp = serializedObject.FindProperty("inOutConstraintMode");
+            insideConstraintEnabledProp = serializedObject.FindProperty("insideConstraintEnabled");
+            postApplyInsideConstraintProp = serializedObject.FindProperty("postApplyInsideConstraint");
             enableInConstraint = serializedObject.FindProperty("enableInConstraint");
             enableOutConstraint = serializedObject.FindProperty("enableOutConstraint");
             postApplyOutConstraint = serializedObject.FindProperty("postApplyOutConstraint");
@@ -178,7 +177,6 @@ namespace KimodoBridge.Editor
             splineWaypointCount = serializedObject.FindProperty("splineWaypointCount");
             splineDensePath = serializedObject.FindProperty("splineDensePath");
             splineIncludeHeading = serializedObject.FindProperty("splineIncludeHeading");
-            autoBeginAnchor = serializedObject.FindProperty("autoBeginAnchor");
 
             animationClipProp = serializedObject.FindProperty("m_Clip");
             footIKProp = serializedObject.FindProperty("m_ApplyFootIK");
@@ -303,7 +301,7 @@ namespace KimodoBridge.Editor
             bool previousInEnabled = enableInConstraint?.boolValue ?? false;
             bool previousOutEnabled = enableOutConstraint?.boolValue ?? false;
             EditorGUI.BeginChangeCheck();
-            DrawTrajectoryAndContinuitySection(timelineClip, hasTimelineDuration);
+            DrawTrajectoryAndContinuitySection();
             if (EditorGUI.EndChangeCheck()) KimodoConstraintSelectionPreviewTool.SchedulePreviewUpdate();
             if (showConstraint != null)
             {
@@ -435,7 +433,7 @@ namespace KimodoBridge.Editor
             return isGenerating;
         }
 
-        private void DrawTrajectoryAndContinuitySection(TimelineClip timelineClip, bool hasTimelineDuration)
+        private void DrawTrajectoryAndContinuitySection()
         {
             trajectoryContinuityFoldoutStyle ??= new GUIStyle(EditorStyles.foldout)
             {
@@ -459,10 +457,15 @@ namespace KimodoBridge.Editor
             {
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    EditorGUILayout.PropertyField(
-                        inOutConstraintModeProp,
-                        new GUIContent("InOut Constraint", "None disables boundary constraints. Inside uses this clip's own start/end poses. Outside uses neighboring clip boundary poses."));
-                    if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
+                    int mode = inOutConstraintModeProp.intValue == (int)KimodoInOutConstraintMode.Outside ? 1 : 0;
+                    int selected = EditorGUILayout.Popup(
+                        "Outside Constraint",
+                        mode,
+                        new[] { "None", "Outside" });
+                    inOutConstraintModeProp.intValue = selected == 1
+                        ? (int)KimodoInOutConstraintMode.Outside
+                        : (int)KimodoInOutConstraintMode.None;
+                    if (selected == 1)
                     {
                         float previousLabelWidth = EditorGUIUtility.labelWidth;
                         EditorGUIUtility.labelWidth = 28f;
@@ -473,7 +476,7 @@ namespace KimodoBridge.Editor
                     }
                 }
 
-                if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None)
+                if (inOutConstraintModeProp.intValue == (int)KimodoInOutConstraintMode.Outside)
                 {
                     if (enableInConstraint.boolValue && postApplyInConstraint != null)
                     {
@@ -481,7 +484,7 @@ namespace KimodoBridge.Editor
                             postApplyInConstraint,
                             new GUIContent(
                                 "Post-Apply In",
-                                "Defer In until after the first trajectory pass, align it in SOMA Root2D space, then apply it in the second pass."));
+                                "Align the complete Outside In window to the generated trajectory before the final pass."));
                     }
                     if (enableOutConstraint.boolValue && postApplyOutConstraint != null)
                     {
@@ -489,12 +492,11 @@ namespace KimodoBridge.Editor
                             postApplyOutConstraint,
                             new GUIContent(
                                 "Post-Apply Out",
-                                "Defer Out until after the first trajectory pass, align it in SOMA Root2D space, then apply it in the second pass."));
+                                "Align the complete Outside Out window to the generated trajectory before the final pass."));
                     }
                 }
             }
-            if ((KimodoInOutConstraintMode)inOutConstraintModeProp.enumValueIndex != KimodoInOutConstraintMode.None &&
-                !KimodoMotionModelProfiles.TryGetArdy(bridgeModelName.stringValue, out _))
+            if (inOutConstraintModeProp.intValue == (int)KimodoInOutConstraintMode.Outside)
             {
                 if (enableInConstraint.boolValue)
                     DrawBoundarySampling("In", inConstraintWindowFrames, inConstraintSampleCount);
@@ -502,23 +504,27 @@ namespace KimodoBridge.Editor
                     DrawBoundarySampling("Out", outConstraintWindowFrames, outConstraintSampleCount);
                 EditorGUILayout.HelpBox(
                     "Window frames use 60 FPS command time and are converted to model frames. " +
-                    "Outside windows extend generation with neighboring motion, then are trimmed from the output. " +
-                    "Short source clips limit the available window. Show Constraint displays the sampled poses.", MessageType.Info);
+                    "Outside windows send the selected source motion as KMB constraints. Short source clips limit the available window.", MessageType.Info);
+            }
+            if (insideConstraintEnabledProp != null)
+            {
+                EditorGUILayout.PropertyField(
+                    insideConstraintEnabledProp,
+                    new GUIContent("Inside Constraint", "Use this clip's original animation as a FullBody constraint over the overlapping output frames."));
+                if (insideConstraintEnabledProp.boolValue && postApplyInsideConstraintProp != null)
+                {
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("insideKeyframeMode"), new GUIContent("Keyframe Mode"));
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("insideKeyframeSampleCount"), new GUIContent("Keyframe Count"));
+                    EditorGUILayout.PropertyField(
+                        postApplyInsideConstraintProp,
+                        new GUIContent("Post Apply", "Before Stage 3, use Stage 2 root XZ and Yaw while retaining the source height, Pitch/Roll, and body poses."));
+                }
             }
             if (generateLoopProp != null)
             {
                 EditorGUILayout.PropertyField(
                     generateLoopProp,
-                    new GUIContent("Generate Loop", "Generate a normal baseline, constrain its first pose at the end, then generate an extended motion and keep its middle section."));
-                if (!generateLoopProp.hasMultipleDifferentValues &&
-                    generateLoopProp.boolValue &&
-                    hasTimelineDuration &&
-                    timelineClip.duration * 2.0 > 10.0)
-                {
-                    EditorGUILayout.HelpBox(
-                        "Loop generation exceeds the 600-frame limit and will fall back to normal generation.",
-                        MessageType.Warning);
-                }
+                    new GUIContent("Generate Loop", "Use Stage 2's opening pose window as an Outside-Out constraint for the final loop pass."));
                 if (!generateLoopProp.hasMultipleDifferentValues && generateLoopProp.boolValue)
                 {
                     EditorGUI.indentLevel++;
@@ -570,18 +576,6 @@ namespace KimodoBridge.Editor
                     if (overridePathDistanceProp != null && overridePathDistanceProp.boolValue && pathDistanceProp != null)
                         EditorGUILayout.PropertyField(pathDistanceProp, new GUIContent("Distance", "Path length in Unity units."));
                     EditorGUI.indentLevel--;
-                }
-            }
-            if (useRelativeOffsetProp != null)
-            {
-                EditorGUILayout.PropertyField(
-                    useRelativeOffsetProp,
-                    new GUIContent("Relative Offset", "Normalize root X/Z into the initial facing frame before Humanoid conversion, transfer initial yaw to the Timeline Clip rotation, preserve root height in the muscle curves, and apply the World-space target position as the Clip offset."));
-                if (useRelativeOffsetProp.boolValue && relativeOffsetProp != null)
-                {
-                    EditorGUILayout.PropertyField(
-                        relativeOffsetProp,
-                        new GUIContent("World Position", "World-space target position for the generated Clip's first root pose. The final output root Y curve is preserved and used for height compensation."));
                 }
             }
             if (overrideHeadingProp != null)
@@ -893,7 +887,7 @@ namespace KimodoBridge.Editor
             }
 
             EditorGUILayout.Space(4f);
-            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Auto begin anchoring, motion compensation, and curve filtering options for generated animation curves."), true);
+            bool newFoldout = EditorGUILayout.Foldout(showAdvancedFoldout, new GUIContent("Advanced", "Motion compensation and curve filtering options for generated animation curves."), true);
             if (newFoldout != showAdvancedFoldout)
             {
                 showAdvancedFoldout = newFoldout;
@@ -926,13 +920,6 @@ namespace KimodoBridge.Editor
                 EditorGUILayout.HelpBox(
                     "The overlap is shared by adjacent generation windows. Window duration is measured at 60 FPS and converted to model frames before splitting; sample count includes both overlap endpoints.",
                     MessageType.Info);
-            }
-
-            if (autoBeginAnchor != null)
-            {
-                EditorGUILayout.PropertyField(
-                    autoBeginAnchor,
-                    new GUIContent("Auto Begin Anchor", "When the first second has no effective constraint anchor, use the character's original scene Hips position and heading as a Root2D frame-0 constraint."));
             }
 
             EditorGUILayout.Space(4f);

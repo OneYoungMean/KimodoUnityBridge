@@ -294,6 +294,84 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void TryWrite_BackendSegmentsUseLocalFramesAndConstraintTimes()
+        {
+            var settings = KimodoPlayableClipGenerationSettings.instance;
+            bool previous = settings.WriteResampledTimelineCacheClips;
+            var timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var directorObject = new GameObject("Backend Debug Segment Test");
+            var director = directorObject.AddComponent<PlayableDirector>();
+            director.playableAsset = timeline;
+            var track = timeline.CreateTrack<AnimationTrack>(null, "Source");
+            var source = track.CreateClip<KimodoPlayableClip>();
+            source.start = 4;
+            source.duration = 6.0 / 30;
+            KimodoEditorGenerateRequest request = null;
+            try
+            {
+                settings.WriteResampledTimelineCacheClips = true;
+                string model = KimodoMotionModelProfiles.DefaultModelName;
+                string[] names = KimodoRigProfileDatabase.GetJointNamesForModel(model);
+                int[] parents = KimodoRigProfileDatabase.GetParentIndicesForModel(model);
+                var roots = Enumerable.Range(0, 6).Select(frame => new Vector3(frame, 1, 0)).ToArray();
+                var rotations = Enumerable.Range(0, 6 * names.Length)
+                    .SelectMany(_ => new[] { 1f, 0f, 0f, 0f }).ToList();
+                request = new KimodoEditorGenerateRequest
+                {
+                    ModelName = model, TargetFrameCount = 6, TargetFrameRate = 30,
+                    TimelineClipSnapshot = source,
+                    DebugRuntimeMotion = new KimodoRawMotionData(6, names.Length, 30,
+                        names, parents, roots, rotations, 0),
+                    DebugSegmentsJson = "[{\"name\":\"Stage 2\",\"debug_start_frame\":0,\"debug_end_frame_exclusive\":2}," +
+                        "{\"name\":\"Stage 3\",\"debug_start_frame\":2,\"debug_end_frame_exclusive\":6}]",
+                    DebugConstraintsJson = "[{\"artifact\":\"Stage 2\",\"constraints\":[{\"type\":\"root2d\",\"frame_indices\":[1],\"smooth_root_2d\":[[1,0]]}]}," +
+                        "{\"artifact\":\"Stage 3\",\"constraints\":[{\"type\":\"root2d\",\"frame_indices\":[3],\"smooth_root_2d\":[[5,0]]}]}]"
+                };
+                var asset = (KimodoPlayableClip)source.asset;
+                KimodoDebugTimelineWriter.TryPrepare(asset, request, "Generation");
+                var result = new KimodoEditorGenerationResult();
+                KimodoDebugTimelineWriter.TryWrite(asset, request, result);
+
+                var segments = request.DebugTimelineGroup.Track.GetClips()
+                    .Where(clip => result.DebugConstraintPasses.Any(pass => pass.DebugClipTarget == clip.asset))
+                    .OrderBy(clip => clip.start).ToArray();
+                Assert.That(segments, Has.Length.EqualTo(2));
+                Assert.That(segments[0].duration, Is.EqualTo(2.0 / 30).Within(1e-6));
+                Assert.That(segments[1].duration, Is.EqualTo(4.0 / 30).Within(1e-6));
+                Assert.That(segments.All(clip => ((KimodoPlayableClip)clip.asset).clip != null), Is.True);
+                Assert.That(result.DebugConstraintPasses.Select(pass => pass.FrameCount), Is.EqualTo(new[] { 2, 4 }));
+                var markers = request.DebugTimelineGroup.Track.GetMarkers()
+                    .OfType<KimodoDebugConstraintJsonMarker>().OrderBy(marker => marker.time).ToArray();
+                Assert.That(markers, Has.Length.EqualTo(2));
+                Assert.That(markers[0].time, Is.EqualTo(segments[0].start + 1.0 / 30).Within(1e-6));
+                Assert.That(markers[1].time, Is.EqualTo(segments[1].start + 3.0 / 30).Within(1e-6));
+            }
+            finally
+            {
+                settings.WriteResampledTimelineCacheClips = previous;
+                if (request?.DebugTimelineGroup != null)
+                {
+                    string folder = KimodoDebugTimelineWriter.DebugFolder;
+                    string archive = folder + "/archive";
+                    foreach (var clip in request.DebugTimelineGroup.Track.GetClips())
+                    {
+                        var animation = (clip.asset as KimodoPlayableClip)?.clip;
+                        string path = AssetDatabase.GetAssetPath(animation);
+                        if (string.IsNullOrEmpty(path)) continue;
+                        if (!AssetDatabase.IsValidFolder(archive)) AssetDatabase.CreateFolder(folder, "archive");
+                        string moved = AssetDatabase.MoveAsset(path,
+                            AssetDatabase.GenerateUniqueAssetPath(archive + "/" + System.IO.Path.GetFileName(path)));
+                        Assert.That(moved, Is.Empty);
+                    }
+                    if (request.DebugTimelineGroup.ProfileInstance != null)
+                        Object.DestroyImmediate(request.DebugTimelineGroup.ProfileInstance);
+                }
+                Object.DestroyImmediate(directorObject);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
         private static GameObject CreateProfileBinding(string modelName, Scene scene, out Animator animator)
         {
             string modelPath = AssetDatabase.GUIDToAssetPath(

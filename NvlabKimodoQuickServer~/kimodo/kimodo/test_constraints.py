@@ -42,6 +42,28 @@ class EndEffectorTargetPositionTests(unittest.TestCase):
 
 
 class ConstraintAnchorNormalizationTests(unittest.TestCase):
+    def test_multiframe_clip_postprocess_merges_selected_channels_with_generated_pose(self):
+        skeleton = SOMASkeleton77(load=False)
+        baseline = torch.zeros(3, skeleton.nbjoints, 3)
+        baseline[:, skeleton.root_idx] = torch.tensor([1., 2., 3.])
+        right, left = skeleton.hip_joint_idx
+        baseline[:, right, 0] = 0.2
+        baseline[:, left, 0] = -0.2
+        reference = baseline[[0, 2]].clone()
+        reference[:, skeleton.root_idx] = torch.tensor([8., 9., 10.])
+        rotations = torch.eye(3).repeat(3, skeleton.nbjoints, 1, 1)
+        clip = ClipConstraintSet(skeleton, torch.tensor([0, 2]), reference, rotations[[0, 2]],
+            torch.zeros(skeleton.nbjoints, 3, dtype=torch.bool), torch.tensor([], dtype=torch.long),
+            root_position_axes=torch.tensor([True, False, True]), root_heading=False)
+        result = _merge_fullbody_constraint([clip], skeleton, rotations, baseline, 3)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].name, "fullbody")
+        self.assertEqual(result[0].frame_indices.tolist(), [0, 2])
+        torch.testing.assert_close(result[0].global_joints_positions[:, skeleton.root_idx], torch.tensor([[8., 2., 10.], [8., 2., 10.]]))
+        torch.testing.assert_close(result[0].global_joints_positions[:, left], baseline[[0, 2], left])
+        hips, _ = extract_input_motion_from_constraints(result, skeleton, 3, skeleton.nbjoints)
+        torch.testing.assert_close(hips[[0, 2]], torch.tensor([[8., 2., 10.], [8., 2., 10.]]))
+
     def test_single_frame_full_body_clip_promotes_for_postprocess(self):
         skeleton = SOMASkeleton77(load=False)
         positions = torch.zeros(1, skeleton.nbjoints, 3)

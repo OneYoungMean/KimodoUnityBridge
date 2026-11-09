@@ -21,7 +21,7 @@ The maintained public commands are:
 - Completed Clips are immutable. Corrections, retargets, and generated variants append new Clips rather than replacing an existing Clip.
 - `animation.analysis` accepts one explicit scene Clip and returns structured motion analysis plus a fixed 20-tile SceneView image. Its `camera` object is shared with synchronous `pose.analysis`; both use the active SceneView camera and return image data inline with no request ID. `pose.analysis` previews the same point constraints accepted by `animation.generate`, separately by default or together as opaque poses with `combine=true`.
 - Humanoid `animation.analysis.clip.motion_profile.force_line` measures left/right arm swing balance. It converts each shoulder-to-hand vector into character-root-local sagittal angle, sums absolute frame-to-frame angle deltas over the full Clip and each `phase_track` interval, and reports `imbalance_ratio = abs(left-right) / max(left,right)`. A ratio at or below `0.15` is `balanced`; stationary or incomplete samples return `insufficient_evidence`.
-- Point constraints use explicit `root`, `pose`, and `effector` inputs through `animation.generate.constraints`; the command infers Root2D, FullBody, or Effector after sampling. Pose plus effector is exported as IK-solved FullBody. See [the current constraint contract](plan.md#当前-constraint-契约). Humanoid analysis stores and returns a reusable Root Path consumed through `root_path`; Path Override can regenerate with the same seed from absolute Unity-yaw begin/end angles, preserve the baseline path length, and coexist with loop generation. An absolute heading override runs last at 30-frame intervals, replacing Root2D headings without changing the composed Root XZ positions; when Path Override is active, it rewrites that Root2D record instead of appending a duplicate. Generation and Pose sampling require a valid Humanoid Avatar; Mesh-only characters are analysis-only. There is no standalone root-transform application command.
+- Point constraints use explicit `root`, `pose`, and `effector` inputs through `animation.generate.constraints`; the command infers Root2D, FullBody, or Effector after sampling. Pose plus effector is exported as IK-solved FullBody. See [the current constraint contract](plan.md#当前-constraint-契约). Humanoid analysis stores and returns a reusable Root Path consumed through `root_path`; Path Override uses absolute Unity-yaw begin/end angles, preserves measured walking distance unless overridden, and coexists with Loop. The backend applies heading to the composed trajectory and the final reference root tracks while preserving Root XZ positions. Generation and Pose sampling require a valid Humanoid Avatar; Mesh-only characters are analysis-only. There is no standalone root-transform application command.
 - `pose.get` creates a new External Pose marker for a Humanoid character. Use its `{track,index}` reference inside a point constraint, preview that constraint with `pose.analysis`, then edit the marker with `pose.set` if needed.
 
 ## Active documentation work
@@ -34,82 +34,50 @@ The maintained public commands are:
 - Run a Unity Editor compile/import check after documentation and command-surface changes.
 - Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Scene changes and Editor reloads may cancel active generations. Keep Foot IK/Raycast or other unexposed capabilities documented as boundaries unless a public command and project asset prove them.
 
-## Root / trajectory staged redesign (approved 2026-10-28)
+## Backend-owned generation (2026-11-09)
 
-This is the accepted development design for the root-motion and trajectory cleanup. It is a development plan, not yet the active execution contract. The previous implementation changes remain stashed in Git before this redesign.
+Unity samples Timeline and original AnimationClip references, retargets them to the model skeleton, and submits one generation request. QuickServer selects and executes stages, long-motion windows, anchor transforms, and the final output interval. Editor and Command use the same request builder. Session/History behavior is outside this change.
 
-### Terminology and common contract
+### Request and reference contract
 
-- A **stage** is one complete generation request. Every stage has one generation instruction, one source motion (when applicable), one target time mapping, and one resulting motion.
-- A **pass** is a constraint-building channel inside a stage. A stage may contain multiple passes. A pass may add, replace, or modify constraints, but it does not start generation by itself.
-- Stage results carry the generated motion, frame rate, frame count, duration, and the composed constraint set forward to the next stage.
-- Constraint composition must use explicit channel rules. A later Root2D pass replaces or edits the relevant Root2D channel instead of silently appending conflicting Root2D rows.
-- When Root2D and a FullBody/root-context row share a frame, the Stage composition folds Root2D into that row: Root2D supplies planar position and heading, while FullBody retains Y, body pose, and other target channels. The standalone Root2D row is then removed.
+- `stage_plan` carries target/output frame ranges, trajectory overrides, Loop locks/window, and Post Apply settings. Stage selection is determined by the backend.
+- `window_constraints.window_frames` extends native `num_transition_frames`; `sample_count` controls sparse conditioning density. Neither changes the final output duration. Inspector window values remain 60-FPS command-frame durations converted once to model frames.
+- ClipConstraints carry continuous retargeted KMB and their target frame mapping. The backend selects `source_frame_indices` for conditioning while retaining the original contiguous motion for velocity calculation. Samples are unique and retain their original temporal spacing.
+- Outside uses In/Out windows and an optional Post Apply flag. Inside is independent of In/Out and samples the original AnimationClip, including its original time and pose. Its keyframe modes are uniform, foot-exchange midpoints, and mixed; `sample_count` controls the uniform subset. Missing Inside foot events fall back to uniform sampling with a warning.
+- Inside length mismatches warn and constrain only the overlapping interval. Additional trajectory settings require Inside Post Apply. Inside remains active when Loop is enabled; a real Outside Out reference takes priority over Loop.
+- AutoBegin and Relative Offset have been retired from the active request, Inspector, Command schema, and generation code. Requests contain only authored constraints and references.
 
-### Stage 1: baseline generation and distance source
+### Stages and Post Apply
 
-Stage 1 runs only when a Stage 2 PathAngle, PathDistance, or Heading pass needs baseline motion. It generates motion from the Clip constraints and all non-`post_apply` In/Out constraints. PathAngle uses its measured root-path length when no distance override is set; PathDistance scales the baseline Root2D trajectory; Heading samples baseline headings. The measured path distance is the sum of every adjacent root XZ delta across the complete Stage 1 motion.
+1. Stage 1 measures the spatial walking distance in the requested visible interval. It runs only when the Spline/path-angle calculation needs that measurement and Override Distance is disabled. It does not infer animation duration.
+2. Stage 2 generates the trajectory and Loop reference poses. Explicit distance skips Stage 1; path-angle and distance composition retain the existing Bezier/path semantics and extend into Outside context.
+3. Before Stage 3, a single constraint preparation step handles Post Apply. Outside receives one planar anchor transform across its complete window. Inside and trajectory FullBody/Effector use Stage 2 root XZ and Yaw while retaining authored height, Pitch/Roll, and body poses. Stage 3 generates the final motion from an independent constraint set.
 
-When a Stage 2 condition is enabled but no path pass needs baseline motion (Loop or deferred In/Out only), Stage 1 is skipped and Stage 2 builds its initial constraints directly. When no Stage 2 condition is enabled, the ordinary generation result is finalized directly. There is no standalone Stage 3 request.
+Every model call assembles its complete real constraints, normalizes them to an anchor, generates, and restores output using the same anchor. No constraints means no anchor normalization. Cropping follows restoration; no extra root transform is applied after Stage 3.
 
-### Stage 2: Root2D and path passes
+### Loop and long motions
 
-Stage 2 runs when Loop, a `post_apply` In/Out boundary, path-angle override, path-distance override, or heading override is enabled. When Stage 1 ran, Stage 2 inherits its complete constraint set and motion; otherwise Stage 2 starts from its own initial constraint set. Path passes run only when their required Stage 1 motion is available.
+Loop always takes the Stage 2 opening body window from frame 0 of the requested output range. The window length determines the full tail reference range. Its first frame anchors one position/rotation transform for the entire tail window, subject to the configured locks. Foot-exchange midpoints remain available for Inside keyframe selection.
 
-- An explicit distance override is used even when its value is `0`; otherwise use the Stage 1 delta-sum distance.
-- A path-angle override replaces the effective Root2D channel with its two endpoint pass and the generated spline rows. Relative Offset supplies the origin when enabled; otherwise Auto Begin supplies the origin when it is the effective frame-0 anchor.
-- A distance-only override uses the existing default Root2D pass as its starting channel and rescales its planar path to the explicit distance, including an explicit value of `0`.
-- Heading override changes Root2D headings only. Existing Root2D rows are edited in place; if no endpoint row exists, endpoint rows are sampled from the Stage 1 root motion first.
-- Stage 2 keeps all effective Root2D rows in its composed constraint set. Stage 3 receives that same set without rebuilding Root2D.
+The Loop window is limited to `max(1, floor(output_frames * (sample_count - 1) / sample_count))`, with a warning when shortened. The tail extends the internal generation range by `window_frames - 1`; final output is cropped to the requested frame count and shared seam mapping. Long motions use the native model window/multiprompt path and the configured transition sample density.
 
-### Stage 3: Root/body composition and windows
+### Results and verification
 
-Stage 3 runs only when Stage 2 produced a loop or deferred boundary window, or when the effective Stage 2 constraint set contains FullBody/Effector records. It inherits every Stage 2 constraint.
+Each actual model call stores a motion artifact in a plain list. Normal mode returns only the final cropped animation. Debug mode also returns one concatenated KMB, segment frame ranges, and resolved constraint records at segment-local times; Unity splits these into its existing Debug Timeline layout. Normal generation writes one final animation asset and sets its Loop settings in place.
 
-- FullBody and Effector root positions are interpolated from Stage 2 motion only when path-angle override is active. Their pose and target channels are preserved.
-- When heading override is active, all already-effective Root2D, FullBody, and Effector headings are updated, including constraints inherited from Stage 2.
-- Post-apply In/Out windows are anchored by the earliest constraint in each window and are placed around the core Stage 2 content. Window payloads are carried separately from ordinary deferred fields so Stage 3 can apply the requested re-anchoring policy. Loop and Out windows are mutually exclusive; Out has priority.
-- Stage 3 owns the final target duration after window placement. Its generation request disables only automatic Outside context expansion, because the resolved In/Out windows are already included in the Stage 3 target and are shifted explicitly into that request; constraint sampling and inherited Clip constraints remain enabled.
-- The loop window begins at the selected loop keyframe, and its copied tail begins on the core content's terminal frame. The shared seam frame is owned by the copied tail while preserving the configured frame/sample mapping. The duration is extended by the window width minus one frame.
-- The copied tail window is uniformly re-anchored from the source window's first sample to the Stage 2 terminal root with the complete locked Transform: a three-dimensional translation plus one rigid quaternion rotation. Loop Lock Pos/Rot is resolved once on that target anchor before the transform is derived; copied constraints receive only the resulting uniform rigid transform and are never individually axis-locked.
-- When PathAngle and Loop are both active, the Loop pass computes that window anchor first, then uses the PathAngle terminal Root2D value as the target anchor and removes the terminal PathAngle Root2D sample before appending the Loop window.
+Fixed-duration ARDY uses the same stage/window plan through its own model executor; streaming ARDY remains independent. Dense KMB is converted to motion tensor before sparse conditioning frames are selected. A genuine one-frame reference temporarily receives a duplicate for velocity conversion, while conditioning keeps only the original frame.
 
-The contact-exchange selector remains available for later activation, but the current approved rollout anchors Stage 3 at frame `0`:
+Focused checks cover stage selection, distance/frame mapping, Post Apply XZ/Yaw preservation, Inside/Loop coexistence, anchor restoration, window sampling, output length, and Debug mapping. Real-model verification runs in the diagnostic copy using installed weights without downloading models. Short-reference generation extension and pose-window search remain TODO; pose matching will ignore root XZ and Yaw.
 
-1. Find a transition frame where one foot's contact channels change to all `0`, meaning that foot has fully lifted from the ground.
-2. Find the following transition frame where the other foot's contact channels change to all `1`, meaning that foot has fully landed.
-3. Use the midpoint frame between those two events as the loop keyframe.
-4. Until the selector is enabled, use frame `0` and its pose as the anchor. The exchange midpoint remains covered by tests and can be restored without changing the window contract.
+Verification completed on 2026-11-09:
 
-The loop In/Out window uses the configured total window frame count and sample count:
-
-- The window frame count describes the complete temporal width of the window.
-- The sample count describes the number of constraints sampled inside that window.
-- Loop sampling uses the resolved full window width in model frames, while the tail extension and any deferred Out offset use `windowFrameCount - 1` because the first tail frame is the core terminal frame. A one-sample window still reserves that full tail span.
-- The Inspector exposes these Stage 3 values as `Loop Window Frames (60 FPS)` and `Loop Window Samples`, defaulting to `30` and `2`; the frame value is always a 60-FPS command-frame count and is converted to model frames with ceiling before sampling. In/Out and long-clip windows use the same 60-FPS duration contract; their old serialized model-frame values are migrated once while loop values retain their existing 60-FPS meaning.
-- For example, `30` means `0.5` seconds: it becomes `15` model frames at 30 FPS, `13` at 25 FPS, and `10` at 20 FPS.
-- The usable window span is limited to `floor(animationFrameCount * (sampleCount - 1) / sampleCount)`. If the requested window exceeds that limit, clamp it and emit a warning; the minimum effective span is one frame.
-- Use the start window's first sample as the loop anchor. Copy the start window to the tail beginning at the original final frame, so the tail's first sample occupies the shared seam frame.
-- At the start and tail endpoints, set Root2D headings from the Stage 2 motion; if an endpoint has no Root2D constraint, sample its position and heading from Stage 2. Resolve the target anchor with the existing Loop Lock Pos/Rot options, then apply the resulting uniform rigid Transform to the copied window. Do not apply lock axes directly to any copied endpoint or interior constraint.
-- Extend the target duration so the generated animation covers the original content and the appended window.
-- Preserve the window's frame spacing and sample count after the duration extension.
-
-The old three-second loop trajectory sampling rule is not part of this design and must not determine the final animation duration.
-
-### Implementation phases
-
-1. **Contract and time mapping**: introduce the common Stage/Pass/result model, explicit stage source motion, and one frame-time mapping per stage.
-2. **Stage 1 migration**: move Clip constraints and non-`post_apply` In/Out composition into the baseline stage.
-3. **Stage 2 migration**: move path angle, path distance, relative offset, and heading handling into composable passes using Stage 1 root samples.
-4. **Stage 3 migration**: select the foot-contact exchange midpoint, inherit Stage 2 constraints, adjust only Root2D endpoint headings, and implement window extension with the loop seam on the core terminal frame.
-5. **Trajectory cleanup**: remove trajectory-only branching and duplicate duration logic after all callers use the staged contract. Obsolete files must follow the repository archive rule.
-6. **Verification**: add focused tests for stage inheritance, delta-sum distance, heading-only fallback anchors, contact-exchange fallback, window clamping warnings, seam-frame replacement, and final duration/frame ranges; then run the Unity Editor checks listed above.
-
-### Long-clip window controls (2026-10-28)
-
-- Advanced Inspector settings `Window Frames (60 FPS)` and `Sample Count` configure the overlap retained when a long animation is split into multiple generation requests. The serialized default is `60` command frames (one second at 60 FPS, equivalent to the former 30 frames at the default 30 FPS model rate), converted to model frames before planning, with `2` evenly spaced FullBody samples.
-- The overlap duration is converted once to model frames; values that cannot fit the model request limit or the overlap are clamped with a warning. No even-frame normalization is applied.
-- The configured sample count is used to select evenly spaced FullBody frames from the previous window and map them to the current window's overlap. Existing callers of the helper retain the two-endpoint default.
+- Python: 147 focused tests passed (`core.test_quickserver_sessions`, `kimodo.test_constraints`, `core.test_animation_analysis`, `core.test_retargeting`).
+- Unity: 47 focused Edit Mode tests passed, including static/live Command help, Kimodo/ARDY reference sampling, final output ranges, and Debug segment-local constraint times. Result: `C:\nvlab\KimodoUnityBridge_FullDemo\Logs\backend-v3-complete.xml`.
+- Real inference: 14 cases passed in `C:\nvlab\archive\QuickServerDiagnostics_20261104\log\backend_v3_20261109_141042\results.json` and `backend_v3_20261109_142726\results.json`. Cases include long multiprompt motion, Loop, measured distance, Inside, Post Apply, FullBody/Effector, and Unity-sampled Outside/history KMB. The Unity inputs came from test fixtures, not a byte-for-byte replay of the original reported failure.
+- TCP: two real ARDY Outside/Post Apply requests passed through the diagnostic supervisor on port 58723. Normal mode returned only 60 final frames; Debug returned the same 60-frame final output plus four complete generation segments. Result: `C:\nvlab\archive\QuickServerDiagnostics_20261104\log\backend_v3_tcp_20261109_144526\results.json`. The diagnostic supervisor was stopped afterward.
+- Loop clarification: the reference window and alignment anchor stay at output-local frame 0. After this change, all 147 Python tests passed, including frame-zero selection with/without foot events and preceding context. Real Kimodo v1.1 Loop and ARDY Inside+Loop+Heading checks both returned 60 final frames, with Debug confirming frame-zero reference poses and the full tail-window mapping. Result: `C:\nvlab\archive\QuickServerDiagnostics_20261104\log\backend_v3_20261109_161408\results.json`.
+- The tested production Python files match the repository sources. FullDemo's installed QuickServer copy was not replaced; Editor/Command changes require the matching new backend.
+- Installed Kimodo v1.1 and ARDY SOMA30 weights were used. Kimodo v1.2 weights were unavailable, and no weights were downloaded. Visual playback has not been accepted; the focused results do not imply a clean full-project test suite.
 
 ### AnimationClip Inspector API (2026-11-02)
 

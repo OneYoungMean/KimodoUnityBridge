@@ -221,7 +221,7 @@ namespace KimodoUnityBridge.Command
                             Required("target_character", "string", "Target scene character name or object_ref from session.context."),
                             OptionalOutput())),
                     CommandDefinition(GenerateAnimationCommand,
-                        "Generate one animation Clip for a scene character. Use prompt for semantic motion or raw_instruction to replay an exact captured server payload; use structured constraint and trajectory fields for explicit requirements. Returns a request handle and preflight diagnostics; generation.get returns the completed Clip and analysis details.",
+                        "Generate one animation Clip for a scene character. Use prompt for semantic motion or raw_instruction to replay an exact captured server payload; use structured constraint and trajectory fields for explicit requirements. Returns request_id and preflight diagnostics; generation.get returns the completed Clip and analysis details.",
                         Properties(
                             Required("character", "string", "Scene character name or object_ref from session.context."),
                             Optional("prompt", "string", "Short semantic description of the current Clip's action, aim for 25 words or fewer; use raw_instruction to replay a captured payload."),
@@ -254,7 +254,7 @@ namespace KimodoUnityBridge.Command
                                 ["description"] = "Run the full animation.analysis command after generation; defaults to true."
                             }, false),
                             WaitSecondsProperty(10.0, allowAboveLimit: true),
-                            OptionalConstraints("constraints", "Point constraints use Root2D for root, FullBody for pose with optional root/effector, or Effector for root with effector and no pose. Transforms accept World position and/or Euler rotation in degrees; omitted channels retain sampled values. Pose/effector preflight runs when both fields appear in one point. root_path and inout are separate forms; use unique command frames at 60 FPS."))),
+                            OptionalConstraints("constraints", "Point constraints use Root2D for root, FullBody for pose with optional root/effector, or Effector for root with effector and no pose. Transforms accept World position and/or Euler rotation in degrees; omitted channels retain sampled values. Pose/effector preflight runs when both fields appear in one point. root_path, inout, and inside are separate forms; inside samples a source Clip's body poses and can post-apply Stage 2 root XZ and Yaw over the overlapping range while preserving height and body pose; use unique command frames at 60 FPS."))),
                     CommandDefinition(PoseGetCommand,
                         "Sample one absolute Timeline-global frame at 60 FPS, or select mode scene_pose / skeleton_rest_pose to read the original scene Animator or Avatar rest pose. Every response includes character_root, the bound scene GameObject root Transform in world space; data.root is the sampled Pose root channel. Every call creates an External Pose slot and returns {track,index}.",
                         Properties(
@@ -611,9 +611,15 @@ namespace KimodoUnityBridge.Command
                     new JObject
                     {
                         ["type"] = "inout",
-                        ["description"] = "Explicit source Clip windows used as boundary context. Outside adds and crops context; inside retains constrained windows within the output.",
+                        ["description"] = "Outside source Clip windows used as In/Out boundary context. The backend adds and crops this context while preserving the requested duration.",
                         ["shape"] = InOutConstraintSchema(),
                         ["examples"] = BuildCommandExamples(GenerateAnimationCommand)
+                    },
+                    new JObject
+                    {
+                        ["type"] = "inside",
+                        ["description"] = "Body poses from the original AnimationClip over the overlapping time range. Post Apply uses Stage 2 root XZ and Yaw while preserving source height, Pitch/Roll, and body poses. Inside remains active with Loop.",
+                        ["shape"] = InsideConstraintSchema()
                     },
                     new JObject
                     {
@@ -636,8 +642,8 @@ namespace KimodoUnityBridge.Command
                     "Use the intended character's World-space animation.analysis Root Path as the root_path source. Generation resolves it once against the target character's rest-pose World anchor and creates start and end Root2D constraints; add point constraints for intermediate route locations that must be followed.",
                     "Keep point frames distinct from root_path sample frames.",
                     "Use one standalone inout entry with explicit completed source Clips for in and out. Source character defaults to the generation character.",
-                    "In/Out window_frames and source.frame use 60 FPS. Windows round up to model frames; sample_count maps to distinct model frames. One sample uses the seam; multiple samples include both endpoints.",
-                    "In/Out uses supported source lengths, non-overlapping inside windows, compatible models, and the model duration limit; padding and cropping preserve the requested duration.",
+                    "Outside window_frames and source.frame use 60 FPS. Windows round up to model frames; sample_count maps to distinct model frames. One sample uses the seam; multiple samples include both endpoints.",
+                    "Outside windows use available source Clip frames and preserve the requested output duration. The separate inside constraint samples the original AnimationClip over its overlapping range; post_apply uses Stage 2 root XZ and Yaw while retaining height, Pitch/Roll, and body poses.",
                     "inout_sampling is returned after generation completes, with source-local and Timeline-global 60 FPS sample frames, output/runtime model frames, model-frame context counts and the exclusive model-frame crop range. Padding/cropping is automatic; the final requested duration is preserved."
                 }
             };
@@ -895,10 +901,6 @@ namespace KimodoUnityBridge.Command
                 float headingDegrees = overrideHeading
                     ? ReadFiniteFloat(pathOptions["heading"], "path.heading")
                     : 0f;
-                bool useRelativeOffset = pathOptions?["relative_offset"] != null;
-                Vector3 relativeOffset = useRelativeOffset
-                    ? ReadVector3(pathOptions["relative_offset"] as JArray, "path.relative_offset")
-                    : Vector3.zero;
                 if (rawGenerateInstruction != null && (loopRequested || pathOptions != null || arguments["constraints"] != null))
                     throw new InvalidOperationException("raw_instruction cannot be combined with loop, path, or structured constraints; replay the captured generate request as-is.");
                 float duration = (float)(durationFrames / SessionFrameRate);
@@ -946,11 +948,10 @@ namespace KimodoUnityBridge.Command
                 TimelineGenerationTrace trace = PrepareGenerationTrace(arguments, character, duration);
                 bool hasInOut = (arguments["constraints"] as JArray)?.OfType<JObject>()
                     .Any(item => item.Property("inout") != null) == true;
+                bool hasInside = (arguments["constraints"] as JArray)?.OfType<JObject>()
+                    .Any(item => item.Property("inside") != null) == true;
                 if (hasInOut)
                 {
-                    // Resolve the same source windows used to place the temporary
-                    // neighboring clips before reserving the output range.  The
-                    // actual constraint samples are built later by BuildRequest.
                     ConfigureCommandInOutClip(
                         arguments,
                         trace,
@@ -960,8 +961,6 @@ namespace KimodoUnityBridge.Command
                         frameRate,
                         loopRequested,
                         poseConstraints);
-                    PrepareCommandOutsideEvidencePosition(trace);
-                    ValidateCommandTimelineRange(trace);
                 }
                 KimodoPlayableClip playableClip = CreateGenerationPlayableClip(trace, requestedAnimationName, false);
                 if (hasInOut)
@@ -975,8 +974,9 @@ namespace KimodoUnityBridge.Command
                         frameRate,
                         loopRequested,
                         poseConstraints);
-                    CreateCommandOutsideEvidenceClips(trace);
                 }
+                if (hasInside)
+                    ConfigureCommandInsideClip(arguments, trace, playableClip);
                 playableClip.bridgeModelName = modelName;
                 playableClip.textEncoderMode = textEncoderMode;
                 playableClip.motionPrompt = prompt;
@@ -1000,8 +1000,6 @@ namespace KimodoUnityBridge.Command
                 playableClip.pathDistance = pathDistance;
                 playableClip.overrideHeading = overrideHeading;
                 playableClip.headingDegrees = headingDegrees;
-                playableClip.useRelativeOffset = useRelativeOffset;
-                playableClip.relativeOffset = relativeOffset;
                 playableClip.loop = loopRequested
                     ? UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.On
                     : UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.Off;
