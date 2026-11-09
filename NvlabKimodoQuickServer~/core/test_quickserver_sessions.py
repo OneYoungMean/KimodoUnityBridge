@@ -1812,6 +1812,138 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             atol=1e-7,
         )
 
+    def test_untimed_root_target_builds_a_dense_acceleration_limited_horizon(self):
+        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, False)
+
+        planned = ardy_backend._plan_root_2d_target(
+            target,
+            (0.0, 0.0),
+            (0.0, 0.0),
+            39,
+            20.0,
+            future_horizon_frames=40,
+            extend_prediction_to_horizon=True,
+        )
+
+        self.assertEqual(planned["frame_indices"], list(range(40, 80)))
+        positions = np.asarray(planned["smooth_root_2d"])
+        velocities = np.diff(np.vstack(([0.0, 0.0], positions)), axis=0) * 20.0
+        accelerations = np.diff(np.vstack(([0.0, 0.0], velocities)), axis=0) * 20.0
+        self.assertLessEqual(float(np.linalg.norm(velocities, axis=1).max()), target.max_speed + 1e-6)
+        self.assertLessEqual(
+            float(np.linalg.norm(accelerations, axis=1).max()), target.max_acceleration + 1e-6
+        )
+
+    def test_untimed_root_target_decelerates_from_over_limit_speed_without_clamping(self):
+        target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, False)
+
+        planned = ardy_backend._plan_root_2d_target(
+            target,
+            (0.0, 0.0),
+            (2.5, 0.0),
+            39,
+            20.0,
+            future_horizon_frames=40,
+            extend_prediction_to_horizon=True,
+        )
+
+        positions = np.asarray(planned["smooth_root_2d"])
+        velocities = np.diff(np.vstack(([0.0, 0.0], positions)), axis=0) * 20.0
+        self.assertGreater(float(np.linalg.norm(velocities[0])), target.max_speed)
+        self.assertLess(float(np.linalg.norm(velocities[0])), 2.5)
+        self.assertLessEqual(
+            float(np.linalg.norm(velocities[0] - [2.5, 0.0]) * 20.0),
+            target.max_acceleration + 1e-6,
+        )
+
+    def test_untimed_root_target_does_not_snap_when_near_goal_at_high_speed(self):
+        target = ardy_backend.Root2DTarget((0.1, 0.0), 1.25, 1.5, 0.1, False)
+
+        planned = ardy_backend._plan_root_2d_target(
+            target,
+            (0.0, 0.0),
+            (1.0, 0.0),
+            39,
+            20.0,
+            future_horizon_frames=40,
+            extend_prediction_to_horizon=True,
+        )
+
+        self.assertIsNotNone(planned)
+        self.assertGreater(planned["smooth_root_2d"][0][0], 0.0)
+        self.assertNotEqual(planned["smooth_root_2d"][0], list(target.position))
+
+    def test_root_target_is_only_released_after_actual_state_reaches_and_stops(self):
+        session = self._fake_ardy_session()
+        session.motion_cpu = torch.zeros((1, 40, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 40, 3), dtype=np.float32)}
+        target = ardy_backend.Root2DTarget((0.5, 0.0), 2.0, 2.0, 0.1, False)
+        session.root_2d_targets = [target]
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
+        captured = []
+
+        def load_constraints(items, _skeleton):
+            captured.append(items)
+            return items
+
+        with patch("ardy.constraints.load_constraints_lst", side_effect=load_constraints):
+            session._refresh_root_2d_target_constraints(model, 40)
+            self.assertEqual(session.root_2d_targets, [target])
+            planned = next(
+                item
+                for item in captured[-1]
+                if item["type"] == "root2d" and len(item["frame_indices"]) > 1
+            )
+            self.assertEqual(planned["frame_indices"], list(range(40, 80)))
+            self.assertEqual(planned["smooth_root_2d"][-1], planned["smooth_root_2d"][-2])
+
+            stopped_position = planned["smooth_root_2d"][-1]
+            session.motion_cpu = torch.zeros((1, 80, 1), dtype=torch.float32)
+            session.outputs["root_positions"] = np.zeros((1, 80, 3), dtype=np.float32)
+            session.outputs["root_positions"][0, -2:, 0] = stopped_position[0]
+            session.outputs["root_positions"][0, -2:, 2] = stopped_position[1]
+            session._refresh_root_2d_target_constraints(model, 80)
+
+        self.assertEqual(session.root_2d_targets, [target])
+        hold = next(
+            item
+            for item in captured[-1]
+            if item["type"] == "root2d" and len(item["frame_indices"]) > 1
+        )
+        self.assertEqual(hold["frame_indices"], list(range(80, 121)))
+        np.testing.assert_allclose(
+            hold["smooth_root_2d"],
+            np.repeat([stopped_position], 41, axis=0),
+            atol=1e-7,
+        )
+
+    def test_root_target_queue_advances_at_the_next_horizon_boundary(self):
+        session = self._fake_ardy_session()
+        session.motion_cpu = torch.zeros((1, 80, 1), dtype=torch.float32)
+        session.outputs = {"root_positions": np.zeros((1, 80, 3), dtype=np.float32)}
+        session.outputs["root_positions"][0, -2:, 0] = 0.37
+        first = ardy_backend.Root2DTarget((0.5, 0.0), 2.0, 2.0, 0.1, False)
+        following = ardy_backend.Root2DTarget((2.0, 0.0), 2.0, 2.0, 0.1, False)
+        session.root_2d_targets = [first, following]
+        model = SimpleNamespace(motion_rep=SimpleNamespace(skeleton=object()))
+        captured = []
+
+        def load_constraints(items, _skeleton):
+            captured.append(items)
+            return items
+
+        with patch("ardy.constraints.load_constraints_lst", side_effect=load_constraints):
+            session._refresh_root_2d_target_constraints(model, 80)
+
+        self.assertEqual(session.root_2d_targets, [following])
+        planned = next(
+            item
+            for item in captured[-1]
+            if item["type"] == "root2d" and len(item["frame_indices"]) > 1
+        )
+        self.assertEqual(planned["frame_indices"], list(range(80, 120)))
+        self.assertGreater(planned["smooth_root_2d"][0][0], 0.37)
+
     def test_root_target_reserves_the_first_quarter_of_each_future_horizon(self):
         target = ardy_backend.Root2DTarget((10.0, 0.0), 1.25, 1.5, 0.1, True)
 
@@ -2035,7 +2167,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertGreater(headings[0], headings[1])
         self.assertGreater(headings[1], headings[2])
         self.assertAlmostEqual(headings[2], target.heading, places=7)
-        np.testing.assert_allclose(planned["smooth_root_2d"][2], target.position, atol=1e-7)
+        self.assertLessEqual(math.dist(planned["smooth_root_2d"][2], target.position), 0.15)
 
     def test_root_target_omits_heading_when_disabled_even_with_final_heading(self):
         target = ardy_backend.Root2DTarget(
@@ -2092,7 +2224,11 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         )
 
         self.assertEqual(planned["frame_indices"], [10, 19, 29])
-        self.assertEqual(planned["smooth_root_2d"].count([1.0, 0.0]), 1)
+        self.assertEqual(
+            len({tuple(point) for point in planned["smooth_root_2d"]}),
+            len(planned["smooth_root_2d"]),
+        )
+        self.assertLessEqual(math.dist(planned["smooth_root_2d"][-1], target.position), 0.15)
 
     def test_root2d_protocol_keeps_multiple_ordered_points_and_replaces_the_snapshot(self):
         session = self._fake_ardy_session()
