@@ -486,6 +486,20 @@ def _parse_root_2d_target(
     )
 
 
+def _untimed_root_target_is_reached(
+    target: Root2DTarget,
+    position: tuple[float, float] | np.ndarray,
+    velocity: tuple[float, float] | np.ndarray,
+    fps: float,
+) -> bool:
+    release_distance = max(target.arrival_threshold, TARGET_ARRIVAL_RELEASE_DISTANCE)
+    arrival_speed = min(target.max_speed, target.max_acceleration / fps)
+    return (
+        math.dist(position, target.position) <= release_distance
+        and float(np.linalg.norm(velocity)) <= arrival_speed
+    )
+
+
 def _plan_root_2d_target(
     target: Root2DTarget,
     anchor_root_2d: tuple[float, float],
@@ -502,15 +516,18 @@ def _plan_root_2d_target(
     release_distance = target.arrival_threshold
     if target.arrival_frame is None:
         release_distance = max(release_distance, TARGET_ARRIVAL_RELEASE_DISTANCE)
-    if distance <= release_distance:
-        return None
-
-    direction = delta / distance
     unlimited_velocity = np.asarray(current_velocity_2d, dtype=np.float64)
     velocity = unlimited_velocity.copy()
     initial_speed = float(np.linalg.norm(velocity))
-    if initial_speed > target.max_speed:
+    if target.arrival_frame is None:
+        if _untimed_root_target_is_reached(target, position, velocity, fps):
+            return None
+    elif distance <= release_distance:
+        return None
+    elif initial_speed > target.max_speed:
         velocity *= target.max_speed / initial_speed
+
+    direction = delta / distance if distance > 1e-8 else np.array([0.0, 1.0])
 
     prediction_frames = max(1, seconds_to_frame_count(TARGET_VELOCITY_PREDICTION_SECONDS, fps))
     future_horizon_tail_step: int | None = None
@@ -581,14 +598,21 @@ def _plan_root_2d_target(
         simulation_position = position.copy()
         simulation_velocity = velocity.copy()
         simulation_direction = direction.copy()
+        arrived = False
         for step in range(1, prediction_frames + TARGET_HEADING_TURN_FRAMES + 1):
-            remaining_delta = goal - simulation_position
-            remaining_distance = float(np.linalg.norm(remaining_delta))
-            if remaining_distance <= target.arrival_threshold:
-                simulation_position = goal.copy()
+            if arrived:
+                simulation_velocity[:] = 0.0
             else:
-                simulation_direction = remaining_delta / remaining_distance
-                stopping_speed = math.sqrt(max(0.0, 2.0 * target.max_acceleration * remaining_distance))
+                remaining_delta = goal - simulation_position
+                remaining_distance = float(np.linalg.norm(remaining_delta))
+                speed = float(np.linalg.norm(simulation_velocity))
+                if remaining_distance > 1e-8:
+                    simulation_direction = remaining_delta / remaining_distance
+                elif speed > 1e-8:
+                    simulation_direction = simulation_velocity / speed
+
+                stopping_distance = max(0.0, remaining_distance - release_distance)
+                stopping_speed = math.sqrt(2.0 * target.max_acceleration * stopping_distance)
                 desired_velocity = simulation_direction * min(target.max_speed, stopping_speed)
                 velocity_delta = desired_velocity - simulation_velocity
                 max_velocity_delta = target.max_acceleration * dt
@@ -596,15 +620,17 @@ def _plan_root_2d_target(
                 if velocity_delta_length > max_velocity_delta:
                     velocity_delta *= max_velocity_delta / velocity_delta_length
                 simulation_velocity += velocity_delta
-                displacement = simulation_velocity * dt
-                if float(np.dot(displacement, simulation_direction)) >= remaining_distance:
-                    simulation_position = goal.copy()
-                    simulation_velocity[:] = 0.0
-                else:
-                    simulation_position += displacement
+                simulation_position += simulation_velocity * dt
 
-            if arrival_step is None and float(np.linalg.norm(goal - simulation_position)) <= target.arrival_threshold:
-                arrival_step = step
+                if _untimed_root_target_is_reached(
+                    target,
+                    simulation_position,
+                    simulation_velocity,
+                    fps,
+                ):
+                    arrival_step = step
+                    arrived = True
+
             limited_positions.append(simulation_position.copy())
             limited_velocities.append(simulation_velocity.copy())
             limited_directions.append(simulation_direction.copy())
@@ -612,16 +638,24 @@ def _plan_root_2d_target(
     frame_indices: list[int] = []
     positions: list[list[float]] = []
     headings: list[float] = []
-    constraint_steps = list(
-        range(
-            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
-            prediction_frames + 1,
-            TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
-        )
+    dense_path = (
+        target.arrival_frame is None
+        and extend_prediction_to_horizon
+        and future_horizon_frames is not None
     )
-    if not constraint_steps or constraint_steps[-1] != prediction_frames:
-        constraint_steps.append(prediction_frames)
-    if target.arrival_frame is None and future_horizon_frames is not None:
+    if dense_path:
+        constraint_steps = list(range(1, prediction_frames + 1))
+    else:
+        constraint_steps = list(
+            range(
+                TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
+                prediction_frames + 1,
+                TARGET_VELOCITY_GOAL_FRAME_INTERVAL,
+            )
+        )
+        if not constraint_steps or constraint_steps[-1] != prediction_frames:
+            constraint_steps.append(prediction_frames)
+    if target.arrival_frame is None and future_horizon_frames is not None and not dense_path:
         guard_frames = max(1, (int(future_horizon_frames) + 3) // 4)
         if future_horizon_tail_step is not None:
             constraint_steps = [
@@ -647,7 +681,7 @@ def _plan_root_2d_target(
 
         if step in constraint_step_set:
             point = [float(position[0]), float(position[1])]
-            if not target.include_heading and positions and point == positions[-1]:
+            if not dense_path and not target.include_heading and positions and point == positions[-1]:
                 continue
             frame_indices.append(anchor_frame + step)
             positions.append(point)
@@ -1099,7 +1133,11 @@ class ArdySession:
         # end, e.g. 200 for a 160..200 horizon) so the next horizon inherits it.
         horizon_end = boundary_frame + horizon
         remaining: list[Root2DTarget] = []
-        if self.root_2d_targets and (boundary_frame > 0 or self.initial_history_root_2d is not None):
+        if (
+            self.root_2d_targets
+            and self.root_2d_targets[0].arrival_frame is not None
+            and (boundary_frame > 0 or self.initial_history_root_2d is not None)
+        ):
             fps = float(self.profile.source_fps)
             seam_root_2d = np.asarray(root_2d) + np.asarray(velocity_2d) / fps
             plain.append(
@@ -1110,6 +1148,29 @@ class ArdySession:
                 }
             )
         for target_index, target in enumerate(self.root_2d_targets):
+            if target.arrival_frame is None and _untimed_root_target_is_reached(
+                target,
+                root_2d,
+                velocity_2d,
+                float(self.profile.source_fps),
+            ):
+                if target_index + 1 < len(self.root_2d_targets):
+                    continue
+                hold_item: dict[str, Any] = {
+                    "type": "root2d",
+                    "frame_indices": list(range(boundary_frame, horizon_end + 1)),
+                    "smooth_root_2d": [
+                        [float(root_2d[0]), float(root_2d[1])]
+                        for _ in range(boundary_frame, horizon_end + 1)
+                    ],
+                }
+                if target.include_heading and target.heading is not None:
+                    hold_item["global_root_heading"] = [
+                        float(target.heading) for _ in range(boundary_frame, horizon_end + 1)
+                    ]
+                plain.append(hold_item)
+                remaining = [target]
+                break
             target_constraint = _plan_root_2d_target(
                 target,
                 root_2d,
@@ -1123,7 +1184,7 @@ class ArdySession:
                 reached_item: dict[str, Any] = {
                     "type": "root2d",
                     "frame_indices": [horizon_end],
-                    "smooth_root_2d": [[float(target.position[0]), float(target.position[1])]],
+                    "smooth_root_2d": [[float(root_2d[0]), float(root_2d[1])]],
                 }
                 if target.include_heading and target.heading is not None:
                     reached_item["global_root_heading"] = [float(target.heading)]
@@ -1132,25 +1193,29 @@ class ArdySession:
                 break
             indices = target_constraint.get("frame_indices", [])
             positions = target_constraint.get("smooth_root_2d", [])
-            reached = any(
-                math.dist(position, target.position) <= target.arrival_threshold
-                for position in positions
-            )
+            if target.arrival_frame is None:
+                reached = False
+            else:
+                reached = any(
+                    math.dist(position, target.position) <= target.arrival_threshold
+                    for position in positions
+                )
             if reached:
+                hold_position = (
+                    list(positions[-1])
+                    if positions
+                    else [float(root_2d[0]), float(root_2d[1])]
+                )
                 if indices and indices[-1] != horizon_end:
                     indices.append(horizon_end)
-                    positions.append([float(target.position[0]), float(target.position[1])])
+                    positions.append(hold_position)
                     if target.include_heading:
                         headings = target_constraint.setdefault("global_root_heading", [])
                         headings.append(
-                            float(target.heading)
-                            if target.heading is not None
-                            else (float(headings[-1]) if headings else 0.0)
+                            float(headings[-1]) if headings else 0.0
                         )
                 elif indices:
-                    positions[-1] = [float(target.position[0]), float(target.position[1])]
-                    if target.include_heading and target.heading is not None:
-                        target_constraint.setdefault("global_root_heading", [])[-1] = float(target.heading)
+                    positions[-1] = hold_position
                 plain.append(target_constraint)
                 remaining = self.root_2d_targets[target_index + 1 :]
                 break

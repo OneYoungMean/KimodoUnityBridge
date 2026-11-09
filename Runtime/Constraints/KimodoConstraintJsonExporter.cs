@@ -364,11 +364,37 @@ namespace KimodoBridge
                 sample,
                 exportContext,
                 "End-effector");
+            return BuildEndEffectorFromProjectedPose(
+                projected,
+                jointType,
+                sample.sampleTime,
+                clipStartSeconds,
+                clipDurationSeconds,
+                exportFps);
+        }
+
+        /// <summary>
+        /// Builds an end-effector record from an already solved profile pose.
+        /// Runtime callers use this after source-avatar IK and muscle retarget;
+        /// the profile skeleton must not run a second IK pass.
+        /// </summary>
+        internal static KimodoConstraintJson BuildEndEffectorFromProjectedPose(
+            KimodoConstraintProjectedPose projected,
+            string jointType,
+            double sampleTime,
+            double clipStartSeconds,
+            double? clipDurationSeconds,
+            double exportFps)
+        {
+            if (projected == null)
+            {
+                throw new InvalidOperationException("End-effector profile pose is null.");
+            }
             Vector3 kimodoRoot = ToKimodoPosition(projected.profileRootPosition);
             var json = new KimodoConstraintJson
             {
                 type = jointType,
-                frame_indices = BuildFrameIndices(sample.sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
+                frame_indices = BuildFrameIndices(sampleTime - clipStartSeconds, clipDurationSeconds, exportFps),
                 joint_names = new List<string> { ResolveEndEffectorJointName(jointType) },
                 smooth_root_2d = new List<float[]>
                 {

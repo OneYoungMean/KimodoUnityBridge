@@ -47,15 +47,7 @@ namespace KimodoBridge
         internal int SegmentIndex { get; private set; }
         internal int RequestVersion { get; private set; }
 
-        internal int? ArdyResolvedSeed { get; private set; }
-        internal bool ArdyStarted { get; private set; }
-        internal bool ArdyPromptDirty { get; private set; } = true;
-        internal bool ArdyConstraintsDirty { get; private set; } = true;
-        internal bool ArdySettingsDirty { get; private set; } = true;
         internal bool RefreshPending { get; private set; }
-        internal float ArdyPlaybackReserveSeconds { get; private set; } = 1f;
-        internal int CompletedKimodoGenerationCount { get; private set; }
-        internal float EstimatedKimodoGenerationSeconds { get; private set; }
 
         internal bool IsActive =>
             Running && lifetimeCts != null && !lifetimeCts.IsCancellationRequested;
@@ -84,8 +76,6 @@ namespace KimodoBridge
             GenerationInFlight = false;
             GenerationBlocked = false;
             RefreshPending = false;
-            CompletedKimodoGenerationCount = 0;
-            EstimatedKimodoGenerationSeconds = 0f;
             Running = true;
         }
 
@@ -150,81 +140,14 @@ namespace KimodoBridge
 
         internal void AdvanceSegment(int completedSegment) => SegmentIndex = completedSegment + 1;
 
-        internal bool TryGetKimodoGenerationEstimate(out float seconds)
-        {
-            seconds = EstimatedKimodoGenerationSeconds;
-            return CompletedKimodoGenerationCount > 1 && seconds > 0f;
-        }
-
-        internal void RecordKimodoGenerationDuration(float seconds)
-        {
-            float clamped = Mathf.Max(0f, seconds);
-            if (CompletedKimodoGenerationCount > 0)
-            {
-                EstimatedKimodoGenerationSeconds = EstimatedKimodoGenerationSeconds <= 0f
-                    ? clamped
-                    : Mathf.Lerp(EstimatedKimodoGenerationSeconds, clamped, 0.5f);
-            }
-
-            CompletedKimodoGenerationCount++;
-        }
-
         internal void RequestRefresh()
         {
             RequestVersion++;
             RefreshPending = true;
         }
 
-        internal int ResolveRequestSeed(bool isArdy, bool randomSeed, int fixedSeed)
-        {
-            if (isArdy && ArdyResolvedSeed.HasValue)
-            {
-                return ArdyResolvedSeed.Value;
-            }
-
-            int resolved = randomSeed ? (Guid.NewGuid().GetHashCode() & int.MaxValue) : fixedSeed;
-            if (isArdy)
-            {
-                ArdyResolvedSeed = resolved;
-            }
-
-            return resolved;
-        }
-
-        internal void CompleteArdyRequest(
-            bool sentPrompt,
-            bool sentConstraints,
-            bool sentSettings,
-            bool stale)
-        {
-            ArdyStarted = true;
-            if (stale)
-            {
-                return;
-            }
-
-            if (sentPrompt) ArdyPromptDirty = false;
-            if (sentConstraints) ArdyConstraintsDirty = false;
-            if (sentSettings) ArdySettingsDirty = false;
-        }
-
-        internal void MarkArdyPromptDirty() => ArdyPromptDirty = true;
-        internal void MarkArdyConstraintsDirty() => ArdyConstraintsDirty = true;
-        internal void MarkArdySettingsDirty() => ArdySettingsDirty = true;
-
-        internal void SetArdyPlaybackReserve(float seconds) =>
-            ArdyPlaybackReserveSeconds = Mathf.Max(0.2f, seconds);
-
-        internal void ResetArdy(float playbackReserveSeconds)
-        {
-            ArdyResolvedSeed = null;
-            ArdyStarted = false;
-            ArdyPromptDirty = true;
-            ArdyConstraintsDirty = true;
-            ArdySettingsDirty = true;
-            RefreshPending = false;
-            SetArdyPlaybackReserve(playbackReserveSeconds);
-        }
+        internal int ResolveRequestSeed(bool randomSeed, int fixedSeed) =>
+            randomSeed ? (Guid.NewGuid().GetHashCode() & int.MaxValue) : fixedSeed;
 
         internal void Capture(KimodoRuntimeSessionSignature signature)
         {
@@ -237,18 +160,6 @@ namespace KimodoBridge
             signature = appliedSignature;
             return hasAppliedSignature;
         }
-
-        internal static bool ShouldRequestArdyGeneration(
-            float bufferedDurationSeconds,
-            float playbackReserveSeconds,
-            bool refreshPending) =>
-            refreshPending || bufferedDurationSeconds <= Mathf.Max(0.2f, playbackReserveSeconds);
-
-        internal static bool ShouldDiscardResult(
-            bool isArdy,
-            bool staleRequest,
-            bool lifetimeCancelled) =>
-            lifetimeCancelled || (!isArdy && staleRequest);
 
         public void Dispose()
         {
