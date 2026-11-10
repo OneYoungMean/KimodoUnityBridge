@@ -5,7 +5,7 @@
 ## 文档职责
 
 - [`AGENTS.md`](AGENTS.md)：仓库维护、协作和验证规则。
-- [`DEVELOPMENT.md`](DEVELOPMENT.md)：当前命令面和产品边界的开发快照。
+- [`DEVELOPMENT.md`](DEVELOPMENT.md)：当前命令面和产品边界的开发快照；[后端生成编排](DEVELOPMENT.md#backend-owned-generation-2026-11-09)包含阶段职责、TCP 请求、KMB 附件、Loop 帧范围和 Debug 返回/写入说明。
 - [`plan.md`](plan.md)：文档与兼容性维护计划，包含当前 Constraint 输入、类型推断与协议折叠边界。
 - [`animation-workflow-test-cases.md`](animation-workflow-test-cases.md)：通用动画循环交互式验收测试案例。
 - [`KIMODO_CPP_INTEGRATION_TODO.md`](KIMODO_CPP_INTEGRATION_TODO.md)：原生后端接入 TODO。
