@@ -25,7 +25,7 @@ from tqdm.auto import tqdm
 from core import quickserver_assets as assets
 from core.protocol.kmb_motion import KmbClipMask, KmbMotion, clip_source_frame_indices, encode_kmb1, parse_constraints, parse_kmb1, parse_kmb_clip
 from core.protocol.timeline_segments import parse_timeline_segments
-from kimodo.frame_time import seconds_to_frame_count
+from kimodo.frame_time import seconds_to_frame_count, seconds_to_protocol_frame_index
 
 
 class GenerateCancelledError(Exception):
@@ -1382,14 +1382,74 @@ def _sample_reference_keyframes(base_json, attachments, fps, plan, warnings):
     return json.dumps(records, separators=(",", ":"))
 
 
-def _replace_root2d_constraints(base_json: str, replacement: dict | None) -> str:
-    """Replace only Root2D records, preserving every pose and ClipConstraint."""
+def _root2d_keyframe_indices(root: dict, authored_frames: set[int]) -> list[int]:
+    """Keep geometric waypoints without preserving per-frame movement speed."""
+    frames = root["frame_indices"]
+    if len(frames) <= 2:
+        return list(range(len(frames)))
+    points = np.asarray(root["smooth_root_2d"], dtype=np.float64)
+    if "global_root_heading" in root:
+        # A 25 cm heading lever arm also retains sparse anchors for turns in place.
+        points = np.column_stack((points, 0.25 * np.asarray(root["global_root_heading"])))
+    selected = {0, len(frames) - 1}
+    selected.update(index for index, frame in enumerate(frames) if frame in authored_frames)
+    for index in range(1, len(frames)):
+        if frames[index] > frames[index - 1] + 1:
+            selected.update((index - 1, index))
+    anchors = sorted(selected)
+    pending = list(zip(anchors, anchors[1:]))
+    while pending:
+        start, end = pending.pop()
+        if end <= start + 1:
+            continue
+        direction = points[end] - points[start]
+        offsets = points[start + 1:end] - points[start]
+        length_squared = float(direction @ direction)
+        progress = np.clip(offsets @ direction / length_squared, 0, 1) if length_squared > 1e-12 else np.zeros(len(offsets))
+        distances = np.linalg.norm(offsets - progress[:, None] * direction, axis=1)
+        furthest = int(np.argmax(distances))
+        if distances[furthest] > 0.05:
+            middle = start + 1 + furthest
+            selected.add(middle)
+            pending.extend(((start, middle), (middle, end)))
+    return sorted(selected)
+
+
+def _replace_root2d_constraints(base_json: str, replacement: dict, plan: dict, fps: float) -> str:
+    """Apply sparse trajectory anchors within the output range, outside reference windows."""
     try:
         base = parse_constraints(base_json) if base_json else []
     except Exception as exc:
         raise ValueError(f"constraints_json cannot replace Root2D constraints: {exc}") from exc
+    authored_frames = {frame for item in base if str(item.get("type", "")).lower() == "root2d"
+                       for frame in item.get("frame_indices", [])}
     kept = [item for item in base if str(item.get("type", "")).lower() != "root2d"]
-    if replacement is not None:
+    windows = []
+    for item in kept:
+        if item.get("type") != "clip" or item.get("purpose") not in ("outside_in", "outside_out"):
+            continue
+        targets = item.get("target_frame_indices")
+        if targets is not None:
+            windows.append(range(targets[0], targets[-1] + 1))
+        else:
+            start = seconds_to_protocol_frame_index(item["start_time"], fps)
+            windows.append(range(start, start + seconds_to_frame_count(item["duration"], fps)))
+    start = plan.get("output_start_frame") or 0
+    count = plan.get("output_frame_count")
+    end = None if count is None else start + count
+    # The whole reference window keeps its own root motion, including between pose samples.
+    indices = [i for i, frame in enumerate(replacement["frame_indices"])
+               if start <= frame and (end is None or frame < end)
+               and not any(frame in window for window in windows)]
+    replacement = dict(replacement)
+    for key in ("frame_indices", "smooth_root_2d", "global_root_heading"):
+        if key in replacement:
+            replacement[key] = [replacement[key][i] for i in indices]
+    indices = _root2d_keyframe_indices(replacement, authored_frames)
+    for key in ("frame_indices", "smooth_root_2d", "global_root_heading"):
+        if key in replacement:
+            replacement[key] = [replacement[key][i] for i in indices]
+    if replacement["frame_indices"]:
         kept.append(replacement)
     return json.dumps(kept, separators=(",", ":"))
 
@@ -1843,7 +1903,7 @@ def _execute_generation_plan(
             immediate_json,
         )
         if root_constraint is not None:
-            stage2_json = _replace_root2d_constraints(stage2_json, root_constraint)
+            stage2_json = _replace_root2d_constraints(stage2_json, root_constraint, plan, model.fps)
 
     stage2_output = None
     if stage2_enabled:
@@ -1867,7 +1927,7 @@ def _execute_generation_plan(
             angle = math.radians(float(trajectory.get("heading_degrees", 0.0)))
             root_constraint["global_root_heading"] = [[math.cos(angle), -math.sin(angle)] for _ in root_constraint["frame_indices"]]
         if root_constraint is not None:
-            final_json = _replace_root2d_constraints(final_json, root_constraint)
+            final_json = _replace_root2d_constraints(final_json, root_constraint, plan, model.fps)
     if stage2_kmb_motion is not None and stage_attachments is not None:
         if post_apply.get("inside", False):
             final_json = _replace_inside_clip_root_tracks(

@@ -163,7 +163,9 @@ Post Apply 是 Stage 3 前的一次统一约束准备，不单独调用模型：
 - Inside：保留原始身体姿势；启用 Post Apply 时使用 Stage 2 对应时间的根 XZ 和 Yaw，保留高度、Pitch/Roll 和身体关节。
 - Trajectory 下的 FullBody/Effector：同样使用 Stage 2 根 XZ 和 Yaw；显式 Effector 世界空间目标继续遵循现有约束语义。
 
-RootY 在此明确指 Yaw。路径角度与距离组合继续使用原 Bezier/路径语义，并延伸至必要的 Outside 上下文。测得距离和 Stage 2 轨迹均为后端内部数据。
+RootY 在此明确指 Yaw。路径角度与距离组合继续使用原 Bezier/路径语义。Stage 2/3 写入模型的自动 Root2D 只保留可见输出范围内的稀疏几何关键点，并排除整个 Outside In/Out 参考窗口。直线路径保留起终点；曲线和朝向变化按 5 cm 几何误差筛选必要锚点，显式路径点的帧位置继续保留。筛选不按逐帧时间插值误差保留点，因此不会回灌整段匀速路径或锁住 Stage 2 的加减速节奏。
+
+完整逐帧轨迹仍留在后端，用于测距、Debug、Outside 整段锚点偏移，以及 Inside/FullBody/Effector 对应姿势帧的 Post Apply XZ/Yaw 取样；这些内部数据不会额外展开为逐帧 Root2D 模型约束。
 
 每次模型调用按以下顺序执行：组装该阶段真实约束 → 应用 Post Apply → 调用现有 Anchor 归一化 → 模型生成 → 使用同一 Anchor 恢复输出 → 进行窗口拼接和最终裁剪。无真实约束时跳过 Anchor 归一化。请求不注入额外单帧 Begin 约束，Stage 3 后也不追加改变原点的 Root 变换。
 
@@ -257,3 +259,11 @@ Current analysis images use the active SceneView camera through `CaptureInject/E
 Shader use remains in scene materials: `Command/command_capture.cs` selects an existing built-in pipeline Shader for trajectory/helper LineRenderers, and `Editor/Constraints/Preview/KimodoConstraintPoseRigFactory.cs` copies the character's existing materials for pose previews. These are part of SceneView rendering and remain active.
 
 Verification: all eight moved files retained their SHA256 hashes; active package and FullDemo reference scans and `git diff --check` passed. Unity 2022.3.62f3c1 completed import/compilation and the focused `PoseRigClone_CopiesStaticMeshRenderer` Edit Mode test (1 passed, 0 failed). Result: `C:\nvlab\KimodoUnityBridge_FullDemo\Logs\shader-archive-20261110_131349.xml`. This was a headless check; screenshot appearance has not been visually verified.
+
+## ARDY 回退检查点（2026-11-11）
+
+用户在真实 Timeline 播放中观察到 History 范围异常抖动后，撤回尚未提交的 2.2.24 History 采样、History→In 对齐和固定时长 ARDY 约束修正/反馈变更，恢复修复前的 ARDY 链路。保留 2.2.23 的稀疏 Root2D 轨迹与 Outside 窗口排除规则。此前的数值约束对齐检查没有验证整段 History 的播放质量，不能据此认定抖动已解决。
+
+回退前全部未提交文件、完整 Git patch 和 SHA256 清单保留在 `C:\nvlab\archive\ardy-history-rollback-20261111_145716`。本次不修改已有生成资产，也不下载模型；抖动根因留待以此检查点为基线进一步排查。
+
+回退后验证：协议与阶段编排 Python 测试 130 项通过；当前 Unity 6000.5.7f1 项目重新导入并编译通过；`git diff --check` 通过。此次检查不包含重新生成或播放验收。

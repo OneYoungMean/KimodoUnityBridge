@@ -377,9 +377,10 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual(model.call_count, 2)
         self.assertEqual(kimodo_runtime._motion_output_frame_count(output), 5)
         self.assertEqual(len(loaded_constraints), 2)
-        for constraints in loaded_constraints:
-            root = next(item for item in constraints if item.get("type") == "root2d")
-            self.assertEqual(root["frame_indices"], list(range(5)))
+        stage2_root = next(item for item in loaded_constraints[0] if item.get("type") == "root2d")
+        self.assertEqual(stage2_root["frame_indices"], list(range(5)))
+        stage3_root = next(item for item in loaded_constraints[1] if item.get("type") == "root2d")
+        self.assertEqual(stage3_root["frame_indices"], [0, 4])
         path = np.asarray(loaded_constraints[0][-1]["smooth_root_2d"], dtype=np.float32)
         np.testing.assert_allclose(path[-1], [-8 / math.pi, 8 / math.pi], atol=1e-6)
 
@@ -472,10 +473,122 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         ]
         replacement = {"type": "root2d", "frame_indices": [0, 5], "smooth_root_2d": [[0, 0], [0, 3]]}
 
-        actual = json.loads(kimodo_runtime._replace_root2d_constraints(json.dumps(original), replacement))
+        actual = json.loads(kimodo_runtime._replace_root2d_constraints(json.dumps(original), replacement, {}, 30.0))
 
         self.assertEqual(actual[:2], original[:2])
         self.assertEqual(actual[2], replacement)
+
+    def test_automatic_straight_path_does_not_lock_the_acceleration_profile(self):
+        for fps in (30, 60):
+            frames = np.arange(3 * fps + 1)
+            positions = np.stack((np.zeros(len(frames)), 2 * (frames / frames[-1]) ** 2), axis=1)
+            replacement = {"type": "root2d", "frame_indices": frames.tolist(),
+                           "smooth_root_2d": positions.tolist(),
+                           "global_root_heading": [[1.0, 0.0] for _ in frames]}
+            before = json.dumps(replacement)
+            with self.subTest(fps=fps):
+                actual = json.loads(kimodo_runtime._replace_root2d_constraints(
+                    "[]", replacement, {"output_start_frame": fps, "output_frame_count": fps + 1}, fps))[0]
+                self.assertEqual(actual["frame_indices"], [fps, 2 * fps])
+                np.testing.assert_allclose(actual["smooth_root_2d"], positions[[fps, 2 * fps]])
+                self.assertEqual(actual["global_root_heading"], [[1.0, 0.0], [1.0, 0.0]])
+                self.assertEqual(json.dumps(replacement), before)
+
+    def test_sparse_automatic_path_preserves_curvature_and_authored_waypoint_frames(self):
+        angles = np.linspace(0, math.pi / 2, 121)
+        positions = 2 * np.stack((np.cos(angles), np.sin(angles)), axis=1)
+        replacement = {"type": "root2d", "frame_indices": list(range(len(angles))),
+                       "smooth_root_2d": positions.tolist()}
+        authored = {"type": "root2d", "frame_indices": [37], "smooth_root_2d": [positions[37].tolist()]}
+        actual = json.loads(kimodo_runtime._replace_root2d_constraints(
+            json.dumps([authored]), replacement, {}, 30))[0]
+        indices = actual["frame_indices"]
+        self.assertEqual(indices[0], 0)
+        self.assertEqual(indices[-1], 120)
+        self.assertIn(37, indices)
+        self.assertLess(len(indices), 20)
+        for start, end in zip(indices, indices[1:]):
+            direction = positions[end] - positions[start]
+            offsets = positions[start:end + 1] - positions[start]
+            progress = np.clip(offsets @ direction / (direction @ direction), 0, 1)
+            distances = np.linalg.norm(offsets - progress[:, None] * direction, axis=1)
+            self.assertLessEqual(float(distances.max()), 0.05 + 1e-8)
+
+    def test_sparse_automatic_path_keeps_in_place_turns_and_single_frame_ranges(self):
+        angles = np.linspace(0, 2 * math.pi, 121)
+        replacement = {"type": "root2d", "frame_indices": list(range(len(angles))),
+                       "smooth_root_2d": [[0.0, 0.0] for _ in angles],
+                       "global_root_heading": np.stack((np.cos(angles), -np.sin(angles)), axis=1).tolist()}
+        actual = json.loads(kimodo_runtime._replace_root2d_constraints("[]", replacement, {}, 30))[0]
+        self.assertEqual(actual["frame_indices"][0], 0)
+        self.assertEqual(actual["frame_indices"][-1], 120)
+        self.assertGreaterEqual(len(actual["frame_indices"]), 5)
+        self.assertLess(len(actual["frame_indices"]), 20)
+        np.testing.assert_allclose(actual["global_root_heading"],
+                                   np.asarray(replacement["global_root_heading"])[actual["frame_indices"]])
+        single = json.loads(kimodo_runtime._replace_root2d_constraints(
+            "[]", replacement, {"output_start_frame": 60, "output_frame_count": 1}, 30))[0]
+        self.assertEqual(single["frame_indices"], [60])
+
+    def test_outside_windows_exclude_automatic_trajectory_in_each_stage(self):
+        for fps in (30.0, 60.0):
+            for post_in, post_out in ((False, False), (True, True), (True, False), (False, True)):
+                with self.subTest(fps=fps, post_in=post_in, post_out=post_out):
+                    reference = self._small_kmb(3)
+                    reference = KmbMotion(**{**reference.__dict__, "fps": fps})
+                    reference.root_positions[:] = [0, 1, 0]
+                    stage2 = self._small_kmb(12)
+                    stage2 = KmbMotion(**{**stage2.__dict__, "fps": fps})
+                    attachments = [encode_kmb1(reference), encode_kmb1(reference)]
+                    records = [
+                        {"type": "clip", "format": "kmb_attachment_v1", "attachment": index,
+                         "start_time": targets[0] / fps, "duration": 3 / fps,
+                         "purpose": purpose, "post_apply": post, "sample_count": 2,
+                         "target_frame_indices": targets}
+                        for index, (purpose, post, targets) in enumerate((
+                            ("outside_in", post_in, [-1, 0, 4]),
+                            ("outside_out", post_out, [8, 9, 10]),
+                        ))
+                    ]
+                    records[1].pop("target_frame_indices")
+                    request = {"debug": True, "stage_plan": {
+                        "target_frame_count": 12, "output_start_frame": 3, "output_frame_count": 6,
+                        "trajectory": {"enabled": True, "override_distance": True,
+                                       "override_path_angle": True, "distance": 2.0,
+                                       "override_heading": True, "heading_degrees": 0.0}}}
+                    output = {"posed_joints": np.zeros((1, 12, 2, 3), dtype=np.float32),
+                              "root_positions": stage2.root_positions[None],
+                              "global_root_heading": np.tile([[[1.0, 0.0]]], (1, 12, 1))}
+                    calls = []
+
+                    def invoke(name, constraints, purpose, frame_count):
+                        calls.append((name, json.loads(constraints)))
+                        self.assertEqual(frame_count, 12)
+                        return dict(output)
+
+                    with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(stage2)):
+                        result, artifacts, _ = kimodo_runtime._execute_generation_plan(
+                            request, SimpleNamespace(fps=fps), json.dumps(records), invoke,
+                            stage_attachments=attachments)
+                    self.assertEqual([name for name, _ in calls], ["Stage 2", "Stage 3"])
+                    for name, constraints in calls:
+                        root = next(item for item in constraints if item.get("type") == "root2d")
+                        expected = [5, 7] if name == "Stage 3" else [3 if post_in else 5, 8 if post_out else 7]
+                        self.assertEqual(root["frame_indices"], expected)
+                        self.assertEqual(len(root["smooth_root_2d"]), len(expected))
+                        self.assertEqual(len(root["global_root_heading"]), len(expected))
+                        if name == "Stage 3":
+                            np.testing.assert_allclose(root["smooth_root_2d"], stage2.root_positions[expected][:, [0, 2]])
+                    for purpose, post, anchor, target in (("outside_in", post_in, -1, 4), ("outside_out", post_out, 0, 8)):
+                        clip = next(item for item in calls[-1][1] if item.get("purpose") == purpose)
+                        self.assertEqual(clip["source_frame_indices"], [0, 2])
+                        roots = parse_kmb_clip(clip, tuple(attachments), fps).motion.root_positions
+                        np.testing.assert_allclose(roots[anchor], [target if post else 0, 1, 0])
+                    debug = json.loads(artifacts[-1].debug_constraints_json)
+                    self.assertEqual(next(item for item in debug if item["type"] == "root2d")["frame_indices"], [5, 7])
+                    final, metadata = kimodo_runtime._prepare_generation_output(request, result)
+                    self.assertEqual(kimodo_runtime._motion_output_frame_count(final), 6)
+                    self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata["_debug_motion_output"]), 24)
 
     def test_post_apply_fullbody_replaces_xz_and_yaw_but_keeps_height_and_body(self):
         from scipy.spatial.transform import Rotation
@@ -764,6 +877,7 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
             kimodo_runtime._execute_generation_plan(request, SimpleNamespace(fps=30.0), json.dumps([item]), invoke,
                                                     stage_attachments=attachments)
         self.assertEqual(calls[0], ("Stage 2", []))
+        self.assertEqual([item["type"] for item in calls[1][1]], ["clip"])
         final = next(item for item in calls[1][1] if item.get("purpose") == "outside_out")
         actual = parse_kmb_clip(final, tuple(attachments), 30.0).motion.root_positions
         np.testing.assert_allclose(actual[:, [0, 2]], stage2.root_positions[:, [0, 2]])
