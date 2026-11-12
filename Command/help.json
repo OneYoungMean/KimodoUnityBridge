@@ -417,6 +417,9 @@
                     "kind": {
                       "type": "string"
                     },
+                    "asset_type": {
+                      "type": "string"
+                    },
                     "start_timeline_frame_60": {
                       "type": "integer"
                     },

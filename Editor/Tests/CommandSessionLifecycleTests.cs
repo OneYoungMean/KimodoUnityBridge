@@ -422,6 +422,113 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void SessionContext_ReportsKimodoPlayableClipAssetType()
+        {
+            SceneSetup[] previousSceneSetup = EditorSceneManager.GetSceneManagerSetup();
+            Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            GameObject sessionRoot = null;
+            string timelinePath = $"Assets/Archive/KimodoCommandTests/Timelines/ClipKind_{Guid.NewGuid():N}.playable";
+            EnsureAssetFolder("Assets/Archive/KimodoCommandTests/Timelines");
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            AnimationClip ordinarySource = new AnimationClip { name = "ClipKindOrdinarySource" };
+            Guid sessionId = Guid.Empty;
+            try
+            {
+                AssetDatabase.CreateAsset(timeline, timelinePath);
+                sessionId = Guid.Parse(AssetDatabase.AssetPathToGUID(timelinePath));
+                sessionRoot = new GameObject(KimodoRuntimeUtility.SessionRootPrefix + "ClipKindTest");
+                KimodoDisableOnRuntime.Ensure(sessionRoot);
+                PlayableDirector director = sessionRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                GameObject character = new GameObject("ClipKindCharacter");
+                Animator animator = character.AddComponent<Animator>();
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, character.name);
+                director.SetGenericBinding(track, animator);
+                timeline.CreateTrack<AnimationTrack>(track, character.name + ".Poses");
+
+                TimelineClip ordinaryTimelineClip = track.CreateClip<AnimationPlayableAsset>();
+                AssetDatabase.AddObjectToAsset(ordinarySource, timeline);
+                ((AnimationPlayableAsset)ordinaryTimelineClip.asset).clip = ordinarySource;
+                ordinaryTimelineClip.displayName = "ClipKindOrdinary";
+                ordinaryTimelineClip.start = 0d;
+                ordinaryTimelineClip.duration = 1d;
+
+                TimelineClip kimodoTimelineClip = track.CreateClip<KimodoPlayableClip>();
+                kimodoTimelineClip.displayName = "ClipKindGenerated";
+                kimodoTimelineClip.start = 2d;
+                kimodoTimelineClip.duration = 1d;
+                AssetDatabase.SaveAssets();
+
+                JObject context = JObject.Parse(command_dispatcher.Invoke("session.context", "{'details':['clips']}"));
+                Assert.That(context.Value<bool>("ok"), Is.True, context.ToString());
+                JArray clips = context["details"]?["clips"] as JArray;
+                Assert.That(clips?.Count, Is.EqualTo(2));
+                JObject ordinary = clips.Values<JObject>().Single(item => item.Value<string>("name") == "ClipKindOrdinarySource");
+                JObject kimodo = clips.Values<JObject>().Single(item => item.Value<string>("name") == "ClipKindGenerated");
+                Assert.That(ordinary.Value<string>("kind"), Is.EqualTo("animation_clip"));
+                Assert.That(ordinary.Value<string>("asset_type"), Is.EqualTo(nameof(AnimationPlayableAsset)));
+                Assert.That(kimodo.Value<string>("kind"), Is.EqualTo("kimodo_clip"));
+                Assert.That(kimodo.Value<string>("asset_type"), Is.EqualTo(nameof(KimodoPlayableClip)));
+                Assert.That(kimodo.Value<string>("animation_id"), Is.Empty,
+                    "A generated placeholder without an AnimationClip is still projected by its Timeline asset type.");
+            }
+            finally
+            {
+                if (sessionRoot != null) UnityEngine.Object.DestroyImmediate(sessionRoot);
+                if (sessionId != Guid.Empty) ArchiveSessionData(sessionId);
+                ArchiveTimelineAsset(timelinePath);
+                if (previousSceneSetup.Any(setup => setup.isLoaded))
+                    EditorSceneManager.RestoreSceneManagerSetup(previousSceneSetup);
+                else
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+                AssetDatabase.Refresh();
+            }
+        }
+
+        [Test]
+        public void PrepareGenerationTrace_UsesResolvedSessionAndCurrentTimelineEnd()
+        {
+            Avatar avatar = AssetDatabase.LoadAllAssetsAtPath(HumanoidModelPath).OfType<Avatar>()
+                .First(item => item.isValid && item.isHuman);
+            GameObject root = CreateHumanoidCharacter("GenerationTraceCharacter", avatar);
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                var session = (command_context.TimelineSessionRecord)CreateSessionRecord(
+                    typeof(command_context.TimelineSessionRecord), timeline, null, null);
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, root.name);
+                var character = new command_context.TimelineCharacterRecord(
+                    "generation-trace-test", root, root.GetComponentInChildren<Animator>(),
+                    avatar, track, track, string.Empty);
+                session.Characters.Add(character);
+                TimelineClip existing = track.CreateClip<AnimationPlayableAsset>();
+                existing.start = 1d;
+                existing.duration = 2d;
+                MethodInfo prepare = typeof(command_context).GetMethod(
+                    "PrepareGenerationTrace", BindingFlags.Static | BindingFlags.NonPublic);
+
+                object trace = prepare.Invoke(null, new object[] { session, character, 2d });
+                Type traceType = trace.GetType();
+                Assert.That(traceType.GetProperty("Session").GetValue(trace), Is.SameAs(session));
+                Assert.That(traceType.GetProperty("Character").GetValue(trace), Is.SameAs(character));
+                Assert.That((double)traceType.GetProperty("StartSeconds").GetValue(trace),
+                    Is.EqualTo(existing.end + command_context.ClipSafeZoneSeconds).Within(1e-6));
+                Assert.That((double)traceType.GetProperty("DurationSeconds").GetValue(trace), Is.EqualTo(2d));
+
+                var foreignSession = (command_context.TimelineSessionRecord)CreateSessionRecord(
+                    typeof(command_context.TimelineSessionRecord), timeline, null, null);
+                TargetInvocationException rejected = Assert.Throws<TargetInvocationException>(() =>
+                    prepare.Invoke(null, new object[] { foreignSession, character, 2d }));
+                Assert.That(rejected.InnerException.Message, Does.Contain("not in the active scene context"));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void BindTimelineCharacter_UsesOriginalAnimatorAndArchivesLegacyGhost()
         {
             Type context = typeof(command_dispatcher).Assembly.GetType("KimodoUnityBridge.Command.command_context");

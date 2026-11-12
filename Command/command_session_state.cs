@@ -418,9 +418,8 @@ namespace KimodoUnityBridge.Command
             return name;
         }
 
-        private static TimelineGenerationTrace PrepareGenerationTrace(JObject arguments, TimelineCharacterRecord character, double duration)
+        private static TimelineGenerationTrace PrepareGenerationTrace(TimelineSessionRecord session, TimelineCharacterRecord character, double duration)
         {
-            TimelineSessionRecord session = RequireTimelineSession(arguments);
             if (!session.Characters.Contains(character))
             {
                 throw new InvalidOperationException($"Character '{character.Name}' is not in the active scene context.");
@@ -1177,7 +1176,10 @@ namespace KimodoUnityBridge.Command
                         ["track"] = character.Track.name,
                         ["animation_id"] = animation != null ? animation.Id.ToString("D") : string.Empty,
                         ["name"] = playable.clip != null ? playable.clip.name : timelineClip.displayName,
-                        ["kind"] = animation?.Kind ?? "timeline_clip",
+                        ["kind"] = timelineClip.asset is KimodoPlayableClip
+                            ? "kimodo_clip"
+                            : animation?.Kind ?? "timeline_clip",
+                        ["asset_type"] = timelineClip.asset != null ? timelineClip.asset.GetType().Name : string.Empty,
                         ["start_timeline_frame_60"] = Mathf.RoundToInt((float)(timelineClip.start * SessionFrameRate)),
                         ["duration_frames"] = Mathf.RoundToInt((float)(timelineClip.duration * SessionFrameRate)),
                         ["asset_path"] = playable.clip != null ? AssetDatabase.GetAssetPath(playable.clip) : string.Empty
@@ -1437,6 +1439,7 @@ namespace KimodoUnityBridge.Command
                 KmbBytes = kmbBytes;
                 StartFrame = startFrame;
                 EndFrameExclusive = endFrameExclusive;
+                Kind = timelineClip?.asset is KimodoPlayableClip ? "kimodo_clip" : "animation_clip";
                 if (timelineClip != null)
                 {
                     timelineSegments.Add(new TimelineAnimationSegment("clip", clip, timelineClip));
@@ -1449,7 +1452,7 @@ namespace KimodoUnityBridge.Command
             public string Source { get; }
             public AnimationClip Clip { get; private set; }
             public TimelineClip TimelineClip { get; }
-            public string Kind { get; private set; } = "animation_clip";
+            public string Kind { get; private set; }
             public JObject Transition { get; private set; }
             public IReadOnlyList<TimelineAnimationSegment> TimelineSegments => timelineSegments;
             public JObject Analysis { get; private set; }

@@ -391,7 +391,7 @@ namespace KimodoUnityBridge.Command
                 {
                     JObject details = new JObject { ["type"] = "object", ["properties"] = new JObject(), ["additionalProperties"] = false };
                     details["properties"]["characters"] = ArraySchema("object", "name", "object_ref", "scene_object", "animator", "avatar", "avatar_valid_humanoid");
-                    details["properties"]["clips"] = ArraySchema("object", "character", "track", "animation_id", "name", "kind", "start_timeline_frame_60", "duration_frames", "asset_path");
+                    details["properties"]["clips"] = ArraySchema("object", "character", "track", "animation_id", "name", "kind", "asset_type", "start_timeline_frame_60", "duration_frames", "asset_path");
                     details["properties"]["timeline"] = ObjectSchema("duration_frames_60", "frame_rate", "current_frame_60", "tracks");
                     details["properties"]["tasks"] = ArraySchema("object", "request_id", "status", "character", "animation");
                     details["properties"]["timeline"]["properties"]["tracks"] = ArraySchema("object", "name", "type", "clip_count");
@@ -613,7 +613,7 @@ namespace KimodoUnityBridge.Command
             {
                 properties[name] = name switch
                 {
-                    "name" or "character" or "source" or "kind" or "asset_path" or "analysis_schema_version" or "track" or
+                    "name" or "character" or "source" or "kind" or "asset_type" or "asset_path" or "analysis_schema_version" or "track" or
                     "analysis_mode" or "phase_track_version" or "tile" or "view" or "projection" or "key" or "role" or
                     "scene_object" or "object_ref" or "animator" or "avatar" or "hierarchy_path" or "playable_asset" or
                     "render_version" or "level" or "aspect" or "image_path" or "output" or "mode" or "path" or "type" or "clip" or "screenshot_generated_at" => new JObject { ["type"] = "string" },

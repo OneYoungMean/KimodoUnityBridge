@@ -279,9 +279,8 @@ namespace KimodoUnityBridge.Command
         {
             var signature = new JObject
             {
-                // v8 removes the disconnected empty-options field; older records
-                // no longer match this cache contract and are recalculated.
-                ["contract"] = "animation_analysis_picture_v8_force_line_command_60",
+                // Recompute trajectories cached with the preceding clip at a shared boundary.
+                ["contract"] = "animation_analysis_picture_v9_shared_boundary_command_60",
                 ["character_ref"] = character?.CharacterRef ?? string.Empty,
                 ["rig_type"] = IsHumanoidCharacter(character) ? "humanoid" : "mesh",
                 ["animation_id"] = animation?.Id.ToString("D") ?? string.Empty,

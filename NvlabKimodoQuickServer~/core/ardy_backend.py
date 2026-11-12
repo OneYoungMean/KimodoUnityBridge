@@ -378,6 +378,15 @@ def _motion_to_tensor(motion: KmbMotion, model: Any, start: int, end: int):
     return tensor.unsqueeze(0) if tensor.ndim == 2 else tensor
 
 
+def _join_explicit_history_and_generated(history: Any, generated: Any):
+    """Keep the supplied History exact; append only newly generated frames."""
+    if history is None or int(history.shape[1]) == 0:
+        return generated
+    import torch
+
+    return torch.cat((history, generated), dim=1)
+
+
 def _normalize_fixed_clip_constraints(value, attachments, model, profile):
     """Normalize real KMB and point constraints together before ARDY feature encoding."""
     import torch
@@ -1650,13 +1659,21 @@ class ArdySession:
 
         generation_callback = getattr(self, "generation_callback", None)
         if generation_callback is not None:
-            generation_callback(window_start, to_numpy(model.motion_rep.inverse(motion, is_normalized=True)))
+            # The model decodes the latent History again as part of the autoregressive
+            # window. That reconstruction is suitable as model context, but it is not
+            # the source Timeline motion and can introduce visible joint flips in Debug.
+            debug_motion = _join_explicit_history_and_generated(history, generated)
+            generation_callback(
+                window_start,
+                to_numpy(model.motion_rep.inverse(debug_motion, is_normalized=True)),
+            )
 
         generated_cpu = generated.detach().cpu()
         self.motion_cpu = generated_cpu if self.motion_cpu is None else torch.cat((self.motion_cpu, generated_cpu), dim=1)
-        keep = min(self.settings.history_crop_frames, int(motion.shape[1]))
+        history_and_generated = _join_explicit_history_and_generated(history, generated)
+        keep = min(self.settings.history_crop_frames, int(history_and_generated.shape[1]))
         keep -= keep % int(self.profile.frames_per_token)
-        self.history_cpu = motion[:, -keep:].detach().cpu() if keep > 0 else None
+        self.history_cpu = history_and_generated[:, -keep:].detach().cpu() if keep > 0 else None
         self.outputs = _append_outputs(self.outputs, to_numpy(output))
         elapsed = max(0.001, time.perf_counter() - started)
         if self.progress is not None:

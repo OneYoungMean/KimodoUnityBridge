@@ -255,6 +255,7 @@ namespace KimodoUnityBridge.Command
             }
 
             TimelineClip sourceClip = character.Track.GetClips()
+                .OrderByDescending(item => item.start)
                 .FirstOrDefault(item =>
                     (sampleTime >= item.start ||
                         KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(sampleTime, item.start)) &&
@@ -470,6 +471,7 @@ namespace KimodoUnityBridge.Command
 
             double sampleTime = startFrame / SessionFrameRate;
             TimelineClip sourceClip = character.Track.GetClips()
+                .OrderByDescending(item => item.start)
                 .FirstOrDefault(item =>
                     (sampleTime >= item.start ||
                         KimodoTimelinePreviewRefreshUtility.ApproximatelyTimelineTime(sampleTime, item.start)) &&

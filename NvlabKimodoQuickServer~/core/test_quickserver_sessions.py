@@ -1750,6 +1750,15 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         self.assertEqual((history_len, window_start), (40, 0))
         self.assertTrue(torch.equal(history, torch.ones_like(history)))
 
+    def test_generated_horizon_keeps_explicit_history_for_debug_and_rollover(self):
+        history = torch.arange(12, dtype=torch.float32).reshape(1, 4, 3)
+        generated = torch.arange(24, 30, dtype=torch.float32).reshape(1, 2, 3)
+        combined = ardy_backend._join_explicit_history_and_generated(history, generated)
+
+        self.assertTrue(torch.equal(combined[:, :4], history))
+        self.assertTrue(torch.equal(combined[:, 4:], generated))
+        self.assertTrue(torch.equal(ardy_backend._join_explicit_history_and_generated(None, generated), generated))
+
     def test_explicit_history_is_token_aligned_and_capped(self):
         session = self._fake_ardy_session()
         session._normalize_constraint_origin = True

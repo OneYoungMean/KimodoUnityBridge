@@ -945,7 +945,7 @@ namespace KimodoUnityBridge.Command
                         ? "Generation preflight failed because the requested duration or root speed/acceleration exceeds a hard limit."
                         : blockingMessage);
                 }
-                TimelineGenerationTrace trace = PrepareGenerationTrace(arguments, character, duration);
+                TimelineGenerationTrace trace = PrepareGenerationTrace(session, character, duration);
                 bool hasInOut = (arguments["constraints"] as JArray)?.OfType<JObject>()
                     .Any(item => item.Property("inout") != null) == true;
                 bool hasInside = (arguments["constraints"] as JArray)?.OfType<JObject>()
