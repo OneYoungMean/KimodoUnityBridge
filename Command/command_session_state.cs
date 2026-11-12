@@ -592,6 +592,12 @@ namespace KimodoUnityBridge.Command
             if (!IsSceneContextBound(trace.Session))
                 throw new InvalidOperationException("Scene context was closed before generation could be started.");
             double reservedEnd = trace.StartSeconds + trace.DurationSeconds;
+            foreach (CommandInOutEvidencePlan output in trace.InOutEvidencePlans.Where(item => !item.IsIn))
+            {
+                reservedEnd = Math.Max(
+                    reservedEnd,
+                    trace.StartSeconds + trace.DurationSeconds + output.Window.SourceWindowDurationSeconds);
+            }
             trace.Character.NextStartSeconds = reservedEnd + ClipSafeZoneSeconds;
         }
 
@@ -1541,6 +1547,7 @@ namespace KimodoUnityBridge.Command
             public TimelineClip TimelineClip { get; set; }
             public KimodoPlayableClip PlayableClip { get; set; }
             public JObject InOutSampling { get; set; }
+            public List<CommandInOutEvidencePlan> InOutEvidencePlans { get; } = new List<CommandInOutEvidencePlan>();
             public TimelineAnimationRecord Animation { get; set; }
         }
 

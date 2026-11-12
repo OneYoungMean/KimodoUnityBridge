@@ -961,6 +961,8 @@ namespace KimodoUnityBridge.Command
                         frameRate,
                         loopRequested,
                         poseConstraints);
+                    PrepareCommandOutsideEvidencePosition(trace);
+                    ValidateCommandTimelineRange(trace);
                 }
                 KimodoPlayableClip playableClip = CreateGenerationPlayableClip(trace, requestedAnimationName, false);
                 if (hasInOut)
@@ -974,6 +976,7 @@ namespace KimodoUnityBridge.Command
                         frameRate,
                         loopRequested,
                         poseConstraints);
+                    CreateCommandOutsideEvidenceClips(trace);
                 }
                 if (hasInside)
                     ConfigureCommandInsideClip(arguments, trace, playableClip);

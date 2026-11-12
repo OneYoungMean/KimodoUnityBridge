@@ -197,16 +197,39 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(diagnostics["runtime_model_frame_count"], Is.Not.Null);
                 Assert.That(diagnostics["crop_start_model_frame"], Is.Not.Null);
 
+                var prepare = typeof(command_context).GetMethod("PrepareCommandOutsideEvidencePosition", PrivateStatic);
+                var validate = typeof(command_context).GetMethod("ValidateCommandTimelineRange", PrivateStatic);
+                var createEvidence = typeof(command_context).GetMethod("CreateCommandOutsideEvidenceClips", PrivateStatic);
+                Assert.That(prepare, Is.Not.Null);
+                Assert.That(validate, Is.Not.Null);
+                Assert.That(createEvidence, Is.Not.Null);
+                prepare.Invoke(null, new object[] { trace });
+                validate.Invoke(null, new object[] { trace });
+
                 var playable = (KimodoPlayableClip)typeof(command_context).GetMethod("CreateGenerationPlayableClip", PrivateStatic)
                     .Invoke(null, new object[] { trace, "CommandOutput", true });
                 var output = (TimelineClip)traceType.GetProperty("TimelineClip").GetValue(trace);
+                configure.Invoke(null,
+                    new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
+                createEvidence.Invoke(null, new object[] { trace });
                 TimelineClip[] evidenceClips = track.GetClips()
                     .Where(clip => clip.asset is AnimationPlayableAsset && !(clip.asset is KimodoPlayableClip))
                     .Where(clip => (clip.displayName ?? string.Empty).StartsWith("InOut ", StringComparison.Ordinal))
                     .OrderBy(clip => clip.start)
                     .ToArray();
-                Assert.That(evidenceClips, Is.Empty);
-                Assert.That(output.start, Is.EqualTo(9.0 + command_context.ClipSafeZoneSeconds).Within(1e-8));
+                Assert.That(evidenceClips, Has.Length.EqualTo(2));
+                Assert.That(evidenceClips[0].displayName, Does.StartWith("InOut In "));
+                Assert.That(evidenceClips[1].displayName, Does.StartWith("InOut Out "));
+                Assert.That(evidenceClips[0].start, Is.EqualTo(9.0 + command_context.ClipSafeZoneSeconds).Within(1e-8));
+                Assert.That(output.start, Is.EqualTo(9.0 + command_context.ClipSafeZoneSeconds + 0.5).Within(1e-8));
+                Assert.That(evidenceClips[0].end, Is.EqualTo(output.start).Within(1e-8));
+                Assert.That(evidenceClips[1].start, Is.EqualTo(output.end).Within(1e-8));
+                Assert.That(evidenceClips[0].duration, Is.EqualTo(0.5).Within(1e-8));
+                Assert.That(evidenceClips[1].duration, Is.EqualTo(0.2).Within(1e-8));
+                Assert.That(evidenceClips[0].timeScale, Is.EqualTo(1.2).Within(1e-8));
+                Assert.That(evidenceClips[1].timeScale, Is.EqualTo(1.2).Within(1e-8));
+                Assert.That(evidenceClips[0].clipIn, Is.EqualTo(character.Animations[0].TimelineClip.ToLocalTime(1.5)).Within(1e-8));
+                Assert.That(evidenceClips[1].clipIn, Is.EqualTo(character.Animations[1].TimelineClip.ToLocalTime(4.0)).Within(1e-8));
                 Assert.That(character.Animations[0].TimelineClip.start, Is.EqualTo(0));
                 Assert.That(character.Animations[0].TimelineClip.duration, Is.EqualTo(2));
                 Assert.That(character.Animations[1].TimelineClip.start, Is.EqualTo(4));
@@ -221,8 +244,6 @@ namespace KimodoUnityBridge.Command.Tests
                     "Command-created clips enable Postapply Out without exposing a command option.");
                 Assert.That(output.duration, Is.EqualTo(2));
 
-                configure.Invoke(null,
-                    new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });
                 Assert.That(playable.inOutConstraintMode, Is.EqualTo(KimodoInOutConstraintMode.Outside));
                 Assert.That(playable.inConstraintSourceAsset, Is.SameAs(character.Animations[0].TimelineClip.asset));
                 Assert.That(playable.outConstraintSourceAsset, Is.SameAs(character.Animations[1].TimelineClip.asset));
