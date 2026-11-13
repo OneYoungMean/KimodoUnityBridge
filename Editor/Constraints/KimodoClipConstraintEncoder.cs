@@ -56,7 +56,28 @@ namespace KimodoBridge.Editor
                     source, out KimodoTimelineInOutConstraintContext context, out string error))
                 throw new InvalidOperationException(error);
             Avatar sourceAvatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator).Avatar;
-            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar targetAvatar, out error))
+            var times = new double[frameCount];
+            for (int frame = 0; frame < frameCount; frame++)
+                times[frame] = frame / (double)frameRate;
+            return EncodeOriginalAnimationAtTimes(animation, sourceAvatar, modelName, times, frameRate, token);
+        }
+
+        internal static byte[] EncodeOriginalAnimationAtTimes(
+            AnimationClip animation,
+            Avatar sourceAvatar,
+            string modelName,
+            IReadOnlyList<double> sampleTimes,
+            float frameRate,
+            CancellationToken token,
+            bool includeFootContacts = true)
+        {
+            if (animation == null)
+                throw new InvalidOperationException("Original AnimationClip is missing.");
+            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
+                throw new InvalidOperationException("Original AnimationClip requires a valid humanoid source Avatar.");
+            if (sampleTimes == null || sampleTimes.Count == 0 || frameRate <= 0f)
+                throw new ArgumentOutOfRangeException(nameof(sampleTimes), "ClipConstraint samples are invalid.");
+            if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar targetAvatar, out string error))
                 throw new InvalidOperationException(error);
             if (!KimodoRetargetToolsEditor.TryGetOrCreateEditorBoneClip(
                     animation, sourceAvatar, targetAvatar, out AnimationClip retargeted, out _, out error))
@@ -72,15 +93,15 @@ namespace KimodoBridge.Editor
                     throw new InvalidOperationException(error);
                 using (sampler)
                 {
-                    var samples = new BoneSample[frameCount];
-                    for (int frame = 0; frame < frameCount; frame++)
+                    var samples = new BoneSample[sampleTimes.Count];
+                    for (int frame = 0; frame < sampleTimes.Count; frame++)
                     {
                         token.ThrowIfCancellationRequested();
                         if (!KimodoRetargetSamplingUtility.TrySampleBoneClipSession(
-                                sampler, frame / (double)frameRate, out samples[frame], out error))
+                                sampler, Math.Max(0.0, Math.Min(animation.length, sampleTimes[frame])), out samples[frame], out error))
                             throw new InvalidOperationException(error);
                     }
-                    return EncodeSamples(modelName, cache, samples, frameRate, token, true);
+                    return EncodeSamples(modelName, cache, samples, frameRate, token, includeFootContacts);
                 }
             }
         }

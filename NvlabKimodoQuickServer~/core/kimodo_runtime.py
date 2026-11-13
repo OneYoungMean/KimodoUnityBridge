@@ -1960,7 +1960,8 @@ def _execute_generation_plan(
     output["_walking_distance"] = walking_distance
     output["_generation_warnings"] = warnings
     if loop_padding:
-        output["_output_range"] = (int(plan.get("output_start_frame") or 0) + loop_padding,
+        # Loop padding extends the tail; keep the original visible opening.
+        output["_output_range"] = (int(plan.get("output_start_frame") or 0),
                                    int(plan.get("output_frame_count") or base_frame_count))
     return output, artifacts, walking_distance
 

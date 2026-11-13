@@ -221,6 +221,64 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [TestCase(false)]
+        [TestCase(true)]
+        public void InsideConstraint_UsesPlayableAnimationWhenDirectReferenceIsNull(bool destroyedReference)
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoInsideReferenceTest");
+            RetargetSkeleton skeleton = null;
+            AnimationClip sourceClip = null;
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 2.0;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoInsideReferenceSkeleton");
+                Assert.That(KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    skeleton, out var pose, out string error), Is.True, error);
+                Assert.That(KimodoRetargetSamplingUtility.TryCreateTransientMuscleClip(
+                    Enumerable.Range(0, 61).Select(_ => pose.Clone()).ToArray(), 30,
+                    out sourceClip, out error), Is.True, error);
+                sourceClip.SampleAnimation(skeleton.root, 0);
+
+                var clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.clip = sourceClip;
+                clip.insideConstraintEnabled = true;
+                if (destroyedReference)
+                {
+                    clip.insideConstraintSourceClip = new AnimationClip();
+                    Object.DestroyImmediate(clip.insideConstraintSourceClip);
+                    Assert.That(ReferenceEquals(clip.insideConstraintSourceClip, null), Is.False);
+                    Assert.That(clip.insideConstraintSourceClip == null, Is.True);
+                }
+
+                var constraints = KimodoTimelineClipConstraintBuilder.Build(
+                    clip, timelineClip, KimodoMotionModelProfiles.DefaultModelName,
+                    30f, 0, 60, true, default);
+
+                Assert.That(constraints, Has.Count.EqualTo(1));
+                Assert.That(constraints[0].purpose, Is.EqualTo("inside"));
+                Assert.That(constraints[0].motionBytes, Is.Not.Empty);
+                CollectionAssert.AreEqual(Enumerable.Range(0, 60), constraints[0].targetFrameIndices);
+                Assert.That(clip.clip, Is.SameAs(sourceClip));
+            }
+            finally
+            {
+                skeleton?.Dispose();
+                if (sourceClip != null) Object.DestroyImmediate(sourceClip);
+                Object.DestroyImmediate(directorRoot);
+                foreach (TrackAsset track in timeline.GetOutputTracks().ToArray())
+                {
+                    foreach (TimelineClip item in track.GetClips()) Object.DestroyImmediate(item.asset);
+                    Object.DestroyImmediate(track);
+                }
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
         [Test]
         public void ArdyRequest_UsesAutoHistoryWithoutRetiredMotionLimits()
         {

@@ -47,7 +47,7 @@ namespace KimodoUnityBridge.Command
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120}"),
                     Example("Replay the exact server generate JSON returned by generation.get(include_request_json=true).",
                         @"{'character':'<character>','raw_instruction':{'role':'generate','text':'{""cmd"":""generate"",""prompt"":""walk forward"",""duration"":2.0,""output_format"":""kmb_v1""}'}}"),
-                    Example("Continue a source Clip using its final half-second sampled five times. Names must come from the current scene context; inspect inout_sampling after generation completes.",
+                    Example("Continue a source Clip using its final half-second sampled five times. The source may be a context name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId; inspect inout_sampling after generation completes.",
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120,'loop':{'enabled':false},'constraints':[{'inout':{'mode':'outside','in':{'source':{'clip':'<source clip>'},'window_frames':30,'sample_count':5}}}]}"),
                     Example("Use explicit previous/next Clips as context on both sides; crop context from the returned two-second output.",
                         @"{'character':'<character>','prompt':'<short action for one Clip>','duration_frames':120,'loop':{'enabled':false},'constraints':[{'inout':{'in':{'source':{'clip':'<previous clip>'},'window_frames':30,'sample_count':5},'out':{'source':{'clip':'<next clip>'},'window_frames':12,'sample_count':3}}}]}"),

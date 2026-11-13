@@ -125,14 +125,14 @@ namespace KimodoUnityBridge.Command
                     GetGenerationCommand),
                 AnimationAnalysisCommand => CommandDocumentation(
                     "Analyze one loaded animation Clip and produce structured motion data with a 20-tile SceneView image.",
-                    new[] { "Select a scene character and one loaded Clip name or Assets/Packages asset path; use one call per Clip.", "Inspect returned pictures for visual observations and structured fields for measurements." },
+                    new[] { "Select a scene character and one Clip reference; use a loaded name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId. Use one call per Clip.", "Inspect returned pictures for visual observations and structured fields for measurements." },
                     new[] { "Returns one structured Clip analysis and one 20-tile pictures object from the synchronous SceneView renderer. Frame positions use absolute Timeline coordinates.", "Phase and foot-contact durations use duration_frames_60; foot contacts expose timeline_frame_60. These frame values use the 60 FPS command/session basis.", "Root trajectory uses duration_frames_60 and sample_span_frames_60 on the 60 FPS command/session basis.", "Accepts the same camera object as pose.analysis. Unspecified camera settings retain their current values." },
                     new[] { "An external Clip asset is added to the character's Kimodo Timeline for analysis; the original asset remains unchanged." },
                     new[] { "Use temporal analysis fields for continuity, velocity, foot contact, and other time-based properties." },
                     SessionContextCommand, PoseGetCommand, PoseAnalysisCommand),
                 ClipInspectCommand => CommandDocumentation(
                     "Inspect one AnimationClip using the shared Inspector mapping used by the Unity panel.",
-                    new[] { "Pass a unique Clip name or an Assets/Packages asset path." },
+                    new[] { "Pass a unique Clip name, an Assets/Packages asset path, an AssetDatabase GUID, or a Unity GlobalObjectId." },
                     new[] { "Returns Clip settings, root-motion curves, measured XZ displacement, derived speed, rig type, curve count, and static AnimatorController consumers." },
                     new[] { "Reports Clip data while leaving the selected assets and scene unchanged." },
                     new[] { "Consumers list static AnimatorController asset references." },
@@ -1052,7 +1052,7 @@ namespace KimodoUnityBridge.Command
         private static JObject InOutConstraintSchema()
         {
             JObject source = Properties(
-                Required("clip", "string", "Safe completed source Clip name in the current scene context."),
+                  Required("clip", "string", "Source AnimationClip reference: a loaded name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId."),
                 Optional("character", "string", "Source character; defaults to the generation character. Use the generation character for source Clip sampling."),
                 new PropertyDefinition("frame", new JObject { ["type"] = "integer", ["minimum"] = 0,
                     ["description"] = "Optional boundary frame at 60 FPS, local to the Clip's played Timeline range. Outside In defaults to the source Clip's last frame; Outside Out defaults to its first frame." }, false));
@@ -1243,7 +1243,7 @@ namespace KimodoUnityBridge.Command
             return new PropertyDefinition("clips", new JObject
             {
                 ["type"] = "array",
-                ["description"] = "One animation Clip reference per call. Use a loaded Clip name or an Assets/Packages path. An external asset is appended to the character's Kimodo Timeline before analysis; the source asset remains unchanged.",
+                ["description"] = "One animation Clip reference per call. Use a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId. An external asset is appended to the character's Kimodo Timeline before analysis; the source asset remains unchanged.",
                 ["minItems"] = 1,
                 ["maxItems"] = 1,
                 ["items"] = new JObject

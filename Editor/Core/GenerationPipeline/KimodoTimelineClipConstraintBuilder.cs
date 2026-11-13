@@ -29,10 +29,16 @@ namespace KimodoBridge.Editor
 
             if (playableClip.insideConstraintEnabled)
             {
-                TimelineClip sourceClip = ResolveInsideSourceClip(playableClip, context);
-                if (sourceClip != null)
+                AnimationClip directAnimation = playableClip.insideConstraintSourceClip;
+                TimelineClip sourceClip = directAnimation == null
+                    ? ResolveInsideSourceClip(playableClip, context)
+                    : null;
+                if (sourceClip != null || directAnimation != null)
                 {
-                    AnimationClip animation = (sourceClip.asset as AnimationPlayableAsset)?.clip;
+                    // Unity missing references compare equal to null but are not handled by ??.
+                    AnimationClip animation = directAnimation != null
+                        ? directAnimation
+                        : (sourceClip.asset as AnimationPlayableAsset)?.clip;
                     if (animation == null) throw new InvalidOperationException("Inside requires an original AnimationClip.");
                     int availableFrames = Mathf.Max(0, Mathf.FloorToInt(animation.length * frameRate + 1e-5f));
                     int sampleFrames = Mathf.Min(targetFrameCount, availableFrames);
@@ -49,11 +55,20 @@ namespace KimodoBridge.Editor
                     for (int frame = 0; frame < sampleFrames; frame++)
                     {
                         targetFrames.Add(runtimeTrimStartFrame + frame);
-                        times[frame] = sourceClip.start + frame / (double)frameRate;
+                        times[frame] = (sourceClip != null ? sourceClip.start : 0.0) + frame / (double)frameRate;
                     }
-                    KimodoClipConstraint inside = BuildConstraint(
-                        sourceClip, modelName, times, targetFrames, frameRate, "inside", token,
-                        originalAnimation: true);
+                    KimodoClipConstraint inside = sourceClip != null
+                        ? BuildConstraint(sourceClip, modelName, times, targetFrames, frameRate, "inside", token, originalAnimation: true)
+                        : BuildConstraint(
+                            animation,
+                            ResolveSourceAvatar(context),
+                            modelName,
+                            times,
+                            targetFrames,
+                            frameRate,
+                            "inside",
+                            token,
+                            includeFootContacts: true);
                     inside.postApply = playableClip.postApplyInsideConstraint;
                     inside.samplingMode = playableClip.insideKeyframeMode switch
                     {
@@ -73,8 +88,16 @@ namespace KimodoBridge.Editor
                 playableClip.outConstraintWindowFrames60, playableClip.outConstraintSampleCount, frameRate, out int outSamples);
             if (playableClip.enableInConstraint)
             {
-                TimelineClip source = ResolveSourceClip(playableClip, context, isIn: true);
-                if (source != null)
+                AnimationClip direct = playableClip.inConstraintSourceClip;
+                TimelineClip source = direct == null ? ResolveSourceClip(playableClip, context, isIn: true) : null;
+                if (direct != null)
+                    result.Add(BuildOutsideWindow(
+                        direct, ResolveSourceAvatar(context), modelName, frameRate, inFrames, inSamples,
+                        runtimeTrimStartFrame - inFrames, true,
+                        playableClip.inConstraintSourceFrame,
+                        playableClip.postApplyInConstraint,
+                        token));
+                else if (source != null)
                     result.Add(BuildOutsideWindow(
                         source, modelName, frameRate, inFrames, inSamples,
                         runtimeTrimStartFrame - inFrames, true,
@@ -84,8 +107,16 @@ namespace KimodoBridge.Editor
             }
             if (playableClip.enableOutConstraint)
             {
-                TimelineClip source = ResolveSourceClip(playableClip, context, isIn: false);
-                if (source != null)
+                AnimationClip direct = playableClip.outConstraintSourceClip;
+                TimelineClip source = direct == null ? ResolveSourceClip(playableClip, context, isIn: false) : null;
+                if (direct != null)
+                    result.Add(BuildOutsideWindow(
+                        direct, ResolveSourceAvatar(context), modelName, frameRate, outFrames, outSamples,
+                        runtimeTrimStartFrame + targetFrameCount, false,
+                        playableClip.outConstraintSourceFrame,
+                        playableClip.postApplyOutConstraint,
+                        token));
+                else if (source != null)
                     result.Add(BuildOutsideWindow(
                         source, modelName, frameRate, outFrames, outSamples,
                         runtimeTrimStartFrame + targetFrameCount, false,
@@ -111,6 +142,15 @@ namespace KimodoBridge.Editor
                     out string error))
                 throw new InvalidOperationException(error);
             return selected;
+        }
+
+        private static Avatar ResolveSourceAvatar(KimodoTimelineInOutConstraintContext context)
+        {
+            KimodoLocalAvatarUtility.AvatarResolveResult result =
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator);
+            if (!result.IsHumanoid || !KimodoRetargetCoreUtility.IsValidHumanoid(result.Avatar))
+                throw new InvalidOperationException($"External Clip constraint requires a valid source Avatar: {result.Error}");
+            return result.Avatar;
         }
 
         private static int ResolveWindowFrames(int commandFrames60, int requestedSamples, float frameRate, out int samples)
@@ -166,6 +206,29 @@ namespace KimodoBridge.Editor
             };
         }
 
+        private static KimodoClipConstraint BuildConstraint(
+            AnimationClip animation,
+            Avatar sourceAvatar,
+            string modelName,
+            IReadOnlyList<double> times,
+            List<int> targetFrames,
+            float frameRate,
+            string purpose,
+            CancellationToken token,
+            bool includeFootContacts)
+        {
+            return new KimodoClipConstraint
+            {
+                motionBytes = KimodoClipConstraintEncoder.EncodeOriginalAnimationAtTimes(
+                    animation, sourceAvatar, modelName, times, frameRate, token, includeFootContacts),
+                startTime = targetFrames[0] / frameRate,
+                duration = targetFrames.Count / frameRate,
+                mask = KimodoClipConstraintMask.FullBody(modelName, includeRoot: true),
+                purpose = purpose,
+                targetFrameIndices = targetFrames
+            };
+        }
+
         private static KimodoClipConstraint BuildOutsideWindow(
             TimelineClip sourceClip,
             string modelName,
@@ -209,6 +272,55 @@ namespace KimodoBridge.Editor
                 isIn ? "outside_in" : "outside_out", token);
             constraint.postApply = postApply;
             constraint.sampleCount = Mathf.Min(sampleCount, sourceWindowFrames);
+            return constraint;
+        }
+
+        private static KimodoClipConstraint BuildOutsideWindow(
+            AnimationClip animation,
+            Avatar sourceAvatar,
+            string modelName,
+            float frameRate,
+            int windowFrames,
+            int sampleCount,
+            int targetWindowStart,
+            bool isIn,
+            int sourceFrame60,
+            bool postApply,
+            CancellationToken token)
+        {
+            if (animation == null)
+                throw new InvalidOperationException("Outside source AnimationClip is missing.");
+            double frameDuration = 1.0 / frameRate;
+            int availableFrames = Mathf.Max(0, Mathf.FloorToInt(animation.length * frameRate + 1e-5f));
+            double boundaryTime = sourceFrame60 >= 0
+                ? sourceFrame60 / 60.0
+                : isIn ? Math.Max(0, availableFrames - 1) * frameDuration : 0.0;
+            int boundaryFrame = Mathf.Clamp(Mathf.RoundToInt((float)(boundaryTime * frameRate)), 0, Math.Max(0, availableFrames - 1));
+            int actualFrames = Mathf.Min(windowFrames, availableFrames);
+            if (actualFrames <= 0)
+                throw new InvalidOperationException("Outside source AnimationClip has no sampleable frames.");
+            if (actualFrames < windowFrames)
+                Debug.LogWarning(
+                    $"[Kimodo][Outside] Source AnimationClip '{animation.name}' provides {actualFrames} " +
+                    $"of {windowFrames} requested window frames; the available range will be used.", animation);
+            int firstFrame = isIn ? Math.Max(0, boundaryFrame - actualFrames + 1) : boundaryFrame;
+            if (!isIn)
+                actualFrames = Math.Min(actualFrames, Math.Max(0, availableFrames - firstFrame));
+            if (actualFrames <= 0)
+                throw new InvalidOperationException("Outside source frame/window is outside its AnimationClip.");
+            if (isIn) targetWindowStart += windowFrames - actualFrames;
+            var times = new double[actualFrames];
+            var targetFrames = new List<int>(actualFrames);
+            for (int index = 0; index < actualFrames; index++)
+            {
+                times[index] = (firstFrame + index) * frameDuration;
+                targetFrames.Add(targetWindowStart + index);
+            }
+            KimodoClipConstraint constraint = BuildConstraint(
+                animation, sourceAvatar, modelName, times, targetFrames, frameRate,
+                isIn ? "outside_in" : "outside_out", token, includeFootContacts: false);
+            constraint.postApply = postApply;
+            constraint.sampleCount = Mathf.Min(sampleCount, actualFrames);
             return constraint;
         }
     }

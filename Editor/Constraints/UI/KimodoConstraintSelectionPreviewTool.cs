@@ -225,7 +225,9 @@ namespace KimodoBridge.Editor
                 if (!inside && !outside) continue;
                 if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(timelineClip, out var source, out _)) continue;
                 TimelineClip sampleClip = timelineClip;
-                if (inside && (playable.insideConstraintSourceTrack != null || playable.insideConstraintSourceAsset != null) &&
+                AnimationClip directInsideAnimation = playable.insideConstraintSourceClip;
+                if (inside && directInsideAnimation == null &&
+                    (playable.insideConstraintSourceTrack != null || playable.insideConstraintSourceAsset != null) &&
                     !KimodoInOutConstraintAdapter.TryResolveSourceClip(
                         timelineClip,
                         playable.insideConstraintSourceTrack,
@@ -243,8 +245,17 @@ namespace KimodoBridge.Editor
                 var ends = new List<KimodoMarkerSampleResult>();
                 if (inside)
                 {
-                    if (!KimodoInOutConstraintAdapter.TryResolveAnimationClip(sampleClip, out AnimationClip animation, out _)) continue;
-                    if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out var insideContext, out _)) continue;
+                    AnimationClip animation = directInsideAnimation;
+                    KimodoTimelineInOutConstraintContext insideContext;
+                    if (animation == null)
+                    {
+                        if (!KimodoInOutConstraintAdapter.TryResolveAnimationClip(sampleClip, out animation, out _)) continue;
+                        if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out insideContext, out _)) continue;
+                    }
+                    else
+                    {
+                        insideContext = source;
+                    }
                     var sourceAvatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(insideContext.Track, insideContext.Animator);
                     int available = Mathf.Min(frameCount, Mathf.FloorToInt(animation.length * frameRate + 1e-5f));
                     if (available <= 0) continue;
@@ -263,7 +274,11 @@ namespace KimodoBridge.Editor
                     Debug.LogWarning($"[Kimodo][OutsideConstraint] Preview: {warning}");
                     continue;
                 }
-                if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out var sampleContext, out _))
+                KimodoTimelineInOutConstraintContext sampleContext = inside && directInsideAnimation != null
+                    ? source
+                    : null;
+                if (sampleContext == null &&
+                    !KimodoInOutConstraintAdapter.TryResolveTimelineContext(sampleClip, out sampleContext, out _))
                     continue;
                 var avatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(sampleContext.Track, sampleContext.Animator);
                 var context = new ConstraintPreviewContext(KimodoUnityObjectIdUtility.IdHash(playable),

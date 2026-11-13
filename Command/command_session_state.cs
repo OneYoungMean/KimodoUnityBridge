@@ -491,6 +491,10 @@ namespace KimodoUnityBridge.Command
                 throw new InvalidOperationException("Timeline could not create a KimodoPlayableClip.");
             }
             playableClip.name = timelineClip.displayName;
+            // Generated Kimodo clips should preserve their authored world-space start.
+            // AnimationPlayableAsset defaults removeStartOffset to true, which would
+            // rebase the generated result when Timeline evaluates the clip.
+            playableClip.removeStartOffset = false;
             // Command In/Out windows default to trajectory alignment; explicit
             // inout.post_apply values can override each side.
             playableClip.postApplyOutConstraint = true;
@@ -965,11 +969,25 @@ namespace KimodoUnityBridge.Command
             string name = RequiredStringValue(arguments, "animation");
             TimelineAnimationRecord animation = character.Animations.FirstOrDefault(item =>
                 string.Equals(item.Name, name, StringComparison.OrdinalIgnoreCase));
-            if (animation == null)
-            {
-                throw new InvalidOperationException($"Animation '{name}' is not loaded for character '{character.Name}'.");
-            }
-            return animation;
+            if (animation != null)
+                return animation;
+
+            // A Clip path, AssetDatabase GUID, or GlobalObjectId is a valid
+            // command reference even when the Clip is not part of Session
+            // Context. Keep it as an ephemeral record; callers that need a
+            // visible Timeline representation create only their evidence
+            // clips around the generated result.
+            AnimationClip external = ResolveAnimationClip(name);
+            return new TimelineAnimationRecord(
+                Guid.Empty,
+                external.name,
+                "external",
+                external,
+                null,
+                null,
+                null,
+                0,
+                Mathf.Max(1, Mathf.RoundToInt((float)(external.length * SessionFrameRate))));
         }
 
         private static TimelineCharacterRecord ResolveSessionCharacterByReference(
@@ -1474,7 +1492,7 @@ namespace KimodoUnityBridge.Command
 
             public double TimelineEndSeconds => timelineSegments.Count > 0
                 ? timelineSegments.Max(item => item.TimelineClip != null ? item.TimelineClip.end : 0.0)
-                : TimelineClip != null ? TimelineClip.end : 0.0;
+                : TimelineClip != null ? TimelineClip.end : Math.Max(0.0, Clip != null ? Clip.length : 0.0);
 
             public double TimelineDurationSeconds => Math.Max(0.0, TimelineEndSeconds - TimelineStartSeconds);
 

@@ -28,6 +28,7 @@ namespace KimodoUnityBridge.Command
             public bool IsIn;
             public TimelineAnimationRecord Animation;
             public CommandInOutWindow Window;
+            public TimelineClip EvidenceClip;
         }
 
         // Command frames use 60 FPS. The source is the played Clip range,
@@ -140,9 +141,10 @@ namespace KimodoUnityBridge.Command
                 TimelineAnimationRecord animation = ResolveAnimation(
                     new JObject { ["animation"] = RequiredStringValue(source, "clip") },
                     sourceCharacter);
-                if (animation.TimelineSegments.Count == 0 || animation.TimelineSegments.Any(segment => segment.Clip == null))
+                if (animation.Clip == null ||
+                    (animation.TimelineSegments.Count > 0 && animation.TimelineSegments.Any(segment => segment.Clip == null)))
                 {
-                    throw new InvalidOperationException($"In/Out source '{animation.Name}' is not a completed playable clip.");
+                    throw new InvalidOperationException($"In/Out source '{animation.Name}' does not contain a usable AnimationClip.");
                 }
 
                 CommandInOutWindow window = ResolveCommandInOutWindow(
@@ -151,14 +153,17 @@ namespace KimodoUnityBridge.Command
                     animation.TimelineDurationSeconds,
                     targetFrames,
                     fps);
-                int sourceStartFrame = Mathf.FloorToInt((float)((animation.TimelineStartSeconds + window.SourceTimes[0]) * SessionFrameRate));
-                int sourceEndFrame = Mathf.CeilToInt((float)((animation.TimelineStartSeconds + window.SourceTimes.Last()) * SessionFrameRate)) + 1;
-                ThrowIfGenerationRangeLocked(
-                    trace.Session,
-                    sourceCharacter,
-                    sourceStartFrame,
-                    sourceEndFrame,
-                    GenerateAnimationCommand);
+                if (animation.TimelineClip != null)
+                {
+                    int sourceStartFrame = Mathf.FloorToInt((float)((animation.TimelineStartSeconds + window.SourceTimes[0]) * SessionFrameRate));
+                    int sourceEndFrame = Mathf.CeilToInt((float)((animation.TimelineStartSeconds + window.SourceTimes.Last()) * SessionFrameRate)) + 1;
+                    ThrowIfGenerationRangeLocked(
+                        trace.Session,
+                        sourceCharacter,
+                        sourceStartFrame,
+                        sourceEndFrame,
+                        GenerateAnimationCommand);
+                }
                 plans.Add((isIn, animation, window, postApply));
 
                 if (isIn) contextBefore = window.ModelFrameCount;
@@ -172,9 +177,10 @@ namespace KimodoUnityBridge.Command
                         playableClip.postApplyInConstraint = postApply;
                         playableClip.inConstraintWindowFrames60 = window.CommandFrameCount60;
                         playableClip.inConstraintSampleCount = window.SourceTimes.Length;
-                        playableClip.inConstraintSourceTrack = animation.TimelineClip.GetParentTrack();
-                        playableClip.inConstraintSourceAsset = animation.TimelineClip.asset as PlayableAsset;
-                        playableClip.inConstraintSourceClipStart = animation.TimelineClip.start;
+                        playableClip.inConstraintSourceClip = animation.TimelineClip == null ? animation.Clip : null;
+                        playableClip.inConstraintSourceTrack = animation.TimelineClip?.GetParentTrack();
+                        playableClip.inConstraintSourceAsset = animation.TimelineClip?.asset as PlayableAsset;
+                        playableClip.inConstraintSourceClipStart = animation.TimelineClip?.start ?? -1.0;
                         playableClip.inConstraintSourceFrame = source["frame"] == null
                             ? -1
                             : RequiredNonNegativeFrame(source, "frame");
@@ -185,9 +191,10 @@ namespace KimodoUnityBridge.Command
                         playableClip.postApplyOutConstraint = postApply;
                         playableClip.outConstraintWindowFrames60 = window.CommandFrameCount60;
                         playableClip.outConstraintSampleCount = window.SourceTimes.Length;
-                        playableClip.outConstraintSourceTrack = animation.TimelineClip.GetParentTrack();
-                        playableClip.outConstraintSourceAsset = animation.TimelineClip.asset as PlayableAsset;
-                        playableClip.outConstraintSourceClipStart = animation.TimelineClip.start;
+                        playableClip.outConstraintSourceClip = animation.TimelineClip == null ? animation.Clip : null;
+                        playableClip.outConstraintSourceTrack = animation.TimelineClip?.GetParentTrack();
+                        playableClip.outConstraintSourceAsset = animation.TimelineClip?.asset as PlayableAsset;
+                        playableClip.outConstraintSourceClipStart = animation.TimelineClip?.start ?? -1.0;
                         playableClip.outConstraintSourceFrame = source["frame"] == null
                             ? -1
                             : RequiredNonNegativeFrame(source, "frame");
@@ -264,17 +271,32 @@ namespace KimodoUnityBridge.Command
             TimelineAnimationRecord animation = ResolveAnimation(
                 new JObject { ["animation"] = RequiredStringValue(source, "clip") },
                 sourceCharacter);
-            if (animation.TimelineSegments.Count != 1 || animation.TimelineSegments[0]?.TimelineClip == null)
-                throw new InvalidOperationException($"Inside source '{animation.Name}' must resolve to one completed Timeline Clip.");
-            TimelineClip sourceClip = animation.TimelineSegments[0].TimelineClip;
-            int sourceStartFrame = Mathf.FloorToInt((float)(sourceClip.start * SessionFrameRate));
-            int sourceEndFrame = Mathf.CeilToInt((float)(sourceClip.end * SessionFrameRate));
-            ThrowIfGenerationRangeLocked(
-                trace.Session,
-                sourceCharacter,
-                sourceStartFrame,
-                sourceEndFrame,
-                GenerateAnimationCommand);
+            if (animation.Clip == null)
+                throw new InvalidOperationException($"Inside source '{animation.Name}' does not contain a usable AnimationClip.");
+
+            // Inside is an optimization of the supplied AnimationClip. Keep that
+            // clip on the KimodoPlayableClip itself so command and Inspector
+            // generation use the same Timeline carrier. Finalization replaces it
+            // with the generated result.
+            playableClip.clip = animation.Clip;
+            playableClip.insideConstraintSourceClip = null;
+            playableClip.insideConstraintSourceTrack = null;
+            playableClip.insideConstraintSourceAsset = null;
+            playableClip.insideConstraintSourceClipStart = -1.0;
+            TimelineClip sourceClip = animation.TimelineSegments.Count == 1
+                ? animation.TimelineSegments[0]?.TimelineClip
+                : null;
+            if (sourceClip != null)
+            {
+                int sourceStartFrame = Mathf.FloorToInt((float)(sourceClip.start * SessionFrameRate));
+                int sourceEndFrame = Mathf.CeilToInt((float)(sourceClip.end * SessionFrameRate));
+                ThrowIfGenerationRangeLocked(
+                    trace.Session,
+                    sourceCharacter,
+                    sourceStartFrame,
+                    sourceEndFrame,
+                    GenerateAnimationCommand);
+            }
 
             playableClip.insideConstraintEnabled = true;
             playableClip.postApplyInsideConstraint = config.Value<bool?>("post_apply") ?? true;
@@ -289,15 +311,12 @@ namespace KimodoUnityBridge.Command
             playableClip.insideKeyframeSampleCount = config.Value<int?>("sample_count") ?? 2;
             if (playableClip.insideKeyframeSampleCount < 1)
                 throw new InvalidOperationException("inside.sample_count must be positive.");
-            playableClip.insideConstraintSourceTrack = sourceClip.GetParentTrack();
-            playableClip.insideConstraintSourceAsset = sourceClip.asset as PlayableAsset;
-            playableClip.insideConstraintSourceClipStart = sourceClip.start;
             trace.InOutSampling ??= new JObject();
             trace.InOutSampling["inside"] = new JObject
             {
                 ["source"] = new JObject { ["character"] = sourceCharacter.Name, ["clip"] = animation.Name },
                 ["post_apply"] = playableClip.postApplyInsideConstraint,
-                ["source_duration_seconds"] = sourceClip.duration,
+                ["source_duration_seconds"] = animation.TimelineDurationSeconds,
                 ["target_duration_seconds"] = trace.DurationSeconds
             };
             return true;
@@ -328,6 +347,40 @@ namespace KimodoUnityBridge.Command
                 double evidenceStart = plan.IsIn
                     ? trace.StartSeconds - plan.Window.SourceWindowDurationSeconds
                     : trace.TimelineClip.end;
+                if (plan.EvidenceClip != null && plan.EvidenceClip.asset != null)
+                {
+                    BindCommandOutsideEvidence(trace, plan, plan.EvidenceClip);
+                    AppendEvidenceDescription(evidenceDescriptions, plan, plan.EvidenceClip, sourceWindowStart, sourceWindowEnd, "materialized");
+                    continue;
+                }
+
+                // External command references have no source TimelineClip.
+                // Materialize only the visible evidence window so Context and
+                // the Timeline UI still expose the same three-part layout.
+                if (plan.Animation.TimelineSegments.Count == 0 && plan.Animation.Clip != null)
+                {
+                    double clippedStart = Math.Max(0.0, sourceWindowStart);
+                    double clippedEnd = Math.Min(plan.Animation.Clip.length, sourceWindowEnd);
+                    if (clippedEnd > clippedStart)
+                    {
+                        TimelineClip evidence = trace.Character.Track.CreateClip<AnimationPlayableAsset>();
+                        AnimationPlayableAsset evidenceAsset = evidence.asset as AnimationPlayableAsset;
+                        if (evidenceAsset == null)
+                            throw new InvalidOperationException("Timeline could not create an In/Out evidence AnimationPlayableAsset.");
+                        evidenceAsset.clip = plan.Animation.Clip;
+                        evidenceAsset.removeStartOffset = false;
+                        evidence.start = evidenceStart + (clippedStart - sourceWindowStart);
+                        evidence.duration = clippedEnd - clippedStart;
+                        evidence.timeScale = 1.0;
+                        evidence.clipIn = clippedStart;
+                        evidence.displayName = $"InOut {(plan.IsIn ? "In" : "Out")} {plan.Animation.Name}";
+                        plan.EvidenceClip = evidence;
+                        BindCommandOutsideEvidence(trace, plan, evidence);
+                        AppendEvidenceDescription(evidenceDescriptions, plan, evidence, clippedStart, clippedEnd, "external");
+                        EditorUtility.SetDirty(evidenceAsset);
+                    }
+                    continue;
+                }
 
                 foreach (TimelineAnimationSegment segment in plan.Animation.TimelineSegments)
                 {
@@ -358,18 +411,9 @@ namespace KimodoUnityBridge.Command
                     evidence.timeScale = source.timeScale;
                     evidence.clipIn = source.ToLocalTime(clippedStart);
                     evidence.displayName = $"InOut {(plan.IsIn ? "In" : "Out")} {source.displayName}";
-
-                    evidenceDescriptions.Add(new JObject
-                    {
-                        ["side"] = plan.IsIn ? "in" : "out",
-                        ["display_name"] = evidence.displayName,
-                        ["start_timeline_seconds"] = evidence.start,
-                        ["duration_seconds"] = evidence.duration,
-                        ["clip_in_seconds"] = evidence.clipIn,
-                        ["time_scale"] = evidence.timeScale,
-                        ["source_timeline_start_seconds"] = clippedStart,
-                        ["source_timeline_end_seconds"] = clippedEnd
-                    });
+                    plan.EvidenceClip = evidence;
+                    BindCommandOutsideEvidence(trace, plan, evidence);
+                    AppendEvidenceDescription(evidenceDescriptions, plan, evidence, clippedStart, clippedEnd, "timeline");
                     EditorUtility.SetDirty(evidenceAsset);
                 }
             }
@@ -378,6 +422,57 @@ namespace KimodoUnityBridge.Command
                 trace.InOutSampling["evidence_clips"] = evidenceDescriptions;
             EditorUtility.SetDirty(trace.Character.Track);
             EditorUtility.SetDirty(trace.Session.TimelineAsset);
+        }
+
+        private static void BindCommandOutsideEvidence(
+            TimelineGenerationTrace trace, CommandInOutEvidencePlan plan, TimelineClip evidence)
+        {
+            if (trace?.PlayableClip == null || plan == null || evidence == null)
+                return;
+
+            if (plan.IsIn)
+            {
+                trace.PlayableClip.inConstraintSourceClip = null;
+                trace.PlayableClip.inConstraintSourceTrack = evidence.GetParentTrack();
+                trace.PlayableClip.inConstraintSourceAsset = evidence.asset as PlayableAsset;
+                trace.PlayableClip.inConstraintSourceClipStart = evidence.start;
+                // The evidence clip already represents the requested source
+                // window. Do not apply the original command-relative frame a
+                // second time when the shared Timeline sampler resolves it.
+                trace.PlayableClip.inConstraintSourceFrame = -1;
+            }
+            else
+            {
+                trace.PlayableClip.outConstraintSourceClip = null;
+                trace.PlayableClip.outConstraintSourceTrack = evidence.GetParentTrack();
+                trace.PlayableClip.outConstraintSourceAsset = evidence.asset as PlayableAsset;
+                trace.PlayableClip.outConstraintSourceClipStart = evidence.start;
+                // The evidence clip already represents the requested source
+                // window. Do not apply the original command-relative frame a
+                // second time when the shared Timeline sampler resolves it.
+                trace.PlayableClip.outConstraintSourceFrame = -1;
+            }
+        }
+
+        private static void AppendEvidenceDescription(
+            JArray descriptions, CommandInOutEvidencePlan plan, TimelineClip evidence,
+            double sourceStart, double sourceEnd, string sourceKind)
+        {
+            if (descriptions == null || plan == null || evidence == null)
+                return;
+
+            descriptions.Add(new JObject
+            {
+                ["side"] = plan.IsIn ? "in" : "out",
+                ["display_name"] = evidence.displayName,
+                ["start_timeline_seconds"] = evidence.start,
+                ["duration_seconds"] = evidence.duration,
+                ["clip_in_seconds"] = evidence.clipIn,
+                ["time_scale"] = evidence.timeScale,
+                ["source_timeline_start_seconds"] = sourceStart,
+                ["source_timeline_end_seconds"] = sourceEnd,
+                ["source"] = sourceKind
+            });
         }
 
         private static void ValidateCommandTimelineRange(TimelineGenerationTrace trace)

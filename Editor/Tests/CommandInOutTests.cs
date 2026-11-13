@@ -245,8 +245,12 @@ namespace KimodoUnityBridge.Command.Tests
                 Assert.That(output.duration, Is.EqualTo(2));
 
                 Assert.That(playable.inOutConstraintMode, Is.EqualTo(KimodoInOutConstraintMode.Outside));
-                Assert.That(playable.inConstraintSourceAsset, Is.SameAs(character.Animations[0].TimelineClip.asset));
-                Assert.That(playable.outConstraintSourceAsset, Is.SameAs(character.Animations[1].TimelineClip.asset));
+                Assert.That(playable.inConstraintSourceAsset, Is.Not.SameAs(character.Animations[0].TimelineClip.asset));
+                Assert.That(playable.outConstraintSourceAsset, Is.Not.SameAs(character.Animations[1].TimelineClip.asset));
+                Assert.That(playable.inConstraintSourceAsset, Is.TypeOf<AnimationPlayableAsset>());
+                Assert.That(playable.outConstraintSourceAsset, Is.TypeOf<AnimationPlayableAsset>());
+                Assert.That(playable.inConstraintSourceFrame, Is.EqualTo(-1));
+                Assert.That(playable.outConstraintSourceFrame, Is.EqualTo(-1));
                 arguments["constraints"][0]["inout"]["in"]["post_apply"] = false;
                 configure.Invoke(null,
                     new object[] { arguments, trace, playable, model, 60, 30f, false, new List<KimodoMarkerSampleResult>() });

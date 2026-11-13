@@ -883,30 +883,42 @@ class QuickServerProtocolV2Tests(unittest.TestCase):
         np.testing.assert_allclose(actual[:, [0, 2]], stage2.root_positions[:, [0, 2]])
         np.testing.assert_allclose(actual[:, 1], reference.root_positions[:, 1])
 
-    def test_loop_keeps_inside_and_crops_extended_debug_artifact_to_requested_length(self):
-        reference = self._small_kmb(6)
-        attachments = [encode_kmb1(reference)]
-        item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
-                "start_time": 0, "duration": 6 / 30, "purpose": "inside", "post_apply": True}
-        calls = []
-        def invoke(name, constraints, purpose, frame_count):
-            calls.append((name, frame_count, json.loads(constraints)))
-            return {"posed_joints": np.zeros((1, frame_count, 2, 3), dtype=np.float32),
-                    "root_positions": np.arange(frame_count * 3, dtype=np.float32).reshape(1, frame_count, 3)}
-        request = {"debug": True, "stage_plan": {"target_frame_count": 6,
-                   "output_frame_count": 6, "loop": {"enabled": True, "window_frames": 3, "sample_count": 2}}}
-        with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(reference)):
-            output, _, _ = kimodo_runtime._execute_generation_plan(request, SimpleNamespace(fps=30.0), json.dumps([item]), invoke,
-                                                                  stage_attachments=attachments)
-        self.assertEqual([(name, frames) for name, frames, _ in calls], [("Stage 2", 6), ("Stage 3", 8)])
-        self.assertEqual([item.get("purpose") for item in calls[1][2] if item.get("type") == "clip"],
-                         ["loop_begin", "loop_end", "inside"])
-        final, metadata = kimodo_runtime._prepare_generation_output(request, output)
-        self.assertEqual(kimodo_runtime._motion_output_frame_count(final), 6)
-        np.testing.assert_allclose(final["root_positions"][0, 0], [6, 7, 8])
-        self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata["_debug_motion_output"]), 14)
-        self.assertEqual(metadata["debug_segments"][1]["debug_end_frame_exclusive"], 14)
-        self.assertEqual(request["stage_plan"]["target_frame_count"], 6)
+    def test_loop_preserves_opening_and_crops_tail_with_or_without_debug(self):
+        for debug in (False, True):
+            for start, suffix in ((0, 0), (2, 0), (2, 2)):
+                with self.subTest(debug=debug, output_start=start, suffix=suffix):
+                    base_count = start + 6 + suffix
+                    reference = self._small_kmb(base_count)
+                    attachments = [encode_kmb1(reference)]
+                    item = {"type": "clip", "format": "kmb_attachment_v1", "attachment": 0,
+                            "start_time": 0, "duration": base_count / 30, "purpose": "inside", "post_apply": True}
+                    calls = []
+                    def invoke(name, constraints, purpose, frame_count):
+                        calls.append((name, frame_count, json.loads(constraints)))
+                        return {"posed_joints": np.zeros((1, frame_count, 2, 3), dtype=np.float32),
+                                "root_positions": np.arange(frame_count * 3, dtype=np.float32).reshape(1, frame_count, 3)}
+                    request = {"debug": debug, "stage_plan": {"target_frame_count": base_count,
+                               "output_start_frame": start, "output_frame_count": 6,
+                               "loop": {"enabled": True, "window_frames": 3, "sample_count": 2}}}
+                    with patch.object(kimodo_runtime, "_build_generate_flatbuffer_payload", return_value=encode_kmb1(reference)):
+                        output, artifacts, _ = kimodo_runtime._execute_generation_plan(
+                            request, SimpleNamespace(fps=30.0), json.dumps([item]), invoke, stage_attachments=attachments)
+                    self.assertEqual([(name, frames) for name, frames, _ in calls],
+                                     [("Stage 2", base_count), ("Stage 3", base_count + 2)])
+                    self.assertEqual([item.get("purpose") for item in calls[1][2] if item.get("type") == "clip"],
+                                     ["loop_begin", "loop_end", "inside"])
+                    final, metadata = kimodo_runtime._prepare_generation_output(request, output)
+                    expected = artifacts[-1].output["root_positions"][:, start:start + 6]
+                    np.testing.assert_array_equal(final["root_positions"], expected)
+                    self.assertEqual(kimodo_runtime._motion_output_frame_count(final), 6)
+                    self.assertEqual(artifacts[-1].frame_count, base_count + 2)
+                    if debug:
+                        self.assertEqual(kimodo_runtime._motion_output_frame_count(metadata["_debug_motion_output"]), base_count * 2 + 2)
+                        self.assertEqual(metadata["debug_segments"][1]["debug_end_frame_exclusive"], base_count * 2 + 2)
+                    else:
+                        self.assertEqual(metadata, {})
+                    self.assertEqual(request["stage_plan"]["output_start_frame"], start)
+                    self.assertEqual(request["stage_plan"]["target_frame_count"], base_count)
 
     def test_debug_reference_constraints_include_poses_and_their_exact_target_frames(self):
         motion = self._small_kmb(2)

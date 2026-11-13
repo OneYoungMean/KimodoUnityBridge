@@ -31,5 +31,19 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void NewKimodoClipsKeepStartOffsetByDefault()
+        {
+            KimodoPlayableClip clip = UnityEngine.ScriptableObject.CreateInstance<KimodoPlayableClip>();
+            try
+            {
+                Assert.That(clip.removeStartOffset, Is.False);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
     }
 }

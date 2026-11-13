@@ -648,11 +648,11 @@
     },
     {
       "name": "animation.analysis",
-      "description": "Analyze one scene character's loaded animation Clip and render structured motion measurements with a 20-tile SceneView image. An external Clip is added to that character's Kimodo Timeline for analysis; the source asset remains unchanged.",
+      "description": "Analyze one scene character's AnimationClip reference and render structured motion measurements with a 20-tile SceneView image. References may be a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId. An external Clip is added to that character's Kimodo Timeline for analysis; the source asset remains unchanged.",
       "documentation": {
-        "when_to_use": "Analyze one loaded animation Clip and produce structured motion data with a 20-tile SceneView image.",
+        "when_to_use": "Analyze one AnimationClip reference and produce structured motion data with a 20-tile SceneView image. The reference may be a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId.",
         "behavior": [
-          "Select a scene character and one loaded Clip name or Assets/Packages asset path; use one call per Clip.",
+          "Select a scene character and one AnimationClip reference; use one call per Clip.",
           "Inspect returned pictures for visual observations and structured fields for measurements."
         ],
         "result_notes": [
@@ -684,7 +684,7 @@
         "properties": {
           "clips": {
             "type": "array",
-            "description": "One animation Clip reference per call. Use a loaded Clip name or an Assets/Packages path. An external asset is appended to the character's Kimodo Timeline before analysis; the source asset remains unchanged.",
+            "description": "One animation Clip reference per call. Use a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId. An external asset is appended to the character's Kimodo Timeline before analysis; the source asset remains unchanged.",
             "minItems": 1,
             "maxItems": 1,
             "items": {
@@ -1292,7 +1292,7 @@
       "documentation": {
         "when_to_use": "Inspect one AnimationClip using the shared Inspector mapping used by the Unity panel.",
         "behavior": [
-          "Pass a unique Clip name or an Assets/Packages asset path."
+          "Pass a unique Clip name, an Assets/Packages asset path, an AssetDatabase GUID, or a Unity GlobalObjectId."
         ],
         "result_notes": [
           "Returns Clip settings, root-motion curves, measured XZ displacement, derived speed, rig type, curve count, and static AnimatorController consumers."
@@ -1316,7 +1316,7 @@
         "properties": {
           "clip": {
             "type": "string",
-            "description": "AnimationClip name or an Assets/Packages asset path."
+            "description": "AnimationClip name, an Assets/Packages asset path, an AssetDatabase GUID, or a Unity GlobalObjectId."
           }
         },
         "required": [
@@ -1473,7 +1473,7 @@
         "properties": {
           "clip": {
             "type": "string",
-            "description": "AnimationClip name or an Assets/Packages asset path."
+            "description": "AnimationClip name, an Assets/Packages asset path, an AssetDatabase GUID, or a Unity GlobalObjectId."
           },
           "settings": {
             "type": "object",
@@ -2948,7 +2948,7 @@
                               "properties": {
                                 "clip": {
                                   "type": "string",
-                                  "description": "Safe completed source Clip name in the current scene context."
+                                  "description": "AnimationClip reference: a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId."
                                 },
                                 "character": {
                                   "type": "string",
@@ -2996,7 +2996,7 @@
                               "properties": {
                                 "clip": {
                                   "type": "string",
-                                  "description": "Safe completed source Clip name in the current scene context."
+                                  "description": "AnimationClip reference: a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId."
                                 },
                                 "character": {
                                   "type": "string",
@@ -3199,7 +3199,7 @@
           }
         },
         {
-          "description": "Continue a source Clip using its final half-second sampled five times. Names must come from the current scene context; inspect inout_sampling after generation completes.",
+          "description": "Continue an AnimationClip reference using its final half-second sampled five times. The reference may be a loaded Clip name, an Assets/Packages path, an AssetDatabase GUID, or a Unity GlobalObjectId; inspect inout_sampling after generation completes.",
           "arguments": {
             "character": "<character>",
             "prompt": "<short action for one Clip>",

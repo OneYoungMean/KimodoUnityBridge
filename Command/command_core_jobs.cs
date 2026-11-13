@@ -71,13 +71,45 @@ namespace KimodoUnityBridge.Command
         private static AnimationClip ResolveAnimationClip(string name)
         {
             string reference = name?.Trim();
-            if (!string.IsNullOrWhiteSpace(reference) &&
-                (reference.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
-                 reference.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase)))
+            if (string.IsNullOrWhiteSpace(reference))
             {
-                AnimationClip direct = AssetDatabase.LoadAssetAtPath<AnimationClip>(reference);
-                if (direct != null) return direct;
+                throw new InvalidOperationException("AnimationClip reference is empty.");
             }
+
+            // Accept an exact Unity GlobalObjectId, including sub-assets in
+            // imported files. This is the most precise form of an external
+            // Clip reference and does not require the Clip to be in Context.
+            if (GlobalObjectId.TryParse(reference, out GlobalObjectId globalId))
+            {
+                if (GlobalObjectId.GlobalObjectIdentifierToObjectSlow(globalId) is AnimationClip globalClip)
+                    return globalClip;
+                throw new InvalidOperationException(
+                    $"AnimationClip GlobalObjectId '{reference}' does not resolve to an AnimationClip.");
+            }
+
+            // Accept project/package paths and bare AssetDatabase GUIDs. A
+            // GUID identifies the asset file, so imported sub-assets must be
+            // unique before the reference is considered unambiguous.
+            bool isAssetPath = reference.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) ||
+                               reference.StartsWith("Packages/", StringComparison.OrdinalIgnoreCase);
+            string assetPath = isAssetPath ? reference : AssetDatabase.GUIDToAssetPath(reference);
+            bool isAssetGuid = !isAssetPath && !string.IsNullOrWhiteSpace(assetPath);
+            if (isAssetPath || isAssetGuid)
+            {
+                AnimationClip[] subAssets = AssetDatabase.LoadAllAssetsAtPath(assetPath)
+                    .OfType<AnimationClip>()
+                    .Distinct()
+                    .ToArray();
+                if (subAssets.Length == 1) return subAssets[0];
+                if (subAssets.Length > 1)
+                {
+                    throw new InvalidOperationException(
+                        $"AnimationClip reference '{reference}' resolves to multiple Clips; use a GlobalObjectId for the desired sub-asset.");
+                }
+                throw new InvalidOperationException(
+                    $"AnimationClip reference '{reference}' does not resolve to an AnimationClip at '{assetPath}'.");
+            }
+
             AnimationClip[] matches = AssetDatabase.FindAssets($"t:AnimationClip {name}", new[] { "Assets" })
                 .SelectMany(guid => AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GUIDToAssetPath(guid)).OfType<AnimationClip>())
                 .Where(clip => string.Equals(clip.name, name, StringComparison.OrdinalIgnoreCase))

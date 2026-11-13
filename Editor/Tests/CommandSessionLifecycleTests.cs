@@ -457,6 +457,10 @@ namespace KimodoUnityBridge.Command.Tests
                 kimodoTimelineClip.displayName = "ClipKindGenerated";
                 kimodoTimelineClip.start = 2d;
                 kimodoTimelineClip.duration = 1d;
+                Assert.That(
+                    ((KimodoPlayableClip)kimodoTimelineClip.asset).removeStartOffset,
+                    Is.False,
+                    "New command-generated Kimodo clips must preserve their authored start offset.");
                 AssetDatabase.SaveAssets();
 
                 JObject context = JObject.Parse(command_dispatcher.Invoke("session.context", "{'details':['clips']}"));

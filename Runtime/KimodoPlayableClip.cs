@@ -56,6 +56,14 @@ namespace KimodoBridge
     [System.Serializable]
     public partial class KimodoPlayableClip : AnimationPlayableAsset, IKimodoConstraintPreviewSelectable
     {
+        public KimodoPlayableClip()
+        {
+            // Unity's AnimationPlayableAsset defaults removeStartOffset to true.
+            // Kimodo clips carry authored world-space roots, so a newly created
+            // clip must preserve its start position unless the user opts in.
+            removeStartOffset = false;
+        }
+
         [Header("Kimodo Bridge")]
         public string bridgeModelName = KimodoMotionModelProfiles.DefaultModelName;
         [Tooltip("Choose a text-encoder profile. Runtime platforms are selected automatically.")]
@@ -67,7 +75,7 @@ namespace KimodoBridge
         public int diffusionSteps = 100;
         public bool randomSeed = false;
         public int seed = 42;
-        [Tooltip("Generate a baseline motion, constrain its first pose at the end, then generate an extended motion and keep its middle section.")]
+        [Tooltip("Generate a baseline motion, align its opening window at the loop end, then generate an extended motion and crop the added tail.")]
         public bool generateLoop;
         [Tooltip("When looping, copy the first frame's X root position to the loop tail.")]
         public bool loopLockPositionX;
@@ -125,6 +133,8 @@ namespace KimodoBridge
         public PlayableAsset insideConstraintSourceAsset;
         [SerializeField, HideInInspector]
         public double insideConstraintSourceClipStart = -1.0;
+        [SerializeField, HideInInspector]
+        public AnimationClip insideConstraintSourceClip;
         [Tooltip("Generate the Outside In boundary window.")]
         public bool enableInConstraint = true;
         [Tooltip("Generate the Outside Out boundary window.")]
@@ -154,6 +164,8 @@ namespace KimodoBridge
         [SerializeField, HideInInspector]
         public int inConstraintSourceFrame = -1;
         [SerializeField, HideInInspector]
+        public AnimationClip inConstraintSourceClip;
+        [SerializeField, HideInInspector]
         public TrackAsset outConstraintSourceTrack;
         [SerializeField, HideInInspector]
         public PlayableAsset outConstraintSourceAsset;
@@ -161,6 +173,8 @@ namespace KimodoBridge
         public double outConstraintSourceClipStart = -1.0;
         [SerializeField, HideInInspector]
         public int outConstraintSourceFrame = -1;
+        [SerializeField, HideInInspector]
+        public AnimationClip outConstraintSourceClip;
         [Tooltip("Adapt ARDY history from previous root speed: 0-1 m/s = 0.225; 1-10 m/s grows exponentially to 1; above 10 m/s = 1.")]
         public bool ardyAutoHistory = true;
         [Range(0f, 1f)]
