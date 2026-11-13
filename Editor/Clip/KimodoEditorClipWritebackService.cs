@@ -148,7 +148,8 @@ namespace KimodoBridge.Editor
             string cacheName,
             float frameRate,
             out AnimationClip cachedClip,
-            out string error)
+            out string error,
+            bool trackForTrim = true)
         {
             cachedClip = null;
             error = string.Empty;
@@ -188,7 +189,7 @@ namespace KimodoBridge.Editor
                 }
 
                 EnsureClipNameMatchesFileName(cachedClip, safeCacheName);
-                ScheduleGeneratedClipTrim(cachedClip);
+                if (trackForTrim) ScheduleGeneratedClipTrim(cachedClip);
                 return cachedClip != null;
             }
             catch (Exception ex)

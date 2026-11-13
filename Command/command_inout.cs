@@ -141,6 +141,13 @@ namespace KimodoUnityBridge.Command
                 TimelineAnimationRecord animation = ResolveAnimation(
                     new JObject { ["animation"] = RequiredStringValue(source, "clip") },
                     sourceCharacter);
+                if (animation.TimelineClip == null)
+                {
+                    AnimationClip prepared = PrepareCommandConstraintClip(animation.Clip, sourceCharacter);
+                    animation = new TimelineAnimationRecord(
+                        animation.Id, animation.Name, animation.Source, prepared, null,
+                        animation.Analysis, animation.KmbBytes, animation.StartFrame, animation.EndFrameExclusive);
+                }
                 if (animation.Clip == null ||
                     (animation.TimelineSegments.Count > 0 && animation.TimelineSegments.Any(segment => segment.Clip == null)))
                 {
@@ -278,7 +285,7 @@ namespace KimodoUnityBridge.Command
             // clip on the KimodoPlayableClip itself so command and Inspector
             // generation use the same Timeline carrier. Finalization replaces it
             // with the generated result.
-            playableClip.clip = animation.Clip;
+            playableClip.clip = PrepareCommandConstraintClip(animation.Clip, sourceCharacter);
             playableClip.insideConstraintSourceClip = null;
             playableClip.insideConstraintSourceTrack = null;
             playableClip.insideConstraintSourceAsset = null;
@@ -398,7 +405,7 @@ namespace KimodoUnityBridge.Command
                     if (evidenceAsset == null)
                         throw new InvalidOperationException("Timeline could not create an In/Out evidence AnimationPlayableAsset.");
 
-                    evidenceAsset.clip = sourceAsset.clip;
+                    evidenceAsset.clip = PrepareCommandConstraintClip(sourceAsset.clip, trace.Character);
                     evidenceAsset.loop = sourceAsset.loop;
                     evidenceAsset.position = sourceAsset.position;
                     evidenceAsset.rotation = sourceAsset.rotation;
@@ -473,6 +480,15 @@ namespace KimodoUnityBridge.Command
                 ["source_timeline_end_seconds"] = sourceEnd,
                 ["source"] = sourceKind
             });
+        }
+
+        private static AnimationClip PrepareCommandConstraintClip(AnimationClip clip, TimelineCharacterRecord character)
+        {
+            if (!KimodoSourceClipPreparationUtility.TryPrepareForAvatar(
+                    clip, character.Avatar, out AnimationClip prepared, out string error,
+                    persist: true, requireBoneClip: !character.Animator.isHuman))
+                throw new InvalidOperationException(error);
+            return prepared;
         }
 
         private static void ValidateCommandTimelineRange(TimelineGenerationTrace trace)

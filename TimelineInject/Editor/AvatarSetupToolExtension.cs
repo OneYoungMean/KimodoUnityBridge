@@ -39,6 +39,7 @@ namespace TimelineInject
 
             ModelImporterAnimationType originalAnimationType = importer.animationType;
             HumanDescription originalHumanDescription = importer.humanDescription;
+            string originalImporterSettings = EditorJsonUtility.ToJson(importer);
             Avatar generatedAvatar = null;
             Exception generationError = null;
 
@@ -91,6 +92,7 @@ namespace TimelineInject
                 ModelImporter restoreImporter = AssetImporter.GetAtPath(modelImporterPath) as ModelImporter;
                 if (restoreImporter != null)
                 {
+                    EditorJsonUtility.FromJsonOverwrite(originalImporterSettings, restoreImporter);
                     restoreImporter.animationType = originalAnimationType;
                     restoreImporter.humanDescription = originalHumanDescription;
                     EditorUtility.SetDirty(restoreImporter);

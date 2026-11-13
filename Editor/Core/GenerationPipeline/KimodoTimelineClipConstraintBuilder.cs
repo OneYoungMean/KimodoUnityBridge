@@ -147,7 +147,7 @@ namespace KimodoBridge.Editor
         private static Avatar ResolveSourceAvatar(KimodoTimelineInOutConstraintContext context)
         {
             KimodoLocalAvatarUtility.AvatarResolveResult result =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator);
+                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator, allowGeneration: true);
             if (!result.IsHumanoid || !KimodoRetargetCoreUtility.IsValidHumanoid(result.Avatar))
                 throw new InvalidOperationException($"External Clip constraint requires a valid source Avatar: {result.Error}");
             return result.Avatar;

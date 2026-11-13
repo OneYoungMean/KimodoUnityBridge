@@ -24,7 +24,9 @@ namespace KimodoBridge.Editor
                     source.TimelineContext,
                     profile.ModelName,
                     out KimodoTimelineSamplingSession sampler,
-                    out error))
+                    out error,
+                    source.RangeStartSeconds,
+                    source.RangeEndSeconds))
             {
                 return false;
             }

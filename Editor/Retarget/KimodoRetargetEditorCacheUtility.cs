@@ -47,17 +47,31 @@ namespace KimodoBridge.Editor
             return true;
         }
 
-        internal static string BuildNamedCacheName(AnimationClip sourceClip, string clipType, Avatar targetAvatar)
+        internal static string BuildNamedCacheName(AnimationClip sourceClip, string clipType, Avatar targetAvatar, Avatar sourceAvatar)
         {
             string sourceName = SanitizeCacheToken(sourceClip != null ? sourceClip.name : "Clip", "Clip");
+            if (sourceName.Length > 64) sourceName = sourceName.Substring(0, 64);
+            string identity = Hash128.Compute(
+                "source-rig-v1|" + ContentIdentity(sourceClip) + "|" + ContentIdentity(sourceAvatar) + "|" + ContentIdentity(targetAvatar)).ToString();
             string typeName = SanitizeCacheToken(clipType, "cache");
             if (string.Equals(typeName, MuscleCacheType, StringComparison.OrdinalIgnoreCase))
             {
-                return $"{sourceName}-49d-{MuscleCacheType}-cache";
+                return $"{sourceName}-49d-{identity}-{MuscleCacheType}-cache";
             }
 
             string avatarName = SanitizeCacheToken(targetAvatar != null ? targetAvatar.name : "Avatar", "Avatar");
-            return $"{sourceName}-{BoneCacheType}-{avatarName}-cache";
+            if (avatarName.Length > 32) avatarName = avatarName.Substring(0, 32);
+            return $"{sourceName}-{BoneCacheType}-{avatarName}-{identity}-cache";
+        }
+
+        private static string ContentIdentity(UnityEngine.Object asset)
+        {
+            if (asset == null) return string.Empty;
+            AssetDatabase.TryGetGUIDAndLocalFileIdentifier(asset, out string guid, out long localId);
+            string path = AssetDatabase.GetAssetPath(asset);
+            return guid + ":" + localId + ":" +
+                (string.IsNullOrEmpty(path) ? string.Empty : AssetDatabase.GetAssetDependencyHash(path).ToString()) + ":" +
+                EditorJsonUtility.ToJson(asset);
         }
 
         private static string SanitizeCacheToken(string value, string defaultValue)

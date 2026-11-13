@@ -205,6 +205,7 @@ namespace KimodoBridge.Editor
         private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
         private readonly KimodoTimelineEvaluationScope evaluationScope;
+        private readonly KimodoSourceClipPreparationUtility.TimelineScope clipPreparation;
         private readonly DirectorWrapMode originalWrapMode;
         private bool disposed;
 
@@ -215,6 +216,7 @@ namespace KimodoBridge.Editor
             Transform[] sourceBoneTransforms,
             RetargetSkeleton targetCache,
             KimodoTimelineEvaluationScope evaluationScope,
+            KimodoSourceClipPreparationUtility.TimelineScope clipPreparation,
             DirectorWrapMode originalWrapMode)
         {
             this.context = context;
@@ -223,6 +225,7 @@ namespace KimodoBridge.Editor
             this.sourceBoneTransforms = sourceBoneTransforms;
             TargetCache = targetCache;
             this.evaluationScope = evaluationScope;
+            this.clipPreparation = clipPreparation;
             this.originalWrapMode = originalWrapMode;
         }
 
@@ -245,14 +248,18 @@ namespace KimodoBridge.Editor
             KimodoTimelineInOutConstraintContext context,
             string modelName,
             out KimodoTimelineSamplingSession sampler,
-            out string error)
+            out string error,
+            double? rangeStart = null,
+            double? rangeEnd = null)
         {
             return TryCreate(
                 context,
                 modelName,
                 useProfileTarget: true,
                 out sampler,
-                out error);
+                out error,
+                rangeStart,
+                rangeEnd);
         }
 
         private static bool TryCreate(
@@ -260,7 +267,9 @@ namespace KimodoBridge.Editor
             string modelName,
             bool useProfileTarget,
             out KimodoTimelineSamplingSession sampler,
-            out string error)
+            out string error,
+            double? rangeStart = null,
+            double? rangeEnd = null)
         {
             sampler = null;
             error = string.Empty;
@@ -277,7 +286,8 @@ namespace KimodoBridge.Editor
             KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
                 KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(
                     context.Track,
-                    context.Animator);
+                    context.Animator,
+                    allowGeneration: useProfileTarget);
             Avatar sourceAvatar = avatarResult.Avatar;
             if (!avatarResult.IsHumanoid || !KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
             {
@@ -310,8 +320,12 @@ namespace KimodoBridge.Editor
             Transform[] sourceBoneTransforms = null;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
             KimodoTimelineEvaluationScope evaluationScope = null;
+            KimodoSourceClipPreparationUtility.TimelineScope clipPreparation = null;
             try
             {
+                if (useProfileTarget && !KimodoSourceClipPreparationUtility.TimelineScope.TryCreate(
+                        context, sourceAvatar, out clipPreparation, out error, rangeStart, rangeEnd))
+                    throw new InvalidOperationException(error);
                 evaluationScope = KimodoTimelineEvaluationScope.Begin(context.Director);
                 if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                         sourceAvatar,
@@ -319,8 +333,7 @@ namespace KimodoBridge.Editor
                         out sourceSamplingCache,
                         out error))
                 {
-                    targetCache.Dispose();
-                    return false;
+                    throw new InvalidOperationException(error);
                 }
                 if (!TryBuildSourceBoneTransforms(
                         context.Animator.transform,
@@ -329,9 +342,7 @@ namespace KimodoBridge.Editor
                         out sourceBoneTransforms,
                         out error))
                 {
-                    sourceSamplingCache.Dispose();
-                    targetCache.Dispose();
-                    return false;
+                    throw new InvalidOperationException(error);
                 }
 
                 context.Director.extrapolationMode = DirectorWrapMode.Hold;
@@ -342,14 +353,24 @@ namespace KimodoBridge.Editor
                     sourceBoneTransforms,
                     targetCache,
                     evaluationScope,
+                    clipPreparation,
                     originalWrapMode);
                 return true;
             }
             catch (Exception ex)
             {
-                evaluationScope?.Dispose();
-                sourceSamplingCache?.Dispose();
-                targetCache.Dispose();
+                try
+                {
+                    clipPreparation?.Restore();
+                    if (clipPreparation?.Changed == true && evaluationScope != null) context.Director.RebuildGraph();
+                }
+                finally
+                {
+                    evaluationScope?.Dispose();
+                    clipPreparation?.Dispose();
+                    sourceSamplingCache?.Dispose();
+                    targetCache.Dispose();
+                }
                 error = ex.Message;
                 return false;
             }
@@ -742,19 +763,23 @@ namespace KimodoBridge.Editor
 
         private void RestoreSourceState()
         {
-            if (context?.Director == null)
-            {
-                return;
-            }
-
             try
             {
-                context.Director.extrapolationMode = originalWrapMode;
-                evaluationScope?.Dispose();
+                clipPreparation?.Restore();
+                if (context?.Director != null)
+                {
+                    if (clipPreparation?.Changed == true) context.Director.RebuildGraph();
+                    context.Director.extrapolationMode = originalWrapMode;
+                }
             }
             catch (Exception ex)
             {
                 Debug.LogWarning($"[Kimodo][TimelineSample] Failed to restore Director state: {ex.Message}");
+            }
+            finally
+            {
+                evaluationScope?.Dispose();
+                clipPreparation?.Dispose();
             }
         }
     }

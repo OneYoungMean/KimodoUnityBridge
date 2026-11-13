@@ -40,7 +40,7 @@ namespace KimodoBridge.Editor
             return new AvatarResolveResult(null, false, string.Empty, error);
         }
 
-        public static AvatarResolveResult ResolveTimelineSourceAvatar(TrackAsset track, Animator animator)
+        public static AvatarResolveResult ResolveTimelineSourceAvatar(TrackAsset track, Animator animator, bool allowGeneration = false)
         {
             if (animator == null || animator.gameObject == null)
             {
@@ -59,7 +59,7 @@ namespace KimodoBridge.Editor
                     valid ? string.Empty : "The first Track clip Custom Avatar is invalid or does not match the Timeline binding skeleton.");
             }
 
-            return ResolveAvatarFromGameObject(animator.gameObject, allowGeneration: false);
+            return ResolveAvatarFromGameObject(animator.gameObject, allowGeneration);
         }
 
         public static Avatar ResolveTrackCustomAvatar(TrackAsset track)

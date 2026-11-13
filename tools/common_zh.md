@@ -136,6 +136,8 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 
 过渡时间很短时，增加 Outside 的 `window_frames`；有帮助时也增加 `sample_count`，以提供更宽的边界上下文。窗口受源 Clip 可用帧数限制，采样数必须对应不同的模型帧。Outside 会先补入上下文再裁切，并保持请求的输出时长。独立的 `inside` 约束使用原始 AnimationClip 与生成结果重叠范围内的身体姿势；`post_apply` 使用生成轨迹的根 XZ 和 Yaw，同时保留原动画的高度、Pitch/Roll 与身体姿势。根据可用源帧范围和返回的 `inout_sampling` 判断过渡上下文是否足够。
 
+`inout`、`inside` 和 ARDY Timeline history 在采样前会检查源骨架。模型内的 Generic 人形 Clip 可以自动生成并缓存缺失的 Humanoid Avatar，再转换到绑定角色或模型 profile；源模型导入设置与原 Clip 均保留。命令使用的转换副本会持久保存，history 采样临时替换兼容 Clip 后恢复 Timeline。独立的骨骼 `.anim` 需要与指定角色的骨骼路径匹配；不匹配时应提供原模型中的 Clip，或使用原始角色。无法确定源骨架时返回错误，避免将静止姿势当作动作参考。Humanoid 肌肉动画使用 Unity 已有的重定向能力。
+
 ## Prompt 表述
 
 Kimodo 提示词必须是一句不含逗号的简短自然语言句子。将动作、阶段、路径/方向、速度、身体状态、对象/接触和预期结束状态组织进这句话；其他约束写入受支持的结构化字段。数据集式标签常用 `walk_ff_225_stop`、`jog_arc_cw_loop`、`two_hands_walk_ff_start` 这样的 token。

@@ -161,7 +161,8 @@ namespace KimodoBridge.Editor
             Avatar targetAvatar,
             out AnimationClip boneCacheClip,
             out float frameRate,
-            out string error)
+            out string error,
+            bool persist = false)
         {
             boneCacheClip = null;
             frameRate = 0f;
@@ -179,14 +180,19 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
+            bool preserveReference = persist;
+            persist |= KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
             if (!TryPrepareEditorClipCache(
                     sourceClip,
                     KimodoRetargetEditorCacheUtility.BoneCacheType,
                     targetAvatar,
+                    sourceAvatar,
+                    persist,
                     out string cacheName,
                     out boneCacheClip,
                     out frameRate,
-                    out error))
+                    out error,
+                    preserveReference))
             {
                 return false;
             }
@@ -199,14 +205,14 @@ namespace KimodoBridge.Editor
                 return true;
             }
 
-            bool persist = KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips;
             AnimationClip writableClip = null;
             if (persist &&
                 !KimodoEditorClipWritebackService.TryGetOrCreateNamedClipCache(
                     cacheName,
                     frameRate,
                     out writableClip,
-                    out error))
+                    out error,
+                    trackForTrim: !preserveReference))
             {
                 return false;
             }
@@ -294,6 +300,7 @@ namespace KimodoBridge.Editor
             if (persist)
             {
                 EditorUtility.SetDirty(boneCacheClip);
+                if (preserveReference) AssetDatabase.SaveAssetIfDirty(boneCacheClip);
             }
             KimodoPlayableClipGenerationSettings.DebugLog(
                 $"[Kimodo][RetargetCache] Generated {(persist ? "persisted" : "transient")} bone animation: " +
@@ -415,6 +422,8 @@ namespace KimodoBridge.Editor
                     sourceClip,
                     KimodoRetargetEditorCacheUtility.MuscleCacheType,
                     null,
+                    sourceAvatar,
+                    persist,
                     out string cacheName,
                     out muscleClip,
                     out frameRate,
@@ -815,18 +824,23 @@ namespace KimodoBridge.Editor
             AnimationClip sourceClip,
             string cacheType,
             Avatar targetAvatar,
+            Avatar sourceAvatar,
+            bool persist,
             out string cacheName,
             out AnimationClip cachedClip,
             out float frameRate,
-            out string error)
+            out string error,
+            bool preserveReference = false)
         {
             cacheName = string.Empty;
             cachedClip = null;
             frameRate = 0f;
             error = string.Empty;
-            cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(sourceClip, cacheType, targetAvatar);
+            cacheName = KimodoRetargetEditorCacheUtility.BuildNamedCacheName(sourceClip, cacheType, targetAvatar, sourceAvatar);
+            // Timeline source derivatives must survive eviction of disposable sampling caches.
+            if (preserveReference) cacheName += "-reference";
             frameRate = sourceClip.frameRate > 0f ? sourceClip.frameRate : KimodoMotionModelProfiles.DefaultFrameRate;
-            if (!KimodoPlayableClipGenerationSettings.instance.WriteResampledTimelineCacheClips)
+            if (!persist)
             {
                 return true;
             }

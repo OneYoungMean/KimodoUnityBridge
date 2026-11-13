@@ -238,8 +238,8 @@ namespace KimodoUnityBridge.Command.Tests
                     unindexedOccupant.end + command_context.ClipSafeZoneSeconds - 1e-8),
                     "The generated block must start after every actual Timeline clip.");
                 playable.bridgeModelName = model;
-                Assert.That(playable.enableInConstraint || playable.enableOutConstraint, Is.False,
-                    "Explicit sources must not mix with automatically inferred Session boundaries.");
+                Assert.That(playable.enableInConstraint && playable.enableOutConstraint, Is.True,
+                    "Explicit source windows must remain enabled for the shared constraint builder.");
                 Assert.That(playable.postApplyOutConstraint, Is.True,
                     "Command-created clips enable Postapply Out without exposing a command option.");
                 Assert.That(output.duration, Is.EqualTo(2));

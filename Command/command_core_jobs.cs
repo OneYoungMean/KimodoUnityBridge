@@ -98,6 +98,7 @@ namespace KimodoUnityBridge.Command
             {
                 AnimationClip[] subAssets = AssetDatabase.LoadAllAssetsAtPath(assetPath)
                     .OfType<AnimationClip>()
+                    .Where(clip => !clip.name.StartsWith("__preview__", StringComparison.Ordinal))
                     .Distinct()
                     .ToArray();
                 if (subAssets.Length == 1) return subAssets[0];

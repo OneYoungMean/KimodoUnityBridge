@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using TimelineInject;
 using UnityEngine;
@@ -33,7 +34,8 @@ namespace KimodoBridge.Editor
             KimodoTimelineTrackOffsetUtility.CaptureWorldOffset(
                 context.Track, context.Animator, out Vector3 position, out Quaternion rotation, out _);
             if (!KimodoTimelineSamplingSession.TryCreateForProfileEncoding(
-                    context, modelName, out KimodoTimelineSamplingSession sampler, out error))
+                    context, modelName, out KimodoTimelineSamplingSession sampler, out error,
+                    timelineTimes.Min(), timelineTimes.Max()))
                 throw new InvalidOperationException($"ClipConstraint Timeline sampler failed: {error}");
             using (sampler)
             {
@@ -55,7 +57,7 @@ namespace KimodoBridge.Editor
             if (!KimodoInOutConstraintAdapter.TryResolveTimelineContext(
                     source, out KimodoTimelineInOutConstraintContext context, out string error))
                 throw new InvalidOperationException(error);
-            Avatar sourceAvatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator).Avatar;
+            Avatar sourceAvatar = KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(context.Track, context.Animator, allowGeneration: true).Avatar;
             var times = new double[frameCount];
             for (int frame = 0; frame < frameCount; frame++)
                 times[frame] = frame / (double)frameRate;
@@ -73,8 +75,9 @@ namespace KimodoBridge.Editor
         {
             if (animation == null)
                 throw new InvalidOperationException("Original AnimationClip is missing.");
-            if (!KimodoRetargetCoreUtility.IsValidHumanoid(sourceAvatar))
-                throw new InvalidOperationException("Original AnimationClip requires a valid humanoid source Avatar.");
+            if (!KimodoSourceClipPreparationUtility.TryResolveSourceAvatar(
+                    ref animation, sourceAvatar, out sourceAvatar, out string sourceError))
+                throw new InvalidOperationException(sourceError);
             if (sampleTimes == null || sampleTimes.Count == 0 || frameRate <= 0f)
                 throw new ArgumentOutOfRangeException(nameof(sampleTimes), "ClipConstraint samples are invalid.");
             if (!KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(modelName, out Avatar targetAvatar, out string error))
@@ -84,25 +87,35 @@ namespace KimodoBridge.Editor
                 throw new InvalidOperationException(error);
             if (!KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
                     targetAvatar, "KimodoInsideReference", out RetargetSkeleton cache, out error))
-                throw new InvalidOperationException(error);
-            using (cache)
             {
-                if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
-                        retargeted, cache, "KimodoInsideSampler",
-                        KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform, out var sampler, out error))
-                    throw new InvalidOperationException(error);
-                using (sampler)
+                if (!UnityEditor.EditorUtility.IsPersistent(retargeted)) UnityEngine.Object.DestroyImmediate(retargeted);
+                throw new InvalidOperationException(error);
+            }
+            try
+            {
+                using (cache)
                 {
-                    var samples = new BoneSample[sampleTimes.Count];
-                    for (int frame = 0; frame < sampleTimes.Count; frame++)
+                    if (!KimodoRetargetClipSamplingUtility.ClipSamplingSession.TryCreate(
+                            retargeted, cache, "KimodoInsideSampler",
+                            KimodoRetargetClipSamplingUtility.ClipSamplingMode.RawTransform, out var sampler, out error))
+                        throw new InvalidOperationException(error);
+                    using (sampler)
                     {
-                        token.ThrowIfCancellationRequested();
-                        if (!KimodoRetargetSamplingUtility.TrySampleBoneClipSession(
-                                sampler, Math.Max(0.0, Math.Min(animation.length, sampleTimes[frame])), out samples[frame], out error))
-                            throw new InvalidOperationException(error);
+                        var samples = new BoneSample[sampleTimes.Count];
+                        for (int frame = 0; frame < sampleTimes.Count; frame++)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (!KimodoRetargetSamplingUtility.TrySampleBoneClipSession(
+                                    sampler, Math.Max(0.0, Math.Min(animation.length, sampleTimes[frame])), out samples[frame], out error))
+                                throw new InvalidOperationException(error);
+                        }
+                        return EncodeSamples(modelName, cache, samples, frameRate, token, includeFootContacts);
                     }
-                    return EncodeSamples(modelName, cache, samples, frameRate, token, includeFootContacts);
                 }
+            }
+            finally
+            {
+                if (retargeted != null && !UnityEditor.EditorUtility.IsPersistent(retargeted)) UnityEngine.Object.DestroyImmediate(retargeted);
             }
         }
 
