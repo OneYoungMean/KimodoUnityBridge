@@ -123,6 +123,10 @@ Apply only the work required by the selected route; inspection/comparison does n
 
 ## Keyframe-led generation and revision
 
+### Reusable tip: generate the span first, then refine selected middle poses
+
+When a motion is defined by a start Pose, an end Pose, a root displacement or distance, and a short semantic prompt, first generate the full span with only the endpoint constraints and the trajectory requirement. After the Clip completes, run `animation.analysis`, inspect the returned key poses and phase changes, and materialize only a few useful middle frames with `pose.get`. Use those middle Poses for a targeted derived generation or for local curve edits when they address a specific gait phase, contact, drift, or endpoint problem. Keep the original candidate and compare both candidates with the same criteria and sampling settings. Do not turn every analysis keyframe into a hard constraint: too many fixed middle Poses can suppress the model's interpolation and make the motion stiff. For exact prop contact, use deterministic IK or baked curves after this pass; middle-Pose refinement is best used to improve the natural full-body transition.
+
 For a task that depends on keyframe-level motion:
 
 1. Inspect the available Clip and analysis first. When usable keyframe data is absent, generate an initial candidate from the task's established semantic prompt and supported constraints, then obtain its full `animation.analysis` result. Reuse `generation.get`'s `post_analysis` when it completed successfully and contains the full usable keyframe data; when it is missing, failed, or incomplete, run `animation.analysis` on the completed Clip.
