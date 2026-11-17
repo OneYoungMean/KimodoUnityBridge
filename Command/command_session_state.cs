@@ -906,11 +906,18 @@ namespace KimodoUnityBridge.Command
                     session,
                     RequiredStringValue(arguments, "target_character"),
                     addIfMissing: true);
-                if (!KimodoRetargetCoreUtility.IsValidHumanoid(source.Avatar) ||
-                    !KimodoRetargetCoreUtility.IsValidHumanoid(target.Avatar))
+                Avatar sourceAvatar = ResolveRetargetAvatar(source);
+                Avatar targetAvatar = ResolveRetargetAvatar(target);
+                AnimationClip sourceClip = sourceAnimation.Clip;
+                if (!KimodoSourceClipPreparationUtility.TryResolveSourceAvatar(
+                        ref sourceClip,
+                        sourceAvatar,
+                        out Avatar sourceClipAvatar,
+                        out string sourceClipError))
                 {
-                    throw new InvalidOperationException("Retarget requires valid humanoid source and target Avatars.");
+                    throw new InvalidOperationException($"Retarget source Clip preparation failed: {sourceClipError}");
                 }
+                sourceAvatar = sourceClipAvatar;
 
                 AnimationClip output = null;
                 try
@@ -924,14 +931,14 @@ namespace KimodoUnityBridge.Command
                     output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                         assetName,
                         KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder")));
-                    KimodoEditorClipUtility.CopyClipData(sourceAnimation.Clip, output);
-                    AnimationClip providedHumanoidClip = sourceAnimation.Clip.isHumanMotion
-                        ? sourceAnimation.Clip
+                    KimodoEditorClipUtility.CopyClipData(sourceClip, output);
+                    AnimationClip providedHumanoidClip = sourceClip.isHumanMotion
+                        ? sourceClip
                         : null;
                     if (!KimodoRetargetCoreUtility.TryRetargetClip(
                             output,
-                            source.Avatar,
-                            target.Avatar,
+                            sourceAvatar,
+                            targetAvatar,
                             exportMuscleClip: false,
                             providedSourceHumanoidClip: providedHumanoidClip,
                             out AnimationClip retargeted,
@@ -962,6 +969,26 @@ namespace KimodoUnityBridge.Command
                     }
                     throw;
                 }
+        }
+
+        private static Avatar ResolveRetargetAvatar(TimelineCharacterRecord character)
+        {
+            if (KimodoRetargetCoreUtility.IsValidHumanoid(character?.Avatar))
+            {
+                return character.Avatar;
+            }
+
+            KimodoLocalAvatarUtility.AvatarResolveResult result =
+                KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(character?.Root);
+            if (result.IsHumanoid && KimodoRetargetCoreUtility.IsValidHumanoid(result.Avatar))
+            {
+                return result.Avatar;
+            }
+
+            string characterName = character?.Name ?? "<unknown>";
+            string detail = string.IsNullOrWhiteSpace(result.Error) ? string.Empty : $" {result.Error}";
+            throw new InvalidOperationException(
+                $"Retarget requires a valid humanoid Avatar for character '{characterName}'.{detail}");
         }
 
         private static TimelineAnimationRecord ResolveAnimation(JObject arguments, TimelineCharacterRecord character)

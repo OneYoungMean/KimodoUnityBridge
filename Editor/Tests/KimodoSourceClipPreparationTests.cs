@@ -69,6 +69,34 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void Retarget_ResolvesMissingCharacterAvatarBeforeValidation()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            AnimationTrack track = timeline.CreateTrack<AnimationTrack>();
+            Animator animator = sourceRoot.GetComponentInChildren<Animator>(true);
+            var character = new command_context.TimelineCharacterRecord(
+                "retarget-source", sourceRoot, animator, null, track, track, string.Empty);
+            MethodInfo resolver = typeof(command_context).GetMethod(
+                "ResolveRetargetAvatar", BindingFlags.Static | BindingFlags.NonPublic);
+
+            try
+            {
+                Assert.That(resolver, Is.Not.Null);
+                Avatar resolved = (Avatar)resolver.Invoke(null, new object[] { character });
+                Assert.That(resolved, Is.Not.Null);
+                Assert.That(KimodoRetargetCoreUtility.IsValidHumanoid(resolved), Is.True);
+                Assert.That(KimodoLocalAvatarUtility.CheckAvatarValid(resolved, sourceRoot), Is.True);
+                Assert.That(((ModelImporter)AssetImporter.GetAtPath(modelPath)).animationType,
+                    Is.EqualTo(ModelImporterAnimationType.Generic));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(track);
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void OriginalEncoding_UsesImportedGenericSourceRigInsteadOfTargetAvatar()
         {
             AnimationClip source = LoadSource();
