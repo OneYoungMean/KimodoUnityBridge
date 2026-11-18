@@ -204,6 +204,7 @@ namespace KimodoBridge.Editor
         private readonly RetargetSkeleton sourceSamplingCache;
         private readonly string[] sourceBonePaths;
         private readonly Transform[] sourceBoneTransforms;
+        private readonly Transform sourceHipsTransform;
         private readonly KimodoTimelineEvaluationScope evaluationScope;
         private readonly KimodoSourceClipPreparationUtility.TimelineScope clipPreparation;
         private readonly DirectorWrapMode originalWrapMode;
@@ -214,6 +215,7 @@ namespace KimodoBridge.Editor
             RetargetSkeleton sourceSamplingCache,
             string[] sourceBonePaths,
             Transform[] sourceBoneTransforms,
+            Transform sourceHipsTransform,
             RetargetSkeleton targetCache,
             KimodoTimelineEvaluationScope evaluationScope,
             KimodoSourceClipPreparationUtility.TimelineScope clipPreparation,
@@ -223,6 +225,7 @@ namespace KimodoBridge.Editor
             this.sourceSamplingCache = sourceSamplingCache;
             this.sourceBonePaths = sourceBonePaths;
             this.sourceBoneTransforms = sourceBoneTransforms;
+            this.sourceHipsTransform = sourceHipsTransform;
             TargetCache = targetCache;
             this.evaluationScope = evaluationScope;
             this.clipPreparation = clipPreparation;
@@ -230,6 +233,7 @@ namespace KimodoBridge.Editor
         }
 
         internal RetargetSkeleton TargetCache { get; }
+        internal Avatar SourceAvatar => sourceSamplingCache?.avatar;
         internal static bool TryCreate(
             KimodoTimelineInOutConstraintContext context,
             string modelName,
@@ -318,6 +322,7 @@ namespace KimodoBridge.Editor
             RetargetSkeleton sourceSamplingCache = null;
             string[] sourceBonePaths = null;
             Transform[] sourceBoneTransforms = null;
+            Transform sourceHipsTransform = null;
             DirectorWrapMode originalWrapMode = context.Director.extrapolationMode;
             KimodoTimelineEvaluationScope evaluationScope = null;
             KimodoSourceClipPreparationUtility.TimelineScope clipPreparation = null;
@@ -340,6 +345,7 @@ namespace KimodoBridge.Editor
                         sourceSamplingCache,
                         out sourceBonePaths,
                         out sourceBoneTransforms,
+                        out sourceHipsTransform,
                         out error))
                 {
                     throw new InvalidOperationException(error);
@@ -351,6 +357,7 @@ namespace KimodoBridge.Editor
                     sourceSamplingCache,
                     sourceBonePaths,
                     sourceBoneTransforms,
+                    sourceHipsTransform,
                     targetCache,
                     evaluationScope,
                     clipPreparation,
@@ -546,8 +553,7 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            Transform hips = context.Animator.GetBoneTransform(HumanBodyBones.Hips);
-            if (hips == null)
+            if (sourceHipsTransform == null)
             {
                 error = "The source Character Humanoid rig has no Hips bone.";
                 return false;
@@ -567,7 +573,7 @@ namespace KimodoBridge.Editor
                     }
 
                     evaluationScope.EvaluateAt(Math.Max(0.0, timelineTime));
-                    positions[i] = hips.position;
+                    positions[i] = sourceHipsTransform.position;
                 }
                 return true;
             }
@@ -616,10 +622,12 @@ namespace KimodoBridge.Editor
             RetargetSkeleton sourceSamplingCache,
             out string[] sourceBonePaths,
             out Transform[] sourceBoneTransforms,
+            out Transform sourceHipsTransform,
             out string error)
         {
             sourceBonePaths = null;
             sourceBoneTransforms = null;
+            sourceHipsTransform = null;
             error = string.Empty;
             if (sourceRoot == null || !KimodoRetargetAvatarUtility.ValidateRetargetSkeleton(sourceSamplingCache, out error))
             {
@@ -682,11 +690,23 @@ namespace KimodoBridge.Editor
                     return false;
                 }
 
+                if (humanBodyBone == HumanBodyBones.Hips)
+                {
+                    sourceHipsTransform = sourceBone;
+                }
                 if (seenPaths.Add(path))
                 {
                     paths.Add(path);
                     transforms.Add(sourceBone);
                 }
+            }
+
+            if (sourceHipsTransform == null)
+            {
+                error = "Source Avatar Hips transform is unavailable in the bound character hierarchy.";
+                sourceBonePaths = null;
+                sourceBoneTransforms = null;
+                return false;
             }
 
             sourceBonePaths = paths.ToArray();

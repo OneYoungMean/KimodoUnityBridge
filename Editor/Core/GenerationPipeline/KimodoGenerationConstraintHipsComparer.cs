@@ -44,13 +44,6 @@ namespace KimodoBridge.Editor
                 return CreateUnavailable("The source Character Animator or Timeline director is unavailable.");
             }
 
-            KimodoLocalAvatarUtility.AvatarResolveResult avatarResult =
-                KimodoLocalAvatarUtility.ResolveTimelineSourceAvatar(timelineContext.Track, sourceAnimator);
-            if (!avatarResult.IsHumanoid || !KimodoRetargetCoreUtility.IsValidHumanoid(avatarResult.Avatar))
-            {
-                return CreateUnavailable($"The source Character Avatar is invalid: {avatarResult.Error}");
-            }
-
             float samplingRate = frameRate > 0f ? frameRate : generatedClip.frameRate;
             if (samplingRate <= 0f || float.IsNaN(samplingRate) || float.IsInfinity(samplingRate))
             {
@@ -120,7 +113,7 @@ namespace KimodoBridge.Editor
                 if (!KimodoConstraintPoseRigFactory.TryCreatePoseRig(
                         modelName,
                         sourceAnimator,
-                        avatarResult.Avatar,
+                        timelineSampler.SourceAvatar,
                         out KimodoConstraintPoseRigFactory.PoseRigInstance rig,
                         out string rigError))
                 {

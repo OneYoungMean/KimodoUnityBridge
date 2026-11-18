@@ -29,17 +29,20 @@ namespace KimodoUnityBridge.Command.Tests
         private const float EffectorRootGenerationToleranceMeters = 0.1f;
 
         [Test]
-        public void HipsComparison_UsesTimelineEvaluationOnSourceCharacterHumanoidRig()
+        public void HipsComparison_UsesResolvedAvatarWhenBoundAnimatorAvatarIsNull()
         {
             using (var fixture = new GenerationFixture("HipsComparison"))
             {
                 const string model = KimodoMotionModelProfiles.DefaultModelName;
                 KimodoMarkerSampleResult constraint = fixture.Capture("root2d", 0.5d);
+                Avatar sourceAvatar = fixture.Skeleton.avatar;
+                fixture.Playable.CustomRetargetAvatar = sourceAvatar;
+                fixture.Skeleton.animator.avatar = null;
                 KimodoEditorGenerateRequest request = fixture.BuildTimelineComparisonRequest();
                 Assert.That(KimodoConstraintPoseRigFactory.TryCreatePoseRig(
                     model,
                     fixture.Skeleton.animator,
-                    fixture.Skeleton.avatar,
+                    sourceAvatar,
                     out KimodoConstraintPoseRigFactory.PoseRigInstance rig,
                     out string error), Is.True, error);
 
@@ -70,8 +73,11 @@ namespace KimodoUnityBridge.Command.Tests
                     JObject frame = comparison["frames"].Values<JObject>().Single();
                     Assert.That(frame["constraint_hips_world"].Values<float>().Count(), Is.EqualTo(3));
                     Assert.That(frame["generated_hips_world"].Values<float>().Count(), Is.EqualTo(3));
-                    Assert.That(frame["delta_xyz_m"].Values<float>().ToArray(), Is.EqualTo(new[] { 0f, 0f, 0f }));
+                    Assert.That(frame["delta_xyz_m"].Values<float>().ToArray(),
+                        Is.All.EqualTo(0f).Within(0.0001f));
                     Assert.That(frame.Value<float>("distance_m"), Is.EqualTo(0f).Within(0.0001f));
+                    Assert.That(fixture.Skeleton.animator.avatar, Is.Null,
+                        "Hips comparison must use the resolved Avatar without mutating the bound Animator.");
                 }
                 finally
                 {
