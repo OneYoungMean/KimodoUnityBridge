@@ -33,7 +33,8 @@ namespace KimodoBridge.Editor
             KimodoPlayableClip clip,
             Avatar explicitRetargetAvatar,
             string modelName,
-            GameObject bindingObject)
+            GameObject bindingObject,
+            KimodoGenerationOutputMode? generationOutputModeOverride = null)
         {
             if (clip == null) throw new InvalidOperationException("Playable clip is null.");
             string resolvedModelName = KimodoMotionModelProfiles.NormalizeName(modelName);
@@ -51,7 +52,7 @@ namespace KimodoBridge.Editor
                 ExportMuscleClip = hasValidRetargetAvatar && TryResolveBindingAnimatorAvatar(bindingObject, out _),
                 CurveFilterOptions = CloneCurveFilterOptions(clip.curveFilterOptions)
             };
-            switch (clip.generationOutputMode)
+            switch (generationOutputModeOverride ?? clip.generationOutputMode)
             {
                 case KimodoGenerationOutputMode.HumanoidMuscle:
                     outputPlan.ExportMuscleClip = true;

@@ -413,6 +413,74 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void UiGenerationUsesBindingAutoModeAndCommandDefaultsToAuto()
+        {
+            Assert.That(
+                KimodoUnityBridge.Command.command_context.ParseOutputMode(null),
+                Is.EqualTo("auto"));
+            JObject commandSchema = JObject.Parse(
+                KimodoUnityBridge.Command.command_context.GetCommandDefinitionsJson());
+            JObject generateSchema = commandSchema["tools"]
+                .First(item => item["name"]?.Value<string>() == "animation.generate") as JObject;
+            Assert.That(
+                generateSchema?["inputSchema"]?["properties"]?["output"]?["properties"]?["mode"]?["enum"]
+                    ?.Values<string>(),
+                Does.Contain("auto"));
+            JObject commandHelp = JObject.Parse(
+                KimodoUnityBridge.Command.command_context.GetCommandHelp("{\"command\":\"animation.generate\"}"));
+            Assert.That(
+                commandHelp["manual"]?["inputSchema"]?["properties"]?["output"]?["properties"]?["mode"]?["default"]
+                    ?.Value<string>(),
+                Is.EqualTo("auto"));
+
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            GameObject directorRoot = new GameObject("KimodoUiOutputModeBindingTest");
+            RetargetSkeleton skeleton = null;
+            Avatar assignedAvatar = null;
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "Motion");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.duration = 2.0;
+                PlayableDirector director = directorRoot.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                skeleton = BindTestSkeleton(director, track, "KimodoUiOutputModeBinding");
+                KimodoPlayableClip clip = (KimodoPlayableClip)timelineClip.asset;
+                clip.inOutConstraintMode = KimodoInOutConstraintMode.None;
+                clip.generationOutputMode = KimodoGenerationOutputMode.HumanoidMuscle;
+
+                assignedAvatar = skeleton.animator.avatar;
+                skeleton.animator.avatar = null;
+                KimodoEditorGenerateRequest uiRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default,
+                    generationOutputModeOverride: KimodoGenerationOutputMode.Auto);
+                Assert.That(uiRequest.OutputPlan.ExportMuscleClip, Is.False);
+                Assert.That(clip.generationOutputMode, Is.EqualTo(KimodoGenerationOutputMode.HumanoidMuscle));
+
+                KimodoEditorGenerateRequest commandRequest = KimodoPlayableClipGenerationHostService.BuildRequest(
+                    clip,
+                    "walk",
+                    externalConstraint: null,
+                    default,
+                    generationOutputModeOverride: KimodoGenerationOutputMode.HumanoidMuscle);
+                Assert.That(commandRequest.OutputPlan.ExportMuscleClip, Is.True);
+            }
+            finally
+            {
+                if (skeleton?.animator != null)
+                {
+                    skeleton.animator.avatar = assignedAvatar;
+                }
+                skeleton?.Dispose();
+                Object.DestroyImmediate(directorRoot);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void LoopRequest_SubmitsSettingsAtAuthoredDuration()
         {
             TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();

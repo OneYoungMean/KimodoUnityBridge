@@ -25,7 +25,8 @@ namespace KimodoBridge.Editor
             bool disableTimelineInOut = false,
             TimelineClip timelineClipOverride = null,
             bool requestEndpointSample = false,
-            string rawGenerateInstructionJson = null)
+            string rawGenerateInstructionJson = null,
+            KimodoGenerationOutputMode? generationOutputModeOverride = null)
         {
             if (clip == null)
             {
@@ -124,7 +125,8 @@ namespace KimodoBridge.Editor
                 clip,
                 explicitRetargetAvatar: null,
                 resolvedModelName,
-                outputBindingObject);
+                outputBindingObject,
+                generationOutputModeOverride);
             List<KimodoClipConstraint> clipConstraints = KimodoTimelineClipConstraintBuilder.Build(
                 clip,
                 timelineClip,

@@ -925,11 +925,20 @@ namespace KimodoUnityBridge.Command
             }, "Optional model and deterministic generation settings.");
         }
 
-        private static PropertyDefinition OptionalOutput()
+        private static PropertyDefinition OptionalOutput(bool includeAuto = false)
         {
+            string[] modes = includeAuto
+                ? new[] { "auto", "humanoid_muscle", "character_bone", "model_bone" }
+                : new[] { "humanoid_muscle", "character_bone", "model_bone" };
+            var modeSchema = new JObject { ["type"] = "string", ["enum"] = new JArray(modes) };
+            if (includeAuto)
+            {
+                modeSchema["default"] = "auto";
+                modeSchema["description"] = "Auto chooses the output mode from the bound character Animator.";
+            }
             return OptionalObject("output", new JObject
             {
-                ["mode"] = new JObject { ["type"] = "string", ["enum"] = new JArray("humanoid_muscle", "character_bone", "model_bone") },
+                ["mode"] = modeSchema,
                 ["folder"] = new JObject { ["type"] = "string" },
                 ["name"] = new JObject { ["type"] = "string" }
             }, "Optional animation output settings.");

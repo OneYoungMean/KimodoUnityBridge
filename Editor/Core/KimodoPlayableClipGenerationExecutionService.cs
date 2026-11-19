@@ -242,7 +242,8 @@ namespace KimodoBridge.Editor
                 null,
                 null,
                 out session,
-                out error);
+                out error,
+                generationOutputModeOverride: KimodoGenerationOutputMode.Auto);
         }
 
         private static Task<KimodoEditorGenerationResult> RunPostGenerationAnalysisAsync(
@@ -294,7 +295,8 @@ namespace KimodoBridge.Editor
             Action<KimodoEditorGenerationJobSession> statusChanged,
             out KimodoEditorGenerationJobSession session,
             out string error,
-            string rawGenerateInstructionJson = null)
+            string rawGenerateInstructionJson = null,
+            KimodoGenerationOutputMode? generationOutputModeOverride = null)
         {
             session = null;
             error = string.Empty;
@@ -322,7 +324,8 @@ namespace KimodoBridge.Editor
                                 message),
                             token,
                             timelineClipOverride,
-                            rawGenerateInstructionJson: rawGenerateInstructionJson);
+                            rawGenerateInstructionJson: rawGenerateInstructionJson,
+                            generationOutputModeOverride: generationOutputModeOverride);
                         return afterGenerate != null
                             ? await afterGenerate(handle, result, token)
                             : result;
@@ -677,7 +680,8 @@ namespace KimodoBridge.Editor
                     externalConstraint: null,
                     token,
                     effectiveSeedOverride: groupSeed,
-                    timelineClipOverride: entry.TimelineClip);
+                    timelineClipOverride: entry.TimelineClip,
+                    generationOutputModeOverride: KimodoGenerationOutputMode.Auto);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -855,7 +859,8 @@ namespace KimodoBridge.Editor
                     (stage, message) => progress?.Invoke(stage, $"{prefix}: {message}"),
                     token,
                     timelineClipOverride: timelineClips != null && i < timelineClips.Count ? timelineClips[i] : null,
-                    muteDebugTracksBeforeStart: true);
+                    muteDebugTracksBeforeStart: true,
+                    generationOutputModeOverride: KimodoGenerationOutputMode.Auto);
                 token.ThrowIfCancellationRequested();
                 result = await RunPostGenerationAnalysisAsync(
                     selectedClip,
@@ -881,7 +886,8 @@ namespace KimodoBridge.Editor
             CancellationToken token,
             TimelineClip timelineClipOverride = null,
             bool muteDebugTracksBeforeStart = true,
-            string rawGenerateInstructionJson = null)
+            string rawGenerateInstructionJson = null,
+            KimodoGenerationOutputMode? generationOutputModeOverride = null)
         {
             if (clip == null)
             {
@@ -902,7 +908,8 @@ namespace KimodoBridge.Editor
                 token,
                 timelineClipOverride: timelineClipOverride,
                 requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _),
-                rawGenerateInstructionJson: rawGenerateInstructionJson);
+                rawGenerateInstructionJson: rawGenerateInstructionJson,
+                generationOutputModeOverride: generationOutputModeOverride ?? KimodoGenerationOutputMode.Auto);
             string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
 
             try

@@ -246,7 +246,7 @@ namespace KimodoUnityBridge.Command
                             OptionalLoop(),
                             OptionalPath(),
                             OptionalGeneration(),
-                            OptionalOutput(),
+                            OptionalOutput(includeAuto: true),
                             new PropertyDefinition("analyze", new JObject
                             {
                                 ["type"] = "boolean",
@@ -1071,7 +1071,8 @@ namespace KimodoUnityBridge.Command
                     PersistGenerationJobStatus,
                     out KimodoEditorGenerationJobSession generation,
                     out string error,
-                    rawGenerateInstructionJson);
+                    rawGenerateInstructionJson,
+                    playableClip.generationOutputMode);
                 if (!started)
                 {
                     throw new InvalidOperationException(error);
@@ -1100,6 +1101,8 @@ namespace KimodoUnityBridge.Command
         {
             switch (outputMode)
             {
+                case "auto":
+                    return KimodoGenerationOutputMode.Auto;
                 case "character_bone":
                     return KimodoGenerationOutputMode.CharacterBone;
                 case "model_bone":
@@ -1111,10 +1114,10 @@ namespace KimodoUnityBridge.Command
 
         internal static string ParseOutputMode(string value)
         {
-            string mode = string.IsNullOrWhiteSpace(value) ? "humanoid_muscle" : value.Trim().ToLowerInvariant();
-            if (mode != "humanoid_muscle" && mode != "character_bone" && mode != "model_bone")
+            string mode = string.IsNullOrWhiteSpace(value) ? "auto" : value.Trim().ToLowerInvariant();
+            if (mode != "auto" && mode != "humanoid_muscle" && mode != "character_bone" && mode != "model_bone")
             {
-                throw new InvalidOperationException("output_mode must be humanoid_muscle, character_bone, or model_bone.");
+                throw new InvalidOperationException("output_mode must be auto, humanoid_muscle, character_bone, or model_bone.");
             }
 
             return mode;

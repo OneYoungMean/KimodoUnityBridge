@@ -2695,7 +2695,10 @@
             "properties": {
               "mode": {
                 "type": "string",
+                "default": "auto",
+                "description": "Auto chooses the output mode from the bound character Animator.",
                 "enum": [
+                  "auto",
                   "humanoid_muscle",
                   "character_bone",
                   "model_bone"
