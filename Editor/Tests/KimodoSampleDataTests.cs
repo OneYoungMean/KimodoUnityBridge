@@ -264,6 +264,16 @@ namespace KimodoBridge.Editor.Tests
                 Assert.That(Quaternion.Angle(
                     KimodoConstraintSpaceUtility.ToWorldRotation(stored.rotation, stored.space,
                         marker.SampleData.rootOverride), sampledWorldRotation), Is.LessThan(0.001f));
+
+                KimodoMarkerSampleResult preview = KimodoMarkerSamplingUtility.NormalizeConstraintMarkerSample(
+                    marker, marker.SampleData);
+                Assert.That(preview.effectors.leftHand.space, Is.EqualTo(KimodoConstraintSpace.Local));
+                Assert.That(Vector3.Distance(
+                    KimodoConstraintSpaceUtility.ToWorldPosition(preview.effectors.leftHand.position,
+                        preview.effectors.leftHand.space, preview.rootOverride), sampledWorldPosition), Is.LessThan(0.001f));
+                Assert.That(Quaternion.Angle(
+                    KimodoConstraintSpaceUtility.ToWorldRotation(preview.effectors.leftHand.rotation,
+                        preview.effectors.leftHand.space, preview.rootOverride), sampledWorldRotation), Is.LessThan(0.001f));
             }
             finally
             {

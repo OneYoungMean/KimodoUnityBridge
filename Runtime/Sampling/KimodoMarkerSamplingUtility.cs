@@ -67,7 +67,6 @@ namespace KimodoBridge
             {
                 if (source[i] == null || authoredValues[i] == null) continue;
                 KimodoConstraintSpace target = authoredValues[i].space;
-                source[i].space = KimodoConstraintSpace.World;
                 KimodoConstraintSpaceUtility.ConvertSpace(source[i], normalized.rootOverride, target);
             }
         }
