@@ -307,7 +307,15 @@ namespace KimodoBridge.Editor.Tests
                     "walk",
                     clip.bridgeModelName);
 
-                Assert.That(request.ConstraintSamples, Is.Empty);
+                Assert.That(request.ConstraintSamples, Has.Count.EqualTo(1));
+                Assert.That(request.ConstraintSamples[0].constraintMode, Is.EqualTo("root2d"));
+                Assert.That(request.ConstraintSamples[0].sampleTime, Is.EqualTo(0.0).Within(1e-6));
+                JArray constraints = JArray.Parse(request.Constraints.json);
+                JObject root2D = constraints
+                    .OfType<JObject>()
+                    .Single(item => string.Equals(
+                        item.Value<string>("type"), "root2d", System.StringComparison.OrdinalIgnoreCase));
+                CollectionAssert.AreEqual(new[] { 0 }, root2D["frame_indices"].Values<int>());
                 Assert.That(generation.ardy_history_weight, Is.Null);
             }
             finally

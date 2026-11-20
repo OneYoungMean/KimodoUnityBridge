@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using KimodoUnityBridge;
 using TimelineInject;
 using UnityEditor.Timeline;
 using UnityEngine;
@@ -24,7 +25,9 @@ namespace KimodoBridge.Editor
             float runtimeLengthSeconds,
             float frameRate,
             double sampleTimeOffsetSeconds,
-            TimelineClip timelineClip)
+            TimelineClip timelineClip,
+            bool enforceRootMotionLimits = false,
+            bool addAutoBeginAnchor = true)
         {
             var result = new ConstraintData();
             bool includeTimeline = externalConstraint?.Enabled != true || externalConstraint.IncludeTimelineConstraints;
@@ -55,14 +58,65 @@ namespace KimodoBridge.Editor
                         return copy;
                     }));
             }
+            if (addAutoBeginAnchor && (includeTimeline || result.Samples.Count > 0) &&
+                !KimodoConstraintNormalizationUtility.HasNormalizationAnchor(result.Samples, 1.0) &&
+                !TryAppendAutoBeginRoot2DAnchor(context, result.Samples, out string autoBeginError))
+            {
+                throw new InvalidOperationException($"Build AutoBegin constraint failed: {autoBeginError}");
+            }
             result.Json = includeTimeline || result.Samples.Count > 0
                 ? KimodoConstraintJsonExporter.ToConstraintsJson(
                     result.Samples, ResolveExportContext(timelineClip, context),
                     0.0, runtimeLengthSeconds, frameRate, denseRootPath)
                 : externalConstraint?.ConstraintsJson ?? string.Empty;
-            if (!KimodoConstraintRootMotionValidator.TryValidateRawConstraintRootMotion(result.Json, frameRate, out string error))
+            if (enforceRootMotionLimits &&
+                !KimodoConstraintRootMotionValidator.TryValidateRawConstraintRootMotion(result.Json, frameRate, out string error))
                 throw new InvalidOperationException($"Generation constraints violate root motion limits: {error}");
             return result;
+        }
+
+        internal static bool TryAppendAutoBeginRoot2DAnchor(
+            KimodoTimelineInOutConstraintContext context,
+            List<KimodoMarkerSampleResult> samples,
+            out string error)
+        {
+            error = string.Empty;
+            if (samples == null || KimodoConstraintNormalizationUtility.HasNormalizationAnchor(samples, 1.0))
+            {
+                return true;
+            }
+
+            // Raw external JSON and lightweight tests may not have a bound character.
+            if (context?.Animator == null)
+            {
+                return true;
+            }
+
+            if (!KimodoConstraintPoseUtility.TryCreateRestPoseSample(context, out KimodoMarkerSampleResult sample, out error))
+            {
+                return false;
+            }
+
+            Transform hips = context.Animator.GetBoneTransform(HumanBodyBones.Hips);
+            if (hips == null)
+            {
+                error = "AutoBegin Root2D requires the bound Animator's Humanoid Hips bone.";
+                return false;
+            }
+
+            sample.constraintMode = "root2d";
+            sample.sampleTime = 0.0;
+            sample.enableMask = KimodoConstraintMask.ForType("root2d");
+            sample.sampleValid = true;
+            sample.enabled = true;
+            sample.rootOverride = new KimodoRigidTransform
+            {
+                t = hips.position,
+                q = hips.rotation.normalized,
+                enableRotation = true
+            };
+            samples.Insert(0, sample);
+            return true;
         }
 
         public TimelineClip FindTimelineClipForAsset(PlayableAsset asset)

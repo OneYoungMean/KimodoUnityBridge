@@ -296,7 +296,8 @@ namespace KimodoBridge.Editor
             out KimodoEditorGenerationJobSession session,
             out string error,
             string rawGenerateInstructionJson = null,
-            KimodoGenerationOutputMode? generationOutputModeOverride = null)
+            KimodoGenerationOutputMode? generationOutputModeOverride = null,
+            bool enforceRootMotionLimits = false)
         {
             session = null;
             error = string.Empty;
@@ -325,7 +326,8 @@ namespace KimodoBridge.Editor
                             token,
                             timelineClipOverride,
                             rawGenerateInstructionJson: rawGenerateInstructionJson,
-                            generationOutputModeOverride: generationOutputModeOverride);
+                            generationOutputModeOverride: generationOutputModeOverride,
+                            enforceRootMotionLimits: enforceRootMotionLimits);
                         return afterGenerate != null
                             ? await afterGenerate(handle, result, token)
                             : result;
@@ -681,7 +683,8 @@ namespace KimodoBridge.Editor
                     token,
                     effectiveSeedOverride: groupSeed,
                     timelineClipOverride: entry.TimelineClip,
-                    generationOutputModeOverride: KimodoGenerationOutputMode.Auto);
+                    generationOutputModeOverride: KimodoGenerationOutputMode.Auto,
+                    addAutoBeginAnchor: false);
                 entry.Request.Progress = PrefixProgress(progress, i, entries.Count);
                 if (string.IsNullOrWhiteSpace(entry.Request.Prompt))
                 {
@@ -741,6 +744,19 @@ namespace KimodoBridge.Editor
             }
 
             KimodoEditorGenerateRequest firstRequest = entries[0].Request;
+            int sampleCountBeforeAutoBegin = allSamples.Count;
+            if (!KimodoEditorConstraintProvider.TryAppendAutoBeginRoot2DAnchor(
+                    firstRequest.TimelineContextSnapshot,
+                    allSamples,
+                    out string autoBeginError))
+            {
+                throw new InvalidOperationException($"Build connected AutoBegin constraint failed: {autoBeginError}");
+            }
+            if (allSamples.Count > sampleCountBeforeAutoBegin)
+            {
+                sampleTimeOffsets.Insert(0, 0.0);
+                firstRequest.ConstraintSamples.Insert(0, allSamples[0]);
+            }
 
             try
             {
@@ -887,7 +903,8 @@ namespace KimodoBridge.Editor
             TimelineClip timelineClipOverride = null,
             bool muteDebugTracksBeforeStart = true,
             string rawGenerateInstructionJson = null,
-            KimodoGenerationOutputMode? generationOutputModeOverride = null)
+            KimodoGenerationOutputMode? generationOutputModeOverride = null,
+            bool enforceRootMotionLimits = false)
         {
             if (clip == null)
             {
@@ -909,7 +926,8 @@ namespace KimodoBridge.Editor
                 timelineClipOverride: timelineClipOverride,
                 requestEndpointSample: !KimodoMotionModelProfiles.TryGetArdy(clip.bridgeModelName, out _),
                 rawGenerateInstructionJson: rawGenerateInstructionJson,
-                generationOutputModeOverride: generationOutputModeOverride ?? KimodoGenerationOutputMode.Auto);
+                generationOutputModeOverride: generationOutputModeOverride ?? KimodoGenerationOutputMode.Auto,
+                enforceRootMotionLimits: enforceRootMotionLimits);
             string modelName = KimodoMotionModelProfiles.NormalizeName(clip.bridgeModelName);
 
             try

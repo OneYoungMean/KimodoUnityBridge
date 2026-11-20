@@ -21,7 +21,8 @@ namespace KimodoUnityBridge.Command
                 frameRate,
                 character.Name,
                 modelName,
-                generatedSamples);
+                generatedSamples,
+                blockRootMotionLimits: true);
         }
     }
 }

@@ -144,7 +144,8 @@ namespace KimodoUnityBridge.Command.Tests
 
                     JObject exportedRoot2D = JArray.Parse(request.Constraints.json)
                         .OfType<JObject>()
-                        .Single(item => string.Equals(item.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase));
+                        .Single(item => string.Equals(item.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase) &&
+                            Frames(item).Contains(30));
                     int constrainedFrame = exportedRoot2D["frame_indices"]?.Values<int>().Single() ??
                         throw new AssertionException("Generated root2d constraint has no frame index.");
                     int outputConstraintFrame = constrainedFrame - request.RuntimeTrimStartFrame;
@@ -188,7 +189,8 @@ namespace KimodoUnityBridge.Command.Tests
                     };
                     KimodoRetargetMarkerSamplingUtility.CaptureWorldTargets(fixture.Skeleton, actual);
 
-                    KimodoMarkerSampleResult expected = request.ConstraintSamples.Single();
+                    KimodoMarkerSampleResult expected = request.ConstraintSamples.Single(item =>
+                        Math.Abs(item.sampleTime - 1.0) < 1e-6);
                     Vector2 actualPlanar = new Vector2(actual.rootOverride.t.x, actual.rootOverride.t.z);
                     Vector2 expectedPlanar = new Vector2(expected.rootOverride.t.x, expected.rootOverride.t.z);
                     float planarDistance = Vector2.Distance(actualPlanar, expectedPlanar);
@@ -326,9 +328,10 @@ namespace KimodoUnityBridge.Command.Tests
                     JObject exported = constraints
                         .OfType<JObject>()
                         .Single(item => string.Equals(
-                            item.Value<string>("type"),
-                            exportedConstraintType,
-                            StringComparison.OrdinalIgnoreCase));
+                                item.Value<string>("type"),
+                                exportedConstraintType,
+                                StringComparison.OrdinalIgnoreCase) &&
+                            Frames(item).Contains((int)Math.Round(sampleTime * KimodoMotionModelProfiles.DefaultFrameRate)));
                     int constrainedFrame = exported["frame_indices"]?.Values<int>().Single() ??
                         throw new AssertionException($"Generated {exportedConstraintType} constraint has no frame index.");
                     double constrainedTime = constrainedFrame / KimodoMotionModelProfiles.DefaultFrameRate;
@@ -358,7 +361,8 @@ namespace KimodoUnityBridge.Command.Tests
                         enableMask = new KimodoConstraintMask()
                     };
                     KimodoRetargetMarkerSamplingUtility.CaptureWorldTargets(fixture.Skeleton, actual);
-                    KimodoMarkerSampleResult expected = request.ConstraintSamples.Single();
+                    KimodoMarkerSampleResult expected = request.ConstraintSamples.Single(item =>
+                        Math.Abs(item.sampleTime - sampleTime) < 1e-6);
                     float rootDistance = planarOnly
                         ? Vector2.Distance(
                             new Vector2(actual.rootOverride.t.x, actual.rootOverride.t.z),
@@ -448,6 +452,44 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
+        public void AutoBeginIsRoot2DAtFrameZeroAndUsesBoundHipsWhenFirstConstraintIsAtOneSecond()
+        {
+            using (var fixture = new GenerationFixture("GenerationAutoBegin"))
+            {
+                KimodoMarkerSampleResult withinFirstSecond = fixture.Capture("root2d", 0.5);
+                KimodoEditorGenerateRequest withinFirstSecondRequest = fixture.BuildRequest(withinFirstSecond);
+                Assert.That(withinFirstSecondRequest.ConstraintSamples, Has.Count.EqualTo(1));
+                Assert.That(withinFirstSecondRequest.ConstraintSamples[0].constraintMode, Is.EqualTo("root2d"));
+                Assert.That(withinFirstSecondRequest.ConstraintSamples[0].sampleTime, Is.EqualTo(0.5).Within(1e-6));
+
+                KimodoMarkerSampleResult atOneSecond = fixture.Capture("root2d", 1.0);
+                Transform hips = fixture.Skeleton.animator.GetBoneTransform(HumanBodyBones.Hips);
+                Assert.That(hips, Is.Not.Null);
+                Vector3 expectedPosition = hips.position;
+                Quaternion expectedRotation = hips.rotation;
+
+                KimodoEditorGenerateRequest request = fixture.BuildRequest(atOneSecond);
+                KimodoMarkerSampleResult autoBegin = request.ConstraintSamples.Single(sample =>
+                    string.Equals(sample.constraintMode, "root2d", StringComparison.OrdinalIgnoreCase) &&
+                    Math.Abs(sample.sampleTime) < 1e-6);
+                Assert.That(autoBegin.enabled, Is.True);
+                Assert.That(autoBegin.sampleValid, Is.True);
+                Assert.That(autoBegin.enableMask.rootHeading, Is.True);
+                Assert.That(autoBegin.rootOverride.t, Is.EqualTo(expectedPosition));
+                Assert.That(Quaternion.Angle(autoBegin.rootOverride.q, expectedRotation), Is.LessThan(1e-4f));
+
+                KimodoMarkerSampleResult explicitRoot2D = request.ConstraintSamples.Single(sample =>
+                    Math.Abs(sample.sampleTime - 1.0) < 1e-6);
+                Assert.That(explicitRoot2D.constraintMode, Is.EqualTo("root2d"));
+                JObject exportedRoot2D = JArray.Parse(request.Constraints.json)
+                    .OfType<JObject>()
+                    .Single(item => string.Equals(
+                        item.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase));
+                CollectionAssert.AreEqual(new[] { 0, 30 }, Frames(exportedRoot2D));
+            }
+        }
+
+        [Test]
         public void GenerateCommand_ExposesInferredPointConstraintSchema()
         {
             JObject generation = JObject.Parse(command_dispatcher.GetCommandDefinitionsJson())
@@ -471,7 +513,7 @@ namespace KimodoUnityBridge.Command.Tests
         }
 
         [Test]
-        public void GenerationRequest_Effectors_EmbedRootContextWithoutSeparateRoot2D()
+        public void GenerationRequest_Effectors_AddAutoBeginRoot2DWithoutSplittingEffectorRootContext()
         {
             using (var fixture = new GenerationFixture("GenerationRootEffect"))
             {
@@ -488,12 +530,17 @@ namespace KimodoUnityBridge.Command.Tests
                 JObject leftHand = Find(exported, "left-hand");
                 JObject rightHand = Find(exported, "right-hand");
 
-                Assert.That(exported.Any(item => string.Equals(
-                    item.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase)), Is.False,
-                    "Effector records embed root context without a separate Root2D record.");
+                JObject autoBegin = exported
+                    .OfType<JObject>()
+                    .Single(item => string.Equals(
+                        item.Value<string>("type"), "root2d", StringComparison.OrdinalIgnoreCase));
+                CollectionAssert.AreEqual(new[] { 0 }, Frames(autoBegin),
+                    "AutoBegin is the ordinary Root2D anchor at frame 0.");
                 CollectionAssert.AreEqual(new[] { 32 }, Frames(leftHand));
                 CollectionAssert.AreEqual(new[] { 32 }, Frames(rightHand));
-                Assert.That(request.ConstraintSamples, Has.Count.EqualTo(1));
+                Assert.That(request.ConstraintSamples, Has.Count.EqualTo(2));
+                Assert.That(request.ConstraintSamples.Count(item =>
+                    Math.Abs(item.sampleTime - 32.0 / 30.0) < 1e-6), Is.EqualTo(1));
                 AssertVector3(leftHand["target_positions"][0],
                     ToKimodoPosition(rootEffect.effectors.leftHand.t),
                     "root-effect left hand", PositionToleranceMeters);

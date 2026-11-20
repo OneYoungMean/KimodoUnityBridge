@@ -378,14 +378,16 @@ namespace KimodoUnityBridge.Command
 
         private static void ValidateConstraintTransform(JObject value, string path, bool allowJoint = false)
         {
-            if (!value.HasValues) throw new InvalidOperationException($"{path} requires position or rotation.");
+            bool hasTransform = false;
             foreach (JProperty property in value.Properties())
             {
                 if (allowJoint && property.Name == "joint") continue;
                 if (property.Name != "position" && property.Name != "rotation")
                     throw new InvalidOperationException($"{path} has unsupported field '{property.Name}'.");
                 ReadVector3(property.Value as JArray, path + "." + property.Name);
+                hasTransform = true;
             }
+            if (!hasTransform) throw new InvalidOperationException($"{path} requires position or rotation.");
         }
 
         private static IEnumerable<KimodoMarkerSampleResult> BuildRootPathConstraintsWorld(

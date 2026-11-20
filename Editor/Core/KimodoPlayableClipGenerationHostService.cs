@@ -26,7 +26,9 @@ namespace KimodoBridge.Editor
             TimelineClip timelineClipOverride = null,
             bool requestEndpointSample = false,
             string rawGenerateInstructionJson = null,
-            KimodoGenerationOutputMode? generationOutputModeOverride = null)
+            KimodoGenerationOutputMode? generationOutputModeOverride = null,
+            bool enforceRootMotionLimits = false,
+            bool addAutoBeginAnchor = true)
         {
             if (clip == null)
             {
@@ -88,7 +90,7 @@ namespace KimodoBridge.Editor
 
             var constraintResult = ConstraintProvider.BuildGenerationConstraintsOrThrow(
                 clip, externalConstraint, runtimeFrameCount, runtimeLengthSeconds, targetFrameRate,
-                runtimeSampleOffsetSeconds, timelineClip);
+                runtimeSampleOffsetSeconds, timelineClip, enforceRootMotionLimits, addAutoBeginAnchor);
             string constraintsJson = constraintResult.Json;
             List<KimodoMarkerSampleResult> constraintSamples = constraintResult.Samples;
             ArdyEditorHistorySource initialHistorySource = null;

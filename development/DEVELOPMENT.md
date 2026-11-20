@@ -10,14 +10,15 @@ The maintained public commands are:
 
 - Startup and discovery: `server.install`, `kimodo.help` (`server.install` starts an asynchronous project-local installation task and returns `install:<guid>`; poll it with `generation.get`)
 - Scene inputs: commands resolve the active scene and return explicit asset/evidence references
-- Async tasks: `animation.generate` returns a generation `request_id`; `generation.get` polls either task type; `generation.cancel` cancels generation only
+- Async tasks: `server.install`, `animation.generate`, `pose.fromvideo`, and `pose.frompicture` return a `request_id` for `generation.get`; `generation.cancel` applies only to animation generation
 - Analysis/evidence: `animation.analysis`, `pose.analysis`, `pose.fromvideo`, `pose.frompicture`
 - Pose editing: `pose.get`, `pose.set`
 - Asset output: `animation.retarget`
 
 ## Current boundaries
 
-- Commands resolve a scene Humanoid Animator or renderable Mesh directly. A Mesh-only character rejects Humanoid clips, while a Humanoid target retargets a generic clip before appending it.
+- Commands resolve a scene Humanoid Animator or renderable Mesh directly. A Mesh-only character rejects Humanoid clips, while a Humanoid target retargets a generic clip before appending it. Reference preparation can create and cache a missing Humanoid Avatar for a Generic humanoid Clip embedded in its source model.
+- `animation.generate.output.mode` defaults to `auto`, which chooses the generated Clip representation from the bound character Animator. Explicit modes are `humanoid_muscle`, `character_bone`, and `model_bone`; see the command schema for the exact contract.
 - Completed Clips are immutable. Corrections, retargets, and generated variants append new Clips rather than replacing an existing Clip.
 - `animation.analysis` accepts one explicit scene Clip and returns structured motion analysis plus a fixed 20-tile SceneView image. Its `camera` object is shared with synchronous `pose.analysis`; both use the active SceneView camera and return image data inline with no request ID. `pose.analysis` previews the same point constraints accepted by `animation.generate`, separately by default or together as opaque poses with `combine=true`.
 - Humanoid `animation.analysis.clip.motion_profile.force_line` measures left/right arm swing balance. It converts each shoulder-to-hand vector into character-root-local sagittal angle, sums absolute frame-to-frame angle deltas over the full Clip and each `phase_track` interval, and reports `imbalance_ratio = abs(left-right) / max(left,right)`. A ratio at or below `0.15` is `balanced`; stationary or incomplete samples return `insufficient_evidence`.
@@ -33,6 +34,12 @@ The maintained public commands are:
 
 - Run a Unity Editor compile/import check after documentation and command-surface changes.
 - Validate representative generation, analysis image opening, External Pose/Path editing, and immutable-Clip append behavior in the maintained project. Scene changes and Editor reloads may cancel active generations. Keep Foot IK/Raycast or other unexposed capabilities documented as boundaries unless a public command and project asset prove them.
+
+## AnimationClip Inspector API (2026-11-02)
+
+- `Editor/Clip/AnimationClipInspector.cs` is the single typed fact source for AnimationClip settings, curve metadata, root-motion displacement/speed, rig type, and static AnimatorController consumers.
+- `AnimationClipInspector.Read`, `ReadSettings`, `ReadCurves`, `ReadRootMotion`, `ReadConsumers`, and `WriteSettings` form the reusable editor API. `InspectJson` and `SetSettingsJson` are the command-facing mapping methods.
+- The Unity panel, `clip.inspect`, `clip.settings.set`, and `generation.get.clip_settings` all use this API. `KimodoClipInspector` remains only as a narrow compatibility adapter and contains no fact calculation.
 
 ## Backend-owned generation (2026-11-09)
 
@@ -244,15 +251,9 @@ Verification completed on 2026-11-09:
 - The tested production Python files match the repository sources. FullDemo's installed QuickServer copy was not replaced; Editor/Command changes require the matching new backend.
 - Installed Kimodo v1.1 and ARDY SOMA30 weights were used. Kimodo v1.2 weights were unavailable, and no weights were downloaded. Visual playback has not been accepted; the focused results do not imply a clean full-project test suite.
 
-### AnimationClip Inspector API (2026-11-02)
-
-- `Editor/Clip/AnimationClipInspector.cs` is the single typed fact source for AnimationClip settings, curve metadata, root-motion displacement/speed, rig type, and static AnimatorController consumers.
-- `AnimationClipInspector.Read`, `ReadSettings`, `ReadCurves`, `ReadRootMotion`, `ReadConsumers`, and `WriteSettings` form the reusable editor API. `InspectJson` and `SetSettingsJson` are the command-facing mapping methods.
-- The Unity panel, `clip.inspect`, `clip.settings.set`, and `generation.get.clip_settings` all use this API. `KimodoClipInspector` remains only as a narrow compatibility adapter and contains no fact calculation.
-
 ## SceneView rendering cleanup (2026-11-10)
 
-The unused pose-depth Shader/HLSL and picture-compositing Compute Shader, together with their original asset and folder `.meta` files, are retained in [the rendering archive](../archive/scene-rendering-legacy-20261110~/README.md). No active code or serialized asset references were found in the package or the FullDemo project's Assets, Packages and ProjectSettings. The archive directory ends in `~` so Unity does not import these resources.
+The unused pose-depth Shader/HLSL and picture-compositing Compute Shader, together with their original asset and folder `.meta` files, were retired from the active package. The archive path named in the original record is absent from this checkout, so the archived payload cannot be retrieved here. No active code or serialized asset references were found in the package or the FullDemo project's Assets, Packages and ProjectSettings.
 
 Current analysis images use the active SceneView camera through `CaptureInject/Editor/SceneViewCaptureBridge.cs`, then CPU tile composition in `Command/command_scene_capture_layout.cs`. Text labels use the Unity font atlas; the default `Graphics.Blit` only reads that atlas back. Temporary RenderTextures remain part of these readback paths.
 
@@ -267,3 +268,15 @@ Verification: all eight moved files retained their SHA256 hashes; active package
 回退前全部未提交文件、完整 Git patch 和 SHA256 清单保留在 `C:\nvlab\archive\ardy-history-rollback-20261111_145716`。本次不修改已有生成资产，也不下载模型；抖动根因留待以此检查点为基线进一步排查。
 
 回退后验证：协议与阶段编排 Python 测试 130 项通过；当前 Unity 6000.5.7f1 项目重新导入并编译通过；`git diff --check` 通过。此次检查不包含重新生成或播放验收。
+
+## In/Out evidence Timeline (2026-11-12)
+
+Command `animation.generate` with In/Out references places compatible source-window AnimationClips before and/or after the generated Clip on the bound AnimationTrack. `inout_sampling.evidence_clips` records the created segments and their Timeline ranges. The whole context-plus-generation interval is checked against existing Clips before generation; an overlap rejects the request. The Out evidence window also advances the character's append position, so the next generated block starts after the reserved range. These evidence Clips extend the visible Timeline and should be inspected as source context, separately from the model-generated Clip.
+
+## External Clip reference support (2026-11-13)
+
+In/Out and Inside source references can resolve an AnimationClip even when it is not already placed on a Timeline. Clip references can use a loaded name, an `Assets/` or `Packages/` path, an AssetDatabase GUID, or a Unity GlobalObjectId. For In/Out, the command materializes only the requested visible source window as an evidence Clip on the target AnimationTrack; the original source asset remains unchanged. Inspect `inout_sampling.evidence_clips` to confirm what was placed.
+
+## Automatic generation output mode (2026-11-19)
+
+`animation.generate.output.mode` now defaults to `auto`. It selects the generated Clip representation from the bound character Animator; explicit choices remain `humanoid_muscle`, `character_bone`, and `model_bone`. This is separate from the TCP motion `output_format` described in the backend protocol section.

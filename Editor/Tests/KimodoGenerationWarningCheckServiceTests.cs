@@ -50,6 +50,48 @@ namespace KimodoBridge.Editor.Tests
                 .Any(issue => issue.Value<string>("code") == "speed_hard_limit"), Is.True);
         }
 
+        [TestCase(8f, "speed_limit")]
+        [TestCase(11f, "speed_hard_limit")]
+        public void CommandPreflight_BlocksRootSpeedLimitViolations(float distance, string issueCode)
+        {
+            JObject args = new JObject
+            {
+                ["constraints"] = new JArray
+                {
+                    new JObject { ["frame"] = 0, ["root"] = Root(0f, 0f) },
+                    new JObject { ["frame"] = 60, ["root"] = Root(distance, 0f) }
+                }
+            };
+
+            JObject result = KimodoGenerationWarningCheckService.Build(
+                args, 120, 60f, blockRootMotionLimits: true);
+
+            Assert.That(result.Value<bool>("blocking"), Is.True);
+            Assert.That(result["root_trajectory"]["issues"].ToObject<JArray>()
+                .Any(issue => issue.Value<string>("code") == issueCode), Is.True);
+        }
+
+        [Test]
+        public void CommandPreflight_BlocksRootAccelerationLimitViolations()
+        {
+            JObject args = new JObject
+            {
+                ["constraints"] = new JArray
+                {
+                    new JObject { ["frame"] = 0, ["root"] = Root(0f, 0f) },
+                    new JObject { ["frame"] = 30, ["root"] = Root(2.75f, 0f) },
+                    new JObject { ["frame"] = 60, ["root"] = Root(11f, 0f) }
+                }
+            };
+
+            JObject result = KimodoGenerationWarningCheckService.Build(
+                args, 120, 60f, blockRootMotionLimits: true);
+
+            Assert.That(result.Value<bool>("blocking"), Is.True);
+            Assert.That(result["root_trajectory"]["issues"].ToObject<JArray>()
+                .Any(issue => issue.Value<string>("code") == "acceleration_limit"), Is.True);
+        }
+
         [TestCase(9.99f, false)]
         [TestCase(10f, false)]
         [TestCase(10.01f, true)]

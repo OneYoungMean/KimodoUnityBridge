@@ -19,7 +19,7 @@ namespace KimodoBridge.Editor.Tests
         };
 
         [Test]
-        public void ApplyMuscleClipSettings_BakesHorizontalRootPositionFromCenterOfMass()
+        public void ApplyMuscleClipSettings_ExtractsPlanarRootPositionAndHeading()
         {
             var clip = new AnimationClip();
             try
@@ -29,6 +29,8 @@ namespace KimodoBridge.Editor.Tests
                 AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
                 Assert.That(settings.loopBlendPositionXZ, Is.True);
                 Assert.That(settings.keepOriginalPositionXZ, Is.False);
+                Assert.That(settings.keepOriginalOrientation, Is.False);
+                Assert.That(settings.keepOriginalPositionY, Is.True);
             }
             finally
             {

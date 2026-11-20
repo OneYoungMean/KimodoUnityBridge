@@ -100,7 +100,7 @@ Resolve missing facts through available context first. Ask when unresolved alter
 - Command errors use `ok=false` and `error={code,message,details?}`.
 - A successful poll can still have task `status` `failed` or `canceled`; report that terminal state and its error.
 - Save the exact `request_id`; poll at a fixed interval until a terminal state or bounded timeout.
-- Apply this to any asynchronous command returning a pending `request_id`, including `server.install` and `animation.generate`. A polling timeout leaves the task pending, not failed or canceled; retain the ID for resumption.
+- Apply this to any asynchronous command returning a pending `request_id`, including `server.install`, `animation.generate`, `pose.fromvideo`, and `pose.frompicture`. A polling timeout leaves the task pending, not failed or canceled; retain the ID for resumption.
 - Retain and poll a running request by its ID; cancel it when the task should stop.
 - Treat warnings and non-blocking checks as evidence to inspect.
 - Preserve completed Clips and use derived outputs for revisions.
@@ -140,7 +140,15 @@ Represent every transition between adjacent animation Clips with `animation.gene
 
 When a transition is short, increase the Outside `window_frames` and, where useful, `sample_count` to provide a wider boundary context. The window is capped by available source-Clip frames, and the requested sample count must fit distinct model frames. Outside context is padded and cropped while preserving the requested output duration. The separate `inside` constraint uses the original AnimationClip's overlapping body poses; `post_apply` uses generated root XZ and Yaw while preserving the source height, Pitch/Roll, and body pose. Use the available source range and returned `inout_sampling` to determine whether the transition has enough context for verification.
 
+Command `inout` also creates source-window evidence Clips around the generated Clip on the target Timeline when compatible source assets are available. The placements appear in `inout_sampling.evidence_clips`; the full In/Out context range is reserved and checked for overlap with existing track Clips. Inspect the generated and evidence Clips together when assessing the assembled seam.
+
+## Source-Clip compatibility and retargeting
+
 Reference preparation for `inout`, `inside`, and ARDY Timeline history checks the source rig before sampling. A Generic humanoid Clip embedded in a model can generate and cache its missing Humanoid Avatar, then retarget to the bound character or model profile. Model import settings and source Clips are preserved. Command reference derivatives persist across reloads; history sampling temporarily substitutes compatible Clips and restores the Timeline afterwards. A standalone bone `.anim` must match the supplied character's bone paths; otherwise supply its original model Clip or use its original character. An unknown rig produces an error instead of a rest-pose reference. Humanoid muscle Clips use Unity's existing retargeting.
+
+## Generated output mode
+
+`animation.generate` defaults to `output.mode: "auto"`. Auto selects the output representation from the bound character Animator and the available Avatar/skeleton information. Use `humanoid_muscle` when a Humanoid muscle Clip is required, `character_bone` when the result should target the bound character's bone curves, and `model_bone` when the generated model-profile curves should be kept without retargeting. Verify the resulting Clip and binding after generation; the mode is an output choice and does not replace source-Clip compatibility checks.
 
 ## Prompt wording
 

@@ -2528,7 +2528,7 @@
           "Use wait_seconds for cooperative Editor waiting; generation.get continues a running task."
         ],
         "result_notes": [
-          "The accepted response contains request_id, status, preflight check results, and warnings. Root speed above 7 m/s warns; above 10 m/s blocks generation. Root acceleration above 10 m/s² warns; above 15 m/s blocks generation. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.",
+          "The accepted response contains request_id, status, preflight check results, and warnings. Command generation blocks root speed above 7 m/s or root acceleration above 10 m/s² because the model may otherwise change the requested timing. UI generation keeps these values as non-blocking diagnostics. Use the returned preflight diagnostics to assess pose/effector constraints; use pose.analysis when measured sampled joint positions are needed.",
           "On completion, generation.get returns Clip metadata, asset path, animation_id, generation diagnostics, and post_analysis.analysis_path when analysis is enabled. Set analyze=false to omit the post-generation analysis pass."
         ],
         "scene_effects": [

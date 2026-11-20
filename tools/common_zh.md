@@ -100,7 +100,7 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 - 命令错误使用 `ok=false` 和 `error={code,message,details?}`。
 - 一次轮询成功时，任务 `status` 仍可能是 `failed` 或 `canceled`；应报告该最终状态及其错误。
 - 保存完整、准确的 `request_id`；按固定间隔轮询，直到进入最终状态或达到限定超时。
-- 这适用于所有返回待处理 `request_id` 的异步命令，包括 `server.install` 和 `animation.generate`。轮询超时意味着任务仍待处理，不代表失败或已取消；保留 ID，以便恢复查询。
+- 这适用于所有返回待处理 `request_id` 的异步命令，包括 `server.install`、`animation.generate`、`pose.fromvideo` 和 `pose.frompicture`。轮询超时意味着任务仍待处理，不代表失败或已取消；保留 ID，以便恢复查询。
 - 按 `request_id` 保留并轮询运行中的请求；任务需要停止时再取消。
 - 将警告和非阻断检查视为需要查看的证据。
 - 保留已完成的 Clip，修订时创建派生产物。
@@ -140,7 +140,15 @@ schema 中存在某接口，说明接口可用；再通过验收检查确认产�
 
 过渡时间很短时，增加 Outside 的 `window_frames`；有帮助时也增加 `sample_count`，以提供更宽的边界上下文。窗口受源 Clip 可用帧数限制，采样数必须对应不同的模型帧。Outside 会先补入上下文再裁切，并保持请求的输出时长。独立的 `inside` 约束使用原始 AnimationClip 与生成结果重叠范围内的身体姿势；`post_apply` 使用生成轨迹的根 XZ 和 Yaw，同时保留原动画的高度、Pitch/Roll 与身体姿势。根据可用源帧范围和返回的 `inout_sampling` 判断过渡上下文是否足够。
 
+`animation.generate` 的 `inout` 还会在目标 Timeline 的生成 Clip 前后放置源窗口证据 Clip（存在兼容源资产时）。具体位置记录在 `inout_sampling.evidence_clips`；完整 In/Out 上下文区间会先预留，并检查是否与轨道中已有 Clip 冲突。评估衔接时要把生成 Clip 和这些证据 Clip 一起检查。
+
+## 源 Clip 兼容性与重定向
+
 `inout`、`inside` 和 ARDY Timeline history 在采样前会检查源骨架。模型内的 Generic 人形 Clip 可以自动生成并缓存缺失的 Humanoid Avatar，再转换到绑定角色或模型 profile；源模型导入设置与原 Clip 均保留。命令使用的转换副本会持久保存，history 采样临时替换兼容 Clip 后恢复 Timeline。独立的骨骼 `.anim` 需要与指定角色的骨骼路径匹配；不匹配时应提供原模型中的 Clip，或使用原始角色。无法确定源骨架时返回错误，避免将静止姿势当作动作参考。Humanoid 肌肉动画使用 Unity 已有的重定向能力。
+
+## 生成输出模式
+
+`animation.generate` 默认使用 `output.mode: "auto"`。Auto 会根据绑定角色的 Animator 以及可用的 Avatar／骨架信息选择输出表示。需要 Humanoid 肌肉 Clip 时使用 `humanoid_muscle`；需要直接针对绑定角色骨骼曲线时使用 `character_bone`；需要保留生成模型骨架曲线并跳过重定向时使用 `model_bone`。生成后仍需检查 Clip 与轨道绑定；输出模式不能替代源 Clip 兼容性检查。
 
 ## Prompt 表述
 

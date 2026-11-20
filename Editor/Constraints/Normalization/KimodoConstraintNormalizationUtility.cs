@@ -22,7 +22,7 @@ namespace KimodoBridge.Editor
             {
                 KimodoMarkerSampleResult sample = samples[i];
                 if (!ReferenceEquals(sample, ignoredSample) &&
-                    sample != null &&
+                    IsExportableAnchorSample(sample) &&
                     sample.sampleTime >= 0.0 &&
                     sample.sampleTime < anchorWindowSeconds &&
                     IsAnchorConstraintType(sample.constraintMode))
@@ -31,6 +31,51 @@ namespace KimodoBridge.Editor
                 }
             }
             return false;
+        }
+
+        private static bool IsExportableAnchorSample(KimodoMarkerSampleResult sample)
+        {
+            if (sample == null || !sample.enabled || !sample.sampleValid || sample.rootOverride == null)
+            {
+                return false;
+            }
+
+            string mode = (sample.constraintMode ?? string.Empty).Trim().ToLowerInvariant().Replace('_', '-');
+            switch (mode)
+            {
+                case "fullbody":
+                    return sample.sampleData?.IsValid == true;
+                case "root2d":
+                    return KimodoConstraintMask.IsActive(sample, "rootposition") ||
+                        KimodoConstraintMask.IsActive(sample, "rootheading");
+                case "effector":
+                    return IsExportableEffectorSample(sample);
+                case "left-foot":
+                    return IsExportableEffectorSample(sample) && KimodoConstraintMask.IsActive(sample, "leftfoot");
+                case "right-foot":
+                    return IsExportableEffectorSample(sample) && KimodoConstraintMask.IsActive(sample, "rightfoot");
+                case "left-hand":
+                    return IsExportableEffectorSample(sample) && KimodoConstraintMask.IsActive(sample, "lefthand");
+                case "right-hand":
+                    return IsExportableEffectorSample(sample) && KimodoConstraintMask.IsActive(sample, "righthand");
+                case "end-effector":
+                    return IsExportableEffectorSample(sample);
+                default:
+                    return false;
+            }
+        }
+
+        private static bool IsExportableEffectorSample(KimodoMarkerSampleResult sample)
+        {
+            KimodoConstraintMask mask = sample?.enableMask;
+            KimodoConstraintEffectors effectors = sample?.effectors;
+            return sample?.sampleData?.IsValid == true &&
+                mask?.AnyEndEffector == true &&
+                effectors != null &&
+                (!mask.leftHand || effectors.leftHand != null) &&
+                (!mask.rightHand || effectors.rightHand != null) &&
+                (!mask.leftFoot || effectors.leftFoot != null) &&
+                (!mask.rightFoot || effectors.rightFoot != null);
         }
 
         private static bool IsAnchorConstraintType(string constraintType)

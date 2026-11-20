@@ -938,7 +938,9 @@ namespace KimodoUnityBridge.Command
                         .Value<string>("message")
                         ?? generationCheck["root_trajectory"]?["issues"]?
                         .OfType<JObject>()
-                        .FirstOrDefault(issue => string.Equals(issue.Value<string>("code"), "speed_hard_limit", StringComparison.OrdinalIgnoreCase)
+                        .FirstOrDefault(issue => string.Equals(issue.Value<string>("code"), "speed_limit", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(issue.Value<string>("code"), "speed_hard_limit", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(issue.Value<string>("code"), "acceleration_limit", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(issue.Value<string>("code"), "acceleration_hard_limit", StringComparison.OrdinalIgnoreCase))?
                         .Value<string>("message");
                     throw new InvalidOperationException(string.IsNullOrWhiteSpace(blockingMessage)
@@ -1072,7 +1074,8 @@ namespace KimodoUnityBridge.Command
                     out KimodoEditorGenerationJobSession generation,
                     out string error,
                     rawGenerateInstructionJson,
-                    playableClip.generationOutputMode);
+                    playableClip.generationOutputMode,
+                    enforceRootMotionLimits: true);
                 if (!started)
                 {
                     throw new InvalidOperationException(error);

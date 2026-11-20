@@ -15,10 +15,10 @@ namespace KimodoBridge.Editor
 
             AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
             settings.loopTime = false;
-            settings.keepOriginalOrientation = true;
+            settings.keepOriginalOrientation = false;
             settings.keepOriginalPositionY = true;
             settings.loopBlendPositionXZ = true;
-            // Use the humanoid center of mass as the XZ root transform basis.
+            // Extract planar root translation and yaw from the Humanoid body motion.
             settings.keepOriginalPositionXZ = false;
             settings.heightFromFeet = true;
             //settings.loopBlendPositionY = true;

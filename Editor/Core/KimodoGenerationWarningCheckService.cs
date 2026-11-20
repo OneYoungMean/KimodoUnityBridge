@@ -34,7 +34,8 @@ namespace KimodoBridge.Editor
             float frameRate,
             string characterName = null,
             string modelName = null,
-            IReadOnlyList<KimodoMarkerSampleResult> generatedSamples = null)
+            IReadOnlyList<KimodoMarkerSampleResult> generatedSamples = null,
+            bool blockRootMotionLimits = false)
         {
             try
             {
@@ -43,10 +44,11 @@ namespace KimodoBridge.Editor
                 JObject overlap = BuildConstraintOverlap(arguments, frameRate, generatedSamples);
                 JObject effectors = BuildEffectorChecks(
                     arguments, characterName, modelName, frameRate, generatedSamples);
-                // Raw exported constraints are the single enforcement point for
-                // root speed and acceleration. This preflight reports duration
-                // and trajectory diagnostics without extending short requests.
-                bool blocking = duration.Value<bool>("blocking");
+                // UI generation keeps these diagnostics non-blocking. Command
+                // generation opts in so the model must revise an invalid request
+                // before it reaches the backend.
+                bool blocking = duration.Value<bool>("blocking") ||
+                    (blockRootMotionLimits && HasRootMotionLimitViolation(rootTrajectory));
                 bool warning = HasWarning(duration) || HasWarning(rootTrajectory) || HasWarning(overlap) || HasWarning(effectors);
                 return new JObject
                 {
@@ -358,6 +360,21 @@ namespace KimodoBridge.Editor
         private static bool HasWarning(JObject value)
         {
             return string.Equals(value?.Value<string>("status"), "warning", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool HasRootMotionLimitViolation(JObject value)
+        {
+            return value?["issues"] is JArray issues && issues
+                .OfType<JObject>()
+                .Any(issue =>
+                {
+                    string code = issue.Value<string>("code");
+                    return string.Equals(code, "speed_limit", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(code, "speed_hard_limit", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(code, "acceleration_limit", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(code, "acceleration_hard_limit", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(code, "constraint_jump", StringComparison.OrdinalIgnoreCase);
+                });
         }
 
         private static void AddIssue(JArray issues, string code, int frame, string message, string previousSource, string currentSource)

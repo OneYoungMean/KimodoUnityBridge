@@ -6,13 +6,14 @@
 
 - [`AGENTS.md`](AGENTS.md)：仓库维护、协作和验证规则。
 - [`DEVELOPMENT.md`](DEVELOPMENT.md)：当前命令面和产品边界的开发快照；[后端生成编排](DEVELOPMENT.md#backend-owned-generation-2026-11-09)包含阶段职责、TCP 请求、KMB 附件、Loop 帧范围和 Debug 返回/写入说明。
+- [`quickserver.md`](quickserver.md) / [`quickserver_zh.md`](quickserver_zh.md)：QuickServer 的可选 MP4 输出、媒体姿态分析、运行时资源发现和环境变量说明。
 - [`plan.md`](plan.md)：文档与兼容性维护计划，包含当前 Constraint 输入、类型推断与协议折叠边界。
 - [`animation-workflow-test-cases.md`](animation-workflow-test-cases.md)：通用动画循环交互式验收测试案例。
 - [`KIMODO_CPP_INTEGRATION_TODO.md`](KIMODO_CPP_INTEGRATION_TODO.md)：原生后端接入 TODO。
 - 根目录 [`SKILL.md`](../SKILL.md)：用途、安装和文档导航。
 - [`tools/common.md`](../tools/common.md)：范围、任务分流、能力编排、循环状态、命令、证据、识别、比较、修订和人工交接规则。
 - [`Command/help.json`](../Command/help.json)：实时命令与参数 schema。
-- [`archive/`](../archive/)：旧四阶段执行文档和历史能力手册，仅供追溯。
+- 历史 archive：本地追溯材料，不属于当前包的执行文档；确认具体材料存在后再按需查阅。
 
 ## 交接说明
 

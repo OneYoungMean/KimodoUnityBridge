@@ -355,6 +355,14 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(effectOnly.Message, Does.Contain("explicit root context"));
             AssertPointShapeValid(new JObject { ["frame"] = 0, ["root"] = Position(), ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) }) });
             AssertPointShapeValid(new JObject { ["frame"] = 0, ["pose"] = new JObject(), ["effector"] = new JArray(new JObject { ["joint"] = "right_hand", ["position"] = new JArray(1, 2, 3) }) });
+            InvalidOperationException jointOnly = Assert.Throws<InvalidOperationException>(() =>
+                ValidatePointShape(new JObject
+                {
+                    ["frame"] = 0,
+                    ["root"] = Position(),
+                    ["effector"] = new JArray(new JObject { ["joint"] = "right_hand" })
+                }));
+            Assert.That(jointOnly.Message, Does.Contain("requires position or rotation"));
             AssertPointShapeValid(new JObject
             {
                 ["frame"] = 0,

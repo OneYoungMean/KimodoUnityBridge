@@ -38,13 +38,11 @@ For a manifest dependency, use the same Git URL:
 
 Runtime diagnostics are written to `NvlabKimodoQuickServer~/log/setup.log` and `NvlabKimodoQuickServer~/log/bridge_server.log` in the Unity project.
 
-The QuickServer TCP `generate` command accepts `output_mp4: true` to save an MP4 render in the QuickServer directory while preserving the selected motion output format. The JSON response includes the absolute `mp4_path`; the binary payload remains only the selected motion format. The launcher discovers `C:\nvlab\UniMate` beside the repositories by default; set `KIMODO_UNIMATE_ROOT` to override it.
+QuickServer can optionally render generated motion to MP4; see [development/quickserver.md](development/quickserver.md) for the TCP option and media pose-analysis details.
 
 ## AI Agent Manual
 
-Read [SKILL.md](SKILL.md) for purpose, installation, and documentation navigation; the animation workflow, task routing, tool coordination, and shared evidence rules are in [`tools/common.md`](tools/common.md). `server.install` and `animation.generate` are asynchronous and return a `request_id`; poll either with `generation.get`. Command definitions are kept in [Command/help.json](Command/help.json).
-
-The asynchronous `pose.fromvideo` and `pose.frompicture` commands return SMPL-X pose arrays through `generation.get`. QuickServer bundles the Mixamo LLM Mocap pipeline and its 3.54 MB `SMPLX_NEUTRAL_LITE_V437.npz` asset for pose-only analysis; the full SMPL-X model is not required for these commands. Override the bundled source with `KIMODO_MOCAP_ROOT`, or set `KIMODO_MOCAP_PYTHON` to the GVHMR Python executable. Picture analysis estimates one pose from a short repeated still-image sequence.
+Read [SKILL.md](SKILL.md) for purpose, installation, and documentation navigation; the animation workflow, task routing, tool coordination, and shared evidence rules are in [`tools/common.md`](tools/common.md). `server.install`, `animation.generate`, `pose.fromvideo`, and `pose.frompicture` are asynchronous and return a `request_id`; poll them with `generation.get`. Command definitions are kept in [Command/help.json](Command/help.json).
 
 ## Developers and maintenance records
 
