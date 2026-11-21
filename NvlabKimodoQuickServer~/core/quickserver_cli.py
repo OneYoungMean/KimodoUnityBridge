@@ -79,12 +79,12 @@ def _build_protocol_help(kimodo_root: str = "") -> dict[str, Any]:
             {
                 "cmd": "pose.fromvideo",
                 "description": "Estimate FlowHMR SMPL-H motion from a local video and return a KMB1 attachment.",
-                "fields": ["media_path", "enable_camera"],
+                "fields": ["media_path", "enable_camera", "simulate_free_vram_gb"],
             },
             {
                 "cmd": "pose.frompicture",
                 "description": "Estimate one FlowHMR SMPL-H pose from a local picture and return a KMB1 attachment.",
-                "fields": ["media_path"],
+                "fields": ["media_path", "simulate_free_vram_gb"],
             },
             {
                 "cmd": "cancel",
@@ -2239,6 +2239,10 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                                 request.get("media_path"),
                                 request.get("person"),
                                 enable_camera=bool(request.get("enable_camera", False)) if kind == "video" else False,
+                                simulate_free_vram_gb=request.get(
+                                    "simulate_free_vram_gb",
+                                    session["default_config"].get("simulate_free_vram_gb"),
+                                ),
                             )
                             reply(result, binary_payload)
                         elif cmd == "generate":

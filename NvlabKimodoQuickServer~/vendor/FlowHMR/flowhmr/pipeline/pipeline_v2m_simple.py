@@ -35,6 +35,7 @@ class SimpleV2MPipeline(torch.nn.Module):
         smpl_model_path: str = "assets/body_models/smplh/neutral/model.npz",
         j_regressor_path: str = "assets/body_models/smpl_neutral_J_regressor.pt",
         pred_type: str = "velocity",
+        load_mesh_model: bool = True,
         **kwargs,
     ):
         super().__init__()
@@ -51,6 +52,9 @@ class SimpleV2MPipeline(torch.nn.Module):
 
         self.body_model = SMPLSkeleton(model_path=smpl_model_path)
 
+        if not load_mesh_model and "vertex" in losses_cfg:
+            raise ValueError("Vertex loss requires the full SMPL-H mesh model.")
+
         if pred_type in ("x1", "x1raw"):
             if "vertex" in losses_cfg:
                 self.mesh_model = SMPLMesh(model_path=smpl_model_path)
@@ -65,13 +69,14 @@ class SimpleV2MPipeline(torch.nn.Module):
                 fk_cfg = {k: v for k, v in losses_cfg["fk_consistency"].items() if k != "weight"}
                 self.fk_loss = FKLoss(self.body_model, **fk_cfg)
 
-        if not hasattr(self, "mesh_model"):
+        if load_mesh_model and not hasattr(self, "mesh_model"):
             self.mesh_model = SMPLMesh(model_path=smpl_model_path)
 
-        self.register_buffer(
-            "J_regressor",
-            torch.load(j_regressor_path, map_location="cpu"),
-        )
+        if load_mesh_model:
+            self.register_buffer(
+                "J_regressor",
+                torch.load(j_regressor_path, map_location="cpu"),
+            )
 
         self._parse_train_cfg()
         self._parse_test_cfg()

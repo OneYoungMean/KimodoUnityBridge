@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -14,8 +15,44 @@ MAX_KMB_BYTES = 256 * 1024**2
 WORKER_TIMEOUT_SECONDS = 1800
 
 
+def _resolve_free_vram_gb(simulate_free_vram_gb: float | None = None) -> float:
+    if simulate_free_vram_gb is not None:
+        try:
+            value = float(simulate_free_vram_gb)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("simulate_free_vram_gb must be a finite value greater than or equal to 0.") from exc
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError("simulate_free_vram_gb must be a finite value greater than or equal to 0.")
+        return max(0.0, value)
+
+    simulated_vram = os.environ.get("KIMODO_SIMULATE_FREE_VRAM_GB", "").strip()
+    if simulated_vram:
+        try:
+            value = max(0.0, float(simulated_vram))
+            if math.isfinite(value):
+                return value
+        except ValueError:
+            pass
+    return _detect_free_vram_gb("cuda")
+
+
+def _resolve_flowhmr_device(free_vram_gb: float, configured_device: str = "") -> str:
+    configured = str(configured_device or "").strip()
+    if configured:
+        return configured
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return device_for_free_vram_gb(free_vram_gb)
+    except Exception:
+        pass
+    return "cpu"
+
+
 def analyze_media(kind: str, media_path: str, person: str | None = None,
-                  enable_camera: bool = False) -> tuple[dict[str, Any], bytes]:
+                  enable_camera: bool = False,
+                  simulate_free_vram_gb: float | None = None) -> tuple[dict[str, Any], bytes]:
     normalized_kind = str(kind or "").strip().lower()
     if normalized_kind not in {"video", "picture"}:
         raise ValueError("Analysis kind must be 'video' or 'picture'.")
@@ -37,7 +74,7 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
     from .flowhmr_assets import ensure_flowhmr_assets
     from .flowhmr_memory import device_for_free_vram_gb, options_for_free_vram_gb
     from .kimodo_runtime import _detect_free_vram_gb
-    checkpoint = ensure_flowhmr_assets(flowhmr_root)
+    checkpoint = ensure_flowhmr_assets(flowhmr_root, skeleton_only=True)
     configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
     if configured_python:
         python = Path(configured_python).expanduser().resolve(strict=True)
@@ -52,9 +89,13 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
         raise RuntimeError("FlowHMR Python was not found. Set KIMODO_FLOWHMR_PYTHON to its environment Python executable.")
 
     worker = Path(__file__).with_name("mocap_worker.py")
-    free_vram_gb = _detect_free_vram_gb("cuda")
+    # Respect the same simulated free-VRAM setting used by QuickServer model
+    # selection, so FlowHMR chooses matching camera/SAM settings in tests and
+    # constrained deployments.
+    free_vram_gb = _resolve_free_vram_gb(simulate_free_vram_gb)
     memory_options = options_for_free_vram_gb(free_vram_gb)
-    device = os.environ.get("KIMODO_FLOWHMR_DEVICE", "").strip() or device_for_free_vram_gb(free_vram_gb)
+    device = _resolve_flowhmr_device(
+        free_vram_gb, os.environ.get("KIMODO_FLOWHMR_DEVICE", ""))
     command = [sys.executable, str(worker), "--kind", normalized_kind,
                "--media", str(media), "--flowhmr-root", str(flowhmr_root),
                "--checkpoint", str(checkpoint), "--flowhmr-python", str(python),

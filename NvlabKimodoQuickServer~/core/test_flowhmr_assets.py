@@ -6,6 +6,8 @@ import types
 import unittest
 from unittest.mock import Mock, call, patch
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flowhmr_assets
 
@@ -110,6 +112,46 @@ class FlowHmrAssetTests(unittest.TestCase):
             self.assertTrue(all(not hf_repo for _, _, hf_repo in calls))
             self.assertIn(('ckpts/vggt-omega/vggt_omega_1b_512.pt', 'mirror/vggt', ''), calls)
             self.assertTrue(any(repo == 'mirror/sam3d' for _, repo, _ in calls))
+
+    def test_smplh_skeleton_asset_is_joint_only_float32(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'vendor' / 'FlowHMR'
+            source = root / 'assets' / 'body_models' / 'smplh' / 'neutral'
+            source.mkdir(parents=True)
+            vertices = 12
+            joints = 4
+            betas = 3
+            np.savez(
+                source / 'model.npz',
+                J_regressor=np.ones((joints, vertices), dtype=np.float64),
+                shapedirs=np.ones((vertices, 3, betas), dtype=np.float64),
+                v_template=np.ones((vertices, 3), dtype=np.float64),
+                kintree_table=np.array([[0, 0, 1, 2], [0, 0, 1, 2]], dtype=np.int64),
+                posedirs=np.zeros((vertices, 3, 9), dtype=np.float64),
+                weights=np.zeros((vertices, joints), dtype=np.float64),
+                f=np.zeros((1, 3), dtype=np.int64),
+            )
+            flowhmr_assets._ensure_smplh_skeleton_asset(root)
+            target = source / 'model_skeleton.npz'
+            with np.load(target) as compact:
+                self.assertEqual(set(compact.files), {'J_template', 'J_shapedirs', 'kintree_table', 'compact_format'})
+                self.assertEqual(compact['J_template'].dtype, np.float32)
+                self.assertEqual(compact['J_shapedirs'].dtype, np.float32)
+                self.assertLess(target.stat().st_size, 30 * 1024 * 1024)
+
+    def test_skeleton_only_assets_do_not_require_full_mesh_or_mesh_regressor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = self._complete_local_tree(Path(temp))
+            full_model = source / flowhmr_assets.SMPLH_MODEL
+            full_model.write_bytes(b'full model')
+            compact = source / flowhmr_assets.SMPLH_SKELETON_MODEL
+            compact.write_bytes(b'compact model')
+            (source / flowhmr_assets.FLOWHMR_BUNDLED_FILES[0]).unlink()
+            with patch.dict(os.environ, {'KIMODO_FLOWHMR_DINOV3_REPO': str(source / 'dinov3')}), \
+                    patch.object(flowhmr_assets, '_download_snapshot') as download:
+                result = flowhmr_assets.ensure_flowhmr_assets(source, skeleton_only=True)
+            self.assertEqual(result.name, 'flowhmr_latest.ckpt')
+            download.assert_not_called()
 
 
 if __name__ == '__main__':

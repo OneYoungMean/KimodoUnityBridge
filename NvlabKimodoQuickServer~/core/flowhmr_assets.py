@@ -15,13 +15,23 @@ YOLOX_HF_REPOSITORY = os.environ.get("KIMODO_FLOWHMR_YOLOX_HF_REPOSITORY", "cj-m
 YOLOX_MODELSCOPE_REPOSITORY = os.environ.get("KIMODO_FLOWHMR_YOLOX_MODELSCOPE_REPOSITORY", "").strip()
 VGGT_MODELSCOPE_REPOSITORY = os.environ.get("KIMODO_FLOWHMR_VGGT_MODELSCOPE_REPOSITORY", "facebook/VGGT-Omega").strip()
 
+SMPLH_MODEL = "assets/body_models/smplh/neutral/model.npz"
+SMPLH_SKELETON_MODEL = "assets/body_models/smplh/neutral/model_skeleton.npz"
+
 FLOWHMR_BUNDLED_FILES = ("assets/body_models/smpl_neutral_J_regressor.pt",)
 FLOWHMR_GATED_FILES = (
     "ckpts/vggt-omega/vggt_omega_1b_512.pt",
     "ckpts/sam-3d-body-dinov3/model.ckpt",
     "ckpts/sam-3d-body-dinov3/model_config.yaml",
     "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
-    "assets/body_models/smplh/neutral/model.npz",
+    SMPLH_MODEL,
+)
+FLOWHMR_SKELETON_GATED_FILES = (
+    "ckpts/vggt-omega/vggt_omega_1b_512.pt",
+    "ckpts/sam-3d-body-dinov3/model.ckpt",
+    "ckpts/sam-3d-body-dinov3/model_config.yaml",
+    "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
+    SMPLH_SKELETON_MODEL,
 )
 GATED_REPOSITORIES = (
     ("ckpts/vggt-omega/vggt_omega_1b_512.pt", "ckpts/vggt-omega", "KIMODO_FLOWHMR_VGGT_MODELSCOPE_REPOSITORY", "facebook/VGGT-Omega"),
@@ -72,21 +82,70 @@ def _missing(root: Path, paths: Iterable[str]) -> list[str]:
     return [relative for relative in paths if not (root / relative).is_file()]
 
 
+def _ensure_smplh_skeleton_asset(root: Path) -> None:
+    """Derive the joint-only SMPL-H data used by motion inference."""
+    target = root / SMPLH_SKELETON_MODEL
+    if target.is_file():
+        return
+    source = root / SMPLH_MODEL
+    if not source.is_file():
+        return
+
+    import numpy as np
+
+    with np.load(source, allow_pickle=False) as model:
+        required = ("J_regressor", "shapedirs", "v_template", "kintree_table")
+        missing = [name for name in required if name not in model]
+        if missing:
+            raise RuntimeError(f"SMPL-H source model is missing fields: {', '.join(missing)}")
+        regressor = np.asarray(model["J_regressor"], dtype=np.float32)
+        shapedirs = np.asarray(model["shapedirs"], dtype=np.float32)
+        template = np.asarray(model["v_template"], dtype=np.float32)
+        kintree = np.asarray(model["kintree_table"])
+        if (regressor.ndim != 2 or template.ndim != 2 or template.shape[1] != 3 or
+                shapedirs.ndim != 3 or shapedirs.shape[:2] != template.shape or
+                regressor.shape[1] != template.shape[0] or kintree.ndim != 2):
+            raise RuntimeError("SMPL-H source model has incompatible skeleton fields.")
+
+        compact = {
+            "J_template": regressor @ template,
+            "J_shapedirs": np.einsum("jv,vdb->jdb", regressor, shapedirs),
+            "kintree_table": kintree,
+            "compact_format": np.array(1, dtype=np.uint8),
+        }
+        for name in ("hands_meanl", "hands_meanr"):
+            if name in model:
+                compact[name] = np.asarray(model[name], dtype=np.float32)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        np.savez_compressed(target, **compact)
+
+
 def _licensed_assets_error(root: Path, missing: list[str]) -> RuntimeError:
+    model_note = ""
+    if SMPLH_SKELETON_MODEL in missing:
+        model_note = (
+            f" The joint-only file is generated locally from the licensed full SMPL-H neutral model; "
+            f"place that source at {root / SMPLH_MODEL} and run setup again."
+        )
     return RuntimeError(
         "FlowHMR needs licensed/local assets that KimodoBridge will not redistribute or download without "
         "access: " + ", ".join(missing) + ". Request access to VGGT-Omega and SAM 3D Body at "
         "https://huggingface.co/facebook/VGGT-Omega and "
         "https://huggingface.co/facebook/sam-3d-body-dinov3; obtain the SMPL-H neutral model from "
-        "https://mano.is.tue.mpg.de/. Place each file at the listed path under "
-        f"{root}."
+        "https://mano.is.tue.mpg.de/. Place each missing model at its required path under "
+        f"{root}.{model_note}"
     )
 
 
-def ensure_flowhmr_assets(root: Path, checkpoint: str | None = None) -> Path:
+def ensure_flowhmr_assets(root: Path, checkpoint: str | None = None,
+                          skeleton_only: bool = False) -> Path:
     """Prepare public snapshots and validate local/bundled licensed assets."""
     root = root.resolve()
     ensure_flowhmr_source(root)
+    if skeleton_only:
+        _ensure_smplh_skeleton_asset(root)
     checkpoint_value = checkpoint or os.environ.get("KIMODO_FLOWHMR_CHECKPOINT", "").strip()
     ckpt = Path(checkpoint_value).expanduser() if checkpoint_value else Path("checkpoints/flowhmr_latest/flowhmr_latest.ckpt")
     if not ckpt.is_absolute():
@@ -119,7 +178,7 @@ def ensure_flowhmr_assets(root: Path, checkpoint: str | None = None) -> Path:
             "and ensure it contains yolox_l.pth."
         )
 
-    bundled = _missing(root, FLOWHMR_BUNDLED_FILES)
+    bundled = _missing(root, () if skeleton_only else FLOWHMR_BUNDLED_FILES)
     if bundled:
         raise RuntimeError("FlowHMR package is incomplete; bundled files are missing: " + ", ".join(bundled))
     # For gated HF assets, only try an explicitly configured ModelScope mirror.
@@ -147,7 +206,8 @@ def ensure_flowhmr_assets(root: Path, checkpoint: str | None = None) -> Path:
             # every missing file and the exact manual preparation locations.
             pass
 
-    gated = _missing(root, FLOWHMR_GATED_FILES)
+    gated_paths = FLOWHMR_SKELETON_GATED_FILES if skeleton_only else FLOWHMR_GATED_FILES
+    gated = _missing(root, gated_paths)
     if gated:
         raise _licensed_assets_error(root, gated)
     configured_dinov3 = os.environ.get("KIMODO_FLOWHMR_DINOV3_REPO", "").strip()

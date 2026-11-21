@@ -30,9 +30,10 @@ REQUIRED_FILES = [
     "ckpts/vggt-omega/vggt_omega_1b_512.pt",
     "ckpts/sam-3d-body-dinov3/model.ckpt",
     "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
-    "assets/body_models/smplh/neutral/model.npz",
-    "assets/body_models/smpl_neutral_J_regressor.pt",
 ]
+J_REGRESSOR_FILE = "assets/body_models/smpl_neutral_J_regressor.pt"
+FULL_SMPLH_MODEL = "assets/body_models/smplh/neutral/model.npz"
+SKELETON_SMPLH_MODEL = "assets/body_models/smplh/neutral/model_skeleton.npz"
 
 
 def collect_videos(inputs):
@@ -50,13 +51,30 @@ def collect_videos(inputs):
     return [os.path.abspath(v) for v in videos]
 
 
-def check_files(ckpt, *, static_camera=False):
+def check_files(ckpt, *, static_camera=False, skeleton_only=False):
     required = [f for f in REQUIRED_FILES if not (static_camera and f.startswith("ckpts/vggt-omega/"))]
+    if not skeleton_only:
+        required.append(J_REGRESSOR_FILE)
+    required.append(SKELETON_SMPLH_MODEL if skeleton_only else FULL_SMPLH_MODEL)
     missing = [f for f in required if not os.path.exists(os.path.join(REPO_ROOT, f))]
     if not os.path.exists(ckpt):
         missing.insert(0, ckpt)
     if missing:
         sys.exit("missing files (see docs/install.md):\n  " + "\n  ".join(missing))
+
+
+def _archive_file(path):
+    if not os.path.exists(path):
+        return
+    archive_dir = os.path.join(os.path.dirname(path), "archive")
+    os.makedirs(archive_dir, exist_ok=True)
+    base = f"{time.time_ns()}_{os.path.basename(path)}"
+    destination = os.path.join(archive_dir, base)
+    suffix = 1
+    while os.path.exists(destination):
+        destination = os.path.join(archive_dir, f"{time.time_ns()}_{suffix}_{os.path.basename(path)}")
+        suffix += 1
+    shutil.move(path, destination)
 
 
 def run_video(engine, video, args, tag):
@@ -67,11 +85,12 @@ def run_video(engine, video, args, tag):
                      f"{stem}_static_camera.npz", f"{stem}_sam3d_feat.pt", f"{stem}_sam3d_feat_static.pt"):
             path = os.path.join(out_dir, name)
             if os.path.exists(path):
-                os.remove(path)
+                _archive_file(path)
 
     engine.process_video(video, OUTPUT_ROOT, seed=args.seed, cfg_scale=args.cfg_scale,
                          vggt_frame_interval=args.vggt_interval, static_camera=args.static_camera,
-                         sam_chunk_size=args.sam_chunk_size)
+                         sam_chunk_size=args.sam_chunk_size,
+                         export_mesh=not args.skeleton_only)
 
     # process_video writes <stem>_seed<k>_origin.* (raw) and, with post-processing,
     # <stem>_seed<k>.*; keep the final one as <tag>.* and drop the other.
@@ -82,7 +101,7 @@ def run_video(engine, video, args, tag):
             shutil.move(final + ext, os.path.join(out_dir, tag + ext))
         for leftover in (gen + ext, gen + "_origin" + ext):
             if os.path.exists(leftover):
-                os.remove(leftover)
+                _archive_file(leftover)
     result = os.path.join(out_dir, tag + ".npz")
     if not os.path.exists(result):
         raise FileNotFoundError(f"generation output missing: {result}")
@@ -111,11 +130,15 @@ def parse_args():
                    help="skip VGGT for a fixed camera; use a constant pose and default intrinsics")
     p.add_argument("--sam_chunk_size", type=int, default=16,
                    help="frames per SAM body batch; hand batch is twice this size (default: 16)")
+    p.add_argument("--skeleton-only", action="store_true",
+                   help="load joint-only SMPL-H data; skips mesh buffers and FBX mesh export")
     p.add_argument("--overwrite", action="store_true",
                    help="recompute cached detection / camera / SAM features")
     args = p.parse_args()
     if args.sam_chunk_size < 1:
         p.error("--sam_chunk_size must be a positive integer")
+    if args.skeleton_only and args.postprocess:
+        p.error("--skeleton-only cannot be combined with --postprocess")
     return args
 
 
@@ -123,7 +146,13 @@ def main():
     args = parse_args()
     args.ckpt = os.path.abspath(args.ckpt)
     videos = collect_videos(args.videos)
-    check_files(args.ckpt, static_camera=args.static_camera)
+    check_files(args.ckpt, static_camera=args.static_camera, skeleton_only=args.skeleton_only)
+
+    smpl_model_path = None
+    if args.skeleton_only:
+        smpl_model_path = os.path.join(REPO_ROOT, "assets/body_models/smplh/neutral/model_skeleton.npz")
+        if not os.path.isfile(smpl_model_path):
+            sys.exit("missing skeleton-only SMPL-H asset: " + smpl_model_path)
 
     model_cfg = args.model_cfg
     if model_cfg is None:
@@ -141,7 +170,9 @@ def main():
 
     engine = V2MInferenceEngine.build(ckpt=args.ckpt, model_cfg_path=model_cfg,
                                       device=args.device, validation_steps=args.steps,
-                                      postprocess=args.postprocess)
+                                      postprocess=args.postprocess,
+                                      smpl_model_path=smpl_model_path,
+                                      skeleton_only=args.skeleton_only)
 
     results = []
     for i, video in enumerate(videos, 1):

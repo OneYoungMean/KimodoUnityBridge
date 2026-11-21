@@ -77,7 +77,8 @@ def _set_buffer(module, dotted_key: str, tensor: Tensor):
 def build_pipeline(model_cfg: dict, device: str = "cpu", ckpt: str = None,
                    validation_steps: int = None,
                    smpl_model_path: str = None,
-                   j_regressor_path: str = None):
+                   j_regressor_path: str = None,
+                   load_mesh_model: bool = True):
     from flowhmr.core.framework.loaders import load_object
 
     pipeline_args = dict(model_cfg["train_pipeline_args"])
@@ -92,6 +93,8 @@ def build_pipeline(model_cfg: dict, device: str = "cpu", ckpt: str = None,
         pipeline_args["smpl_model_path"] = smpl_model_path
     if j_regressor_path is not None:
         pipeline_args["j_regressor_path"] = j_regressor_path
+    if not load_mesh_model:
+        pipeline_args["load_mesh_model"] = False
 
     train_pipeline = model_cfg.get(
         "train_pipeline",
@@ -245,7 +248,8 @@ def _rotate_smplh_params_y180(poses_aa: np.ndarray, trans: np.ndarray):
     return poses_aa, trans
 
 
-def save_fbx(output: dict, length: int, output_path: str, save_npz: bool = True, export_mesh: bool = True):
+def save_fbx(output: dict, length: int, output_path: str, save_npz: bool = True,
+             export_mesh: bool = True, write_fbx: bool = True):
     """Write the SMPL-H npz and, if the Autodesk FBX SDK is installed, the .fbx."""
     from flowhmr.core.math.geometry import (
         rot6d_to_rotation_matrix,
@@ -290,6 +294,9 @@ def save_fbx(output: dict, length: int, output_path: str, save_npz: bool = True,
     if save_npz:
         npz_path = output_path.replace(".fbx", ".npz")
         np.savez(npz_path, **params)
+
+    if not write_fbx:
+        return
 
     try:
         from flowhmr.core.export.smplh2fbx import SMPLH2FBX
@@ -419,12 +426,24 @@ class V2MInferenceEngine:
         self.postprocess = postprocess
         self.device = device
 
+    def _first_floor_y(self, rot6d: Tensor, shapes: Tensor, trans: Tensor) -> Tensor:
+        """Return mesh floor height, or preserve raw translation in skeleton-only mode."""
+        if self.smpl_mesh is None:
+            return trans.new_zeros(trans.shape[0])
+        result = self.smpl_mesh({"rot6d": rot6d, "shapes": shapes, "trans": trans})
+        return result["vertices"][:, :, 1].amin(dim=-1)
+
     @classmethod
     def build_lite(cls, ckpt: str, model_cfg_path, device: str = "cuda",
                    validation_steps: int = None,
                    postprocess: bool = False,
                    smpl_model_path: str = None,
-                   j_regressor_path: str = None) -> "V2MInferenceEngine":
+                   j_regressor_path: str = None,
+                   skeleton_only: bool = False) -> "V2MInferenceEngine":
+        if skeleton_only and postprocess:
+            raise ValueError("postprocess requires the full SMPL-H mesh model.")
+        if skeleton_only and smpl_model_path is None:
+            smpl_model_path = "assets/body_models/smplh/neutral/model_skeleton.npz"
         device_obj = torch.device(device)
 
         print("[V2MInferenceEngine] Loading models (lite mode, skip YOLOX & SAM3D)...")
@@ -446,6 +465,7 @@ class V2MInferenceEngine:
         pipe = build_pipeline(
             model_cfg, device=device, ckpt=ckpt,
             validation_steps=validation_steps,
+            load_mesh_model=not skeleton_only,
             **bp_kwargs,
         )
         print(f"  Pipeline loaded ({sum(p.numel() for p in pipe.parameters()):,} params)")
@@ -454,11 +474,15 @@ class V2MInferenceEngine:
         body_model = SMPLSkeleton(**smpl_kw).to(device_obj)
         print(f"  SMPL body model loaded")
 
-        smpl_mesh = SMPLMesh(**smpl_kw).to(device_obj)
-        print(f"  SMPL mesh model loaded")
+        smpl_mesh = None
+        if not skeleton_only:
+            smpl_mesh = SMPLMesh(**smpl_kw).to(device_obj)
+            print(f"  SMPL mesh model loaded")
 
         if postprocess:
             from flowhmr.utils.runtime_v2m_postprocess_simple import PostprocessPipeline
+            if smpl_mesh is None:
+                raise ValueError("postprocess requires the full SMPL-H mesh model.")
             postprocess = PostprocessPipeline.default(body_model=body_model, smpl_mesh=smpl_mesh)
             print("  Postprocess: on")
         else:
@@ -482,7 +506,13 @@ class V2MInferenceEngine:
               validation_steps: int = None,
               postprocess: bool = False,
               sam_device_ids: list[int] | None = None,
-              sam_base_port: int = 29500) -> "V2MInferenceEngine":
+              sam_base_port: int = 29500,
+              smpl_model_path: str = None,
+              skeleton_only: bool = False) -> "V2MInferenceEngine":
+        if skeleton_only and postprocess:
+            raise ValueError("postprocess requires the full SMPL-H mesh model.")
+        if skeleton_only and smpl_model_path is None:
+            smpl_model_path = "assets/body_models/smplh/neutral/model_skeleton.npz"
         device_obj = torch.device(device)
 
         print("[V2MInferenceEngine] Loading models...")
@@ -520,17 +550,24 @@ class V2MInferenceEngine:
         pipe = build_pipeline(
             model_cfg, device=device, ckpt=ckpt,
             validation_steps=validation_steps,
+            smpl_model_path=smpl_model_path,
+            load_mesh_model=not skeleton_only,
         )
         print(f"  Pipeline loaded ({sum(p.numel() for p in pipe.parameters()):,} params)")
 
-        body_model = SMPLSkeleton().to(device_obj)
+        smpl_kw = {"model_path": smpl_model_path} if smpl_model_path else {}
+        body_model = SMPLSkeleton(**smpl_kw).to(device_obj)
         print(f"  SMPL body model loaded")
 
-        smpl_mesh = SMPLMesh().to(device_obj)
-        print(f"  SMPL mesh model loaded")
+        smpl_mesh = None
+        if not skeleton_only:
+            smpl_mesh = SMPLMesh(**smpl_kw).to(device_obj)
+            print(f"  SMPL mesh model loaded")
 
         if postprocess:
             from flowhmr.utils.runtime_v2m_postprocess_simple import PostprocessPipeline
+            if smpl_mesh is None:
+                raise ValueError("postprocess requires the full SMPL-H mesh model.")
             postprocess = PostprocessPipeline.default(body_model=body_model, smpl_mesh=smpl_mesh)
             print("  Postprocess: on")
         else:
@@ -855,25 +892,27 @@ class V2MInferenceEngine:
             first_shapes = origin_output["shapes"]
             first_trans = origin_output["trans"][:, :1]
             B_o = first_rot6d.shape[0]
-            first_mesh_out = self.smpl_mesh(
-                {"rot6d": first_rot6d.reshape(B_o, 52, 6),
-                 "shapes": first_shapes.reshape(B_o, -1),
-                 "trans": first_trans.reshape(B_o, 3)},
+            floor_y = self._first_floor_y(
+                first_rot6d.reshape(B_o, 52, 6),
+                first_shapes.reshape(B_o, -1),
+                first_trans.reshape(B_o, 3),
             )
-            first_verts = first_mesh_out["vertices"]
-            floor_y = first_verts[:, :, 1].min(dim=-1)[0]
             origin_output["trans"][:, :, 1] -= floor_y[:, None]
             print(f"  [generation] Origin floor offset: {floor_y[0].item()*1000:.1f}mm")
 
         origin_fbx_path = os.path.join(sub_dir, f"{video_name}_seed{seed}_origin.fbx")
-        save_fbx(origin_output, length=T, output_path=origin_fbx_path, save_npz=True, export_mesh=export_mesh)
+        save_fbx(origin_output, length=T, output_path=origin_fbx_path,
+                 save_npz=True, export_mesh=export_mesh,
+                 write_fbx=self.smpl_mesh is not None)
         _cb(progress_cb, 70, "Origin FBX saved")
 
         fbx_path = origin_fbx_path
         if self.postprocess is not None:
             output = self.postprocess.run(output)
             fbx_path = os.path.join(sub_dir, f"{video_name}_seed{seed}.fbx")
-            save_fbx(output, length=T, output_path=fbx_path, save_npz=True, export_mesh=export_mesh)
+            save_fbx(output, length=T, output_path=fbx_path,
+                     save_npz=True, export_mesh=export_mesh,
+                     write_fbx=self.smpl_mesh is not None)
         _cb(progress_cb, 95, "Post-processed FBX saved")
 
         print(f"  [generation] Done ({time.time() - t0:.1f}s)")
@@ -892,7 +931,8 @@ class V2MInferenceEngine:
                       person_selector: Callable = None,
                       progress_callback: Callable[[StageName, int, str], None] = None,
                       cancel_check: Callable[[], None] = None,
-                      sam_chunk_size: int = 16) -> str:
+                      sam_chunk_size: int = 16,
+                      export_mesh: bool = True) -> str:
         """Video -> SMPL-H motion.
 
         static_camera: skip VGGT and use a fixed pose with default intrinsics.
@@ -1140,23 +1180,23 @@ class V2MInferenceEngine:
             first_shapes = origin_output["shapes"]
             first_trans = origin_output["trans"][:, :1]
             B_o = first_rot6d.shape[0]
-            first_mesh_out = self.smpl_mesh(
-                {"rot6d": first_rot6d.reshape(B_o, 52, 6),
-                 "shapes": first_shapes.reshape(B_o, -1),
-                 "trans": first_trans.reshape(B_o, 3)},
+            floor_y = self._first_floor_y(
+                first_rot6d.reshape(B_o, 52, 6),
+                first_shapes.reshape(B_o, -1),
+                first_trans.reshape(B_o, 3),
             )
-            first_verts = first_mesh_out["vertices"]
-            floor_y = first_verts[:, :, 1].min(dim=-1)[0]
             origin_output["trans"][:, :, 1] -= floor_y[:, None]
 
         save_fbx(origin_output, length=T, output_path=origin_fbx_path,
-                 save_npz=True, export_mesh=True)
+                 save_npz=True, export_mesh=export_mesh,
+                 write_fbx=self.smpl_mesh is not None)
         _pcb(StageName.GENERATION, 70, "Origin FBX saved")
 
         if self.postprocess is not None:
             output = self.postprocess.run(output)
             save_fbx(output, length=T, output_path=final_fbx_path,
-                     save_npz=True, export_mesh=True)
+                     save_npz=True, export_mesh=export_mesh,
+                     write_fbx=self.smpl_mesh is not None)
         _pcb(StageName.GENERATION, 100, "Generation complete")
 
 

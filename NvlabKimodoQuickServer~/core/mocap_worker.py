@@ -69,7 +69,7 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
         command = [str(flowhmr_python), str(flowhmr_root / "run_v2m_demo_generation.py"), str(staged),
                    "--ckpt", str(checkpoint), "--device", device,
                    "--vggt_interval", str(vggt_interval),
-                   "--sam_chunk_size", str(sam_chunk_size)]
+                   "--sam_chunk_size", str(sam_chunk_size), "--skeleton-only"]
         if static_camera:
             command.append("--static_camera")
         completed = subprocess.run(command, cwd=str(flowhmr_root), capture_output=True, text=True, check=False)
@@ -81,7 +81,8 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
                 retry = [str(flowhmr_python), str(flowhmr_root / "run_v2m_demo_generation.py"), str(retry_staged),
                          "--ckpt", str(checkpoint), "--device", device,
                          "--vggt_interval", str(CONSERVATIVE_FLOWHMR_OPTIONS.vggt_interval),
-                         "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size)]
+                         "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size),
+                         "--skeleton-only"]
                 if not enable_camera:
                     retry.append("--static_camera")
                 completed = subprocess.run(retry, cwd=str(flowhmr_root), capture_output=True, text=True, check=False)
@@ -93,7 +94,8 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
                     cpu_retry = [str(flowhmr_python), str(flowhmr_root / "run_v2m_demo_generation.py"), str(cpu_staged),
                                  "--ckpt", str(checkpoint), "--device", "cpu",
                                  "--vggt_interval", str(CONSERVATIVE_FLOWHMR_OPTIONS.vggt_interval),
-                                 "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size)]
+                                 "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size),
+                                 "--skeleton-only"]
                     if not enable_camera:
                         cpu_retry.append("--static_camera")
                     completed = subprocess.run(cpu_retry, cwd=str(flowhmr_root), capture_output=True, text=True, check=False)

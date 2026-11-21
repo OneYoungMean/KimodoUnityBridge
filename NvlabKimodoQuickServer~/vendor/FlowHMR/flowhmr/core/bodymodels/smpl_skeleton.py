@@ -300,6 +300,18 @@ class SMPLSkeleton(torch.nn.Module):
     def __init__(self, model_path="assets/body_models/smplh/neutral/model.npz", max_shape=-1):
         super().__init__()
         model = load_model_data(model_path)
+        if "compact_format" in model:
+            if "J_template" not in model or "J_shapedirs" not in model:
+                raise ValueError(
+                    "Compact SMPL-H model must contain J_template and J_shapedirs."
+                )
+            self.register_buffer("j_template", to_tensor(to_np(model["J_template"])))
+            j_shapedirs = to_tensor(to_np(model["J_shapedirs"]))
+            if max_shape > 0:
+                j_shapedirs = j_shapedirs[:, :, :max_shape]
+            self.register_buffer("j_shapedirs", j_shapedirs)
+            self.register_parents(model)
+            return
         if "hands_meanr" in model:
             hands_meanl = torch.FloatTensor(model["hands_meanl"])
             hands_meanr = torch.FloatTensor(model["hands_meanr"])
