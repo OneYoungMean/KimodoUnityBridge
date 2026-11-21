@@ -30,6 +30,8 @@ class KmbCameraTrack:
     fps: float
     positions: np.ndarray
     rotations: np.ndarray
+    fov_y: np.ndarray | None = None
+    lens_shift: np.ndarray | None = None
 
     @property
     def num_frames(self) -> int:
@@ -121,10 +123,22 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
             raise error_type("KMB1 camera track lengths do not match its frame count.")
         if not np.isfinite(camera_positions).all() or not np.isfinite(camera_rotations).all():
             raise error_type("KMB1 camera track contains non-finite values.")
+        fov_y = np.asarray(camera.FovYAsNumpy(), dtype=np.float32).copy()
+        lens_shift = np.asarray(camera.LensShiftAsNumpy(), dtype=np.float32).copy()
+        if fov_y.size not in (0, camera_frames):
+            raise error_type("KMB1 camera fov_y length does not match its frame count.")
+        if lens_shift.size not in (0, camera_frames * 2):
+            raise error_type("KMB1 camera lens_shift length does not match its frame count.")
+        if fov_y.size and (not np.isfinite(fov_y).all() or np.any(fov_y <= 0)):
+            raise error_type("KMB1 camera fov_y contains invalid values.")
+        if lens_shift.size and not np.isfinite(lens_shift).all():
+            raise error_type("KMB1 camera lens_shift contains non-finite values.")
         camera_track = KmbCameraTrack(
             fps=float(camera.Fps()) if float(camera.Fps()) > 0 else float(packet.Fps()),
             positions=camera_positions.reshape(camera_frames, 3),
             rotations=camera_rotations.reshape(camera_frames, 4),
+            fov_y=fov_y.reshape(camera_frames) if fov_y.size else None,
+            lens_shift=lens_shift.reshape(camera_frames, 2) if lens_shift.size else None,
         )
     return KmbMotion(
         payload=bytes(payload),
@@ -182,7 +196,23 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
             raise ValueError("KMB camera track vectors do not match the motion slice.")
         camera_positions = builder.CreateNumpyVector(positions)
         camera_rotations = builder.CreateNumpyVector(camera_rotation_values)
+        camera_fov_y = None
+        camera_lens_shift = None
+        if camera.fov_y is not None:
+            fov_y = np.ascontiguousarray(camera.fov_y[start:end], dtype=np.float32).reshape(-1)
+            if fov_y.size != frame_count or not np.isfinite(fov_y).all() or np.any(fov_y <= 0):
+                raise ValueError("KMB camera fov_y must contain one positive finite value per frame.")
+            camera_fov_y = builder.CreateNumpyVector(fov_y)
+        if camera.lens_shift is not None:
+            lens_shift = np.ascontiguousarray(camera.lens_shift[start:end], dtype=np.float32).reshape(-1)
+            if lens_shift.size != frame_count * 2 or not np.isfinite(lens_shift).all():
+                raise ValueError("KMB camera lens_shift must contain two finite values per frame.")
+            camera_lens_shift = builder.CreateNumpyVector(lens_shift)
         MotionPacket.CameraTrackStart(builder)
+        if camera_lens_shift is not None:
+            MotionPacket.CameraTrackAddLensShift(builder, camera_lens_shift)
+        if camera_fov_y is not None:
+            MotionPacket.CameraTrackAddFovY(builder, camera_fov_y)
         MotionPacket.CameraTrackAddRotations(builder, camera_rotations)
         MotionPacket.CameraTrackAddPositions(builder, camera_positions)
         MotionPacket.CameraTrackAddNumFrames(builder, frame_count)

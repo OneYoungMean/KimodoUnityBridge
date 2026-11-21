@@ -43,6 +43,9 @@ namespace KimodoBridge.Editor
             clip.anchorPosition = camera.transform.position;
             clip.anchorRotation = camera.transform.rotation;
             clip.disableAimConstraints = true;
+            clip.fieldOfViewCurve = new AnimationCurve();
+            clip.lensShiftXCurve = new AnimationCurve();
+            clip.lensShiftYCurve = new AnimationCurve();
             clip.positions = new Vector3[motion.FrameCount];
             clip.rotations = new Quaternion[motion.FrameCount];
             for (int frame = 0; frame < motion.FrameCount; frame++)
@@ -54,6 +57,20 @@ namespace KimodoBridge.Editor
                 }
                 clip.positions[frame] = position;
                 clip.rotations[frame] = rotation;
+                float fieldOfView = 0f;
+                Vector2 lensShift = Vector2.zero;
+                if (motion.HasCameraParameters && !motion.TryReadCameraParameters(frame, out fieldOfView, out lensShift))
+                {
+                    error = $"FlowHMR camera parameters contain an invalid value at frame {frame}.";
+                    return false;
+                }
+                if (motion.HasCameraParameters)
+                {
+                    float time = frame / Mathf.Max(1f, motion.FrameRate);
+                    clip.fieldOfViewCurve.AddKey(new Keyframe(time, fieldOfView));
+                    clip.lensShiftXCurve.AddKey(new Keyframe(time, lensShift.x));
+                    clip.lensShiftYCurve.AddKey(new Keyframe(time, lensShift.y));
+                }
             }
             timeline.start = startSeconds;
             timeline.duration = Math.Max(1.0 / Math.Max(1f, motion.FrameRate), motion.DurationSeconds);

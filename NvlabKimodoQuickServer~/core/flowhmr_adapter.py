@@ -91,6 +91,8 @@ def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float
             camera_rt = np.asarray(data["RT"], dtype=np.float64)
         else:
             raise ValueError("FlowHMR camera cache has no RT/camera_RT_yup field.")
+        intrinsics = np.asarray(data["K"], dtype=np.float64) if "K" in data.files else None
+        image_size = np.asarray(data["image_size_hw"], dtype=np.float64) if "image_size_hw" in data.files else None
     if camera_rt.shape != (frame_count, 4, 4):
         raise ValueError(f"FlowHMR camera cache frame count {camera_rt.shape} does not match motion {frame_count}.")
     world_from_camera = np.linalg.inv(camera_rt)
@@ -104,7 +106,18 @@ def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float
     quaternions = _rotation_matrix_to_wxyz(rotations)
     if not np.isfinite(positions).all() or not np.isfinite(quaternions).all():
         raise ValueError("FlowHMR camera cache contains non-finite values.")
-    return KmbCameraTrack(float(fps), positions.astype(np.float32), quaternions)
+    fov_y = None
+    lens_shift = None
+    if intrinsics is not None and image_size is not None and intrinsics.shape == (frame_count, 3, 3) and image_size.size == 2:
+        height, width = float(image_size[0]), float(image_size[1])
+        fy = intrinsics[:, 1, 1]
+        cx = intrinsics[:, 0, 2]
+        cy = intrinsics[:, 1, 2]
+        if height > 0 and width > 0 and np.isfinite(fy).all() and np.all(fy > 0):
+            fov_y = (2.0 * np.arctan2(height, 2.0 * fy) * 180.0 / np.pi).astype(np.float32)
+            # Unity's normalized lens shift is expressed around the image center.
+            lens_shift = np.stack((0.5 - cx / width, 0.5 - cy / height), axis=-1).astype(np.float32)
+    return KmbCameraTrack(float(fps), positions.astype(np.float32), quaternions, fov_y, lens_shift)
 
 
 def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None = None,
@@ -146,7 +159,13 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         if contacts is not None:
             contacts = contacts[indices]
         if camera_track is not None:
-            camera_track = KmbCameraTrack(camera_track.fps, camera_track.positions[indices], camera_track.rotations[indices])
+            camera_track = KmbCameraTrack(
+                camera_track.fps,
+                camera_track.positions[indices],
+                camera_track.rotations[indices],
+                camera_track.fov_y[indices] if camera_track.fov_y is not None else None,
+                camera_track.lens_shift[indices] if camera_track.lens_shift is not None else None,
+            )
 
     return KmbMotion(
         payload=b"",

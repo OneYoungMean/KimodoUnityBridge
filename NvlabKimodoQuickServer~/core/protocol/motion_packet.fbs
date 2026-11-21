@@ -3,6 +3,8 @@ table CameraTrack {
   num_frames:uint;
   positions:[float];
   rotations:[float];
+  fov_y:[float];
+  lens_shift:[float];
 }
 
 table MotionPacket {

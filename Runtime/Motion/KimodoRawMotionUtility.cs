@@ -18,6 +18,8 @@ namespace KimodoBridge
         internal byte[] footContacts;
         internal Vector3[] cameraPositions;
         internal List<float> cameraRotQuats;
+        internal float[] cameraFovY;
+        internal Vector2[] cameraLensShifts;
 
         internal KimodoRawMotionData(
             int frameCount,
@@ -30,7 +32,9 @@ namespace KimodoBridge
             int rootJointIndex,
             byte[] footContacts = null,
             Vector3[] cameraPositions = null,
-            List<float> cameraRotQuats = null)
+            List<float> cameraRotQuats = null,
+            float[] cameraFovY = null,
+            Vector2[] cameraLensShifts = null)
         {
             FrameCount = frameCount;
             JointCount = jointCount;
@@ -45,6 +49,8 @@ namespace KimodoBridge
                 : Array.Empty<byte>();
             this.cameraPositions = cameraPositions ?? Array.Empty<Vector3>();
             this.cameraRotQuats = cameraRotQuats ?? new List<float>();
+            this.cameraFovY = cameraFovY ?? Array.Empty<float>();
+            this.cameraLensShifts = cameraLensShifts ?? Array.Empty<Vector2>();
         }
 
         public int FrameCount { get; }
@@ -56,6 +62,7 @@ namespace KimodoBridge
         public IReadOnlyList<string> JointNames => jointNames;
         public bool HasFootContacts => footContacts.Length >= FrameCount * KimodoFootContactTrackUtility.ChannelCount;
         public bool HasCameraTrack => cameraPositions.Length == FrameCount && cameraRotQuats.Count >= FrameCount * 4;
+        public bool HasCameraParameters => cameraFovY.Length == FrameCount && cameraLensShifts.Length == FrameCount;
 
         internal bool TryReadCamera(int frameIndex, out Vector3 position, out Quaternion rotation)
         {
@@ -66,6 +73,17 @@ namespace KimodoBridge
             int i = frameIndex * 4;
             rotation = new Quaternion(cameraRotQuats[i + 1], cameraRotQuats[i + 2], cameraRotQuats[i + 3], cameraRotQuats[i]).normalized;
             return IsFinite(position.x) && IsFinite(position.y) && IsFinite(position.z);
+        }
+
+        internal bool TryReadCameraParameters(int frameIndex, out float fieldOfView, out Vector2 lensShift)
+        {
+            fieldOfView = 0f;
+            lensShift = Vector2.zero;
+            if (!HasCameraParameters || frameIndex < 0 || frameIndex >= FrameCount)
+                return false;
+            fieldOfView = cameraFovY[frameIndex];
+            lensShift = cameraLensShifts[frameIndex];
+            return IsFinite(fieldOfView) && fieldOfView > 0f && IsFinite(lensShift.x) && IsFinite(lensShift.y);
         }
 
         internal bool TryReadUnityRootPosition(int frameIndex, out Vector3 value)
@@ -677,6 +695,8 @@ namespace KimodoBridge
 
             Vector3[] cameraPositions = Array.Empty<Vector3>();
             List<float> cameraRotations = new List<float>();
+            float[] cameraFovY = Array.Empty<float>();
+            Vector2[] cameraLensShifts = Array.Empty<Vector2>();
             CameraTrack cameraTrack = packet.CameraTrack;
             if (packet.HasCameraTrack && cameraTrack.NumFrames > 0)
             {
@@ -687,6 +707,14 @@ namespace KimodoBridge
                 }
                 float[] positions = cameraTrack.GetPositionsArray();
                 float[] rotations = cameraTrack.GetRotationsArray();
+                float[] fovY = cameraTrack.GetFovYArray();
+                float[] lensShift = cameraTrack.GetLensShiftArray();
+                if ((fovY != null && fovY.Length > 0 && fovY.Length != frameCount) ||
+                    (lensShift != null && lensShift.Length > 0 && lensShift.Length != frameCount * 2))
+                {
+                    error = "FlatBuffer camera parameters do not match the motion frame count.";
+                    return false;
+                }
                 cameraPositions = new Vector3[frameCount];
                 for (int frame = 0; frame < frameCount; frame++)
                 {
@@ -705,6 +733,21 @@ namespace KimodoBridge
                         return false;
                     }
                 cameraRotations.AddRange(rotations.Take(frameCount * 4));
+                if (fovY != null && fovY.Length == frameCount && lensShift != null && lensShift.Length == frameCount * 2)
+                {
+                    cameraFovY = fovY.Take(frameCount).ToArray();
+                    cameraLensShifts = new Vector2[frameCount];
+                    for (int frame = 0; frame < frameCount; frame++)
+                    {
+                        cameraLensShifts[frame] = new Vector2(lensShift[frame * 2], lensShift[frame * 2 + 1]);
+                        if (!IsFinite(cameraFovY[frame]) || cameraFovY[frame] <= 0f ||
+                            !IsFinite(cameraLensShifts[frame].x) || !IsFinite(cameraLensShifts[frame].y))
+                        {
+                            error = $"FlatBuffer camera parameters contain invalid values at frame {frame}.";
+                            return false;
+                        }
+                    }
+                }
             }
 
             motion = new KimodoRawMotionData(
@@ -718,7 +761,9 @@ namespace KimodoBridge
                 rootJoint,
                 footContacts,
                 cameraPositions,
-                cameraRotations);
+                cameraRotations,
+                cameraFovY,
+                cameraLensShifts);
             return true;
         }
 

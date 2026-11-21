@@ -20,13 +20,23 @@ public struct CameraTrack : IFlatbufferObject
   public int RotationsLength { get { int o = __p.__offset(10); return o != 0 ? __p.__vector_len(o) : 0; } }
   public float Rotations(int j) { int o = __p.__offset(10); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
   public float[] GetRotationsArray() { return __p.__vector_as_array<float>(10); }
-  public static void StartCameraTrack(FlatBufferBuilder builder) { builder.StartTable(4); }
+  public int FovYLength { get { int o = __p.__offset(12); return o != 0 ? __p.__vector_len(o) : 0; } }
+  public float FovY(int j) { int o = __p.__offset(12); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
+  public float[] GetFovYArray() { return __p.__vector_as_array<float>(12); }
+  public int LensShiftLength { get { int o = __p.__offset(14); return o != 0 ? __p.__vector_len(o) : 0; } }
+  public float LensShift(int j) { int o = __p.__offset(14); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
+  public float[] GetLensShiftArray() { return __p.__vector_as_array<float>(14); }
+  public static void StartCameraTrack(FlatBufferBuilder builder) { builder.StartTable(6); }
   public static void AddFps(FlatBufferBuilder builder, float value) { builder.AddFloat(0, value, 0.0f); }
   public static void AddNumFrames(FlatBufferBuilder builder, uint value) { builder.AddUint(1, value, 0); }
   public static void AddPositions(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(2, value.Value, 0); }
   public static void AddRotations(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(3, value.Value, 0); }
+  public static void AddFovY(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(4, value.Value, 0); }
+  public static void AddLensShift(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(5, value.Value, 0); }
   public static void StartPositionsVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
   public static void StartRotationsVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
+  public static void StartFovYVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
+  public static void StartLensShiftVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
   public static Offset<CameraTrack> EndCameraTrack(FlatBufferBuilder builder) { return new Offset<CameraTrack>(builder.EndTable()); }
 }
 

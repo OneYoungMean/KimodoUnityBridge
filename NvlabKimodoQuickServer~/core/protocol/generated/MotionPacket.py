@@ -27,6 +27,18 @@ class CameraTrack(object):
     def RotationsLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return self._tab.VectorLen(o) if o else 0
+    def FovYAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o) if o else 0
+    def FovYLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return self._tab.VectorLen(o) if o else 0
+    def LensShiftAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o) if o else 0
+    def LensShiftLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return self._tab.VectorLen(o) if o else 0
 
 class MotionPacket(object):
     __slots__ = ['_tab']
@@ -364,7 +376,7 @@ def CreateFootContactsVector(builder, data):
     MotionPacketCreateFootContactsVector(builder, data)
 
 def CameraTrackStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(6)
 
 def CameraTrackAddFps(builder, fps):
     builder.PrependFloat32Slot(0, fps, 0.0)
@@ -382,6 +394,18 @@ def CameraTrackAddRotations(builder, rotations):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(rotations), 0)
 
 def CameraTrackStartRotationsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def CameraTrackAddFovY(builder, fovY):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(fovY), 0)
+
+def CameraTrackStartFovYVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def CameraTrackAddLensShift(builder, lensShift):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(lensShift), 0)
+
+def CameraTrackStartLensShiftVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
 def CameraTrackEnd(builder):
