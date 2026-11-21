@@ -7,6 +7,7 @@ using UnityEditor;
 using KimodoBridge;
 using KimodoBridge.Editor;
 using UnityEngine;
+using UnityEngine.Timeline;
 
 namespace KimodoUnityBridge.Command
 {

@@ -2,6 +2,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
 namespace KimodoBridge.Editor
