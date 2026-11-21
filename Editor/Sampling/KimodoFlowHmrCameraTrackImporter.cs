@@ -42,6 +42,7 @@ namespace KimodoBridge.Editor
             clip.frameRate = motion.FrameRate;
             clip.anchorPosition = camera.transform.position;
             clip.anchorRotation = camera.transform.rotation;
+            clip.disableAimConstraints = true;
             clip.positions = new Vector3[motion.FrameCount];
             clip.rotations = new Quaternion[motion.FrameCount];
             for (int frame = 0; frame < motion.FrameCount; frame++)

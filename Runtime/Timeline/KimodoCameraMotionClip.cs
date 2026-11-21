@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Animations;
 using UnityEngine.Playables;
 using UnityEngine.Timeline;
 
@@ -13,6 +14,10 @@ namespace KimodoBridge
         [SerializeField] internal float frameRate = 30f;
         [SerializeField] internal Vector3 anchorPosition;
         [SerializeField] internal Quaternion anchorRotation = Quaternion.identity;
+        // Scene cameras in the demo may carry an AimConstraint.  A sampled
+        // camera track owns the rotation while it is playing, so the
+        // constraint is suspended temporarily by the behaviour below.
+        [SerializeField] internal bool disableAimConstraints = true;
 
         public ClipCaps clipCaps => ClipCaps.Blending | ClipCaps.ClipIn | ClipCaps.SpeedMultiplier;
 
@@ -25,6 +30,7 @@ namespace KimodoBridge
             behaviour.frameRate = Mathf.Max(1f, frameRate);
             behaviour.anchorPosition = anchorPosition;
             behaviour.anchorRotation = anchorRotation;
+            behaviour.disableAimConstraints = disableAimConstraints;
             return playable;
         }
     }
@@ -36,11 +42,49 @@ namespace KimodoBridge
         internal float frameRate;
         internal Vector3 anchorPosition;
         internal Quaternion anchorRotation;
+        internal bool disableAimConstraints;
+
+        private Transform constrainedTarget;
+        private AimConstraint[] suspendedAimConstraints;
+        private bool[] suspendedAimConstraintStates;
+
+        private void SuspendAimConstraints(Transform target)
+        {
+            if (!disableAimConstraints || target == null || constrainedTarget == target)
+                return;
+
+            constrainedTarget = target;
+            suspendedAimConstraints = target.GetComponents<AimConstraint>();
+            suspendedAimConstraintStates = new bool[suspendedAimConstraints.Length];
+            for (int index = 0; index < suspendedAimConstraints.Length; index++)
+            {
+                AimConstraint constraint = suspendedAimConstraints[index];
+                suspendedAimConstraintStates[index] = constraint != null && constraint.enabled;
+                if (constraint != null && constraint.enabled)
+                    constraint.enabled = false;
+            }
+        }
+
+        private void RestoreAimConstraints()
+        {
+            if (suspendedAimConstraints == null || suspendedAimConstraintStates == null)
+                return;
+            for (int index = 0; index < suspendedAimConstraints.Length; index++)
+            {
+                AimConstraint constraint = suspendedAimConstraints[index];
+                if (constraint != null && index < suspendedAimConstraintStates.Length)
+                    constraint.enabled = suspendedAimConstraintStates[index];
+            }
+            suspendedAimConstraints = null;
+            suspendedAimConstraintStates = null;
+            constrainedTarget = null;
+        }
 
         internal void Apply(Playable playable, Transform target)
         {
             if (target == null || positions == null || rotations == null || positions.Length == 0 || rotations.Length != positions.Length)
                 return;
+            SuspendAimConstraints(target);
             float frame = Mathf.Clamp((float)playable.GetTime() * Mathf.Max(1f, frameRate), 0f, positions.Length - 1f);
             int first = Mathf.FloorToInt(frame);
             int second = Mathf.Min(first + 1, positions.Length - 1);
@@ -48,6 +92,11 @@ namespace KimodoBridge
             target.SetPositionAndRotation(
                 anchorPosition + anchorRotation * Vector3.LerpUnclamped(positions[first], positions[second], blend),
                 anchorRotation * Quaternion.SlerpUnclamped(rotations[first], rotations[second], blend));
+        }
+
+        public override void OnBehaviourPause(Playable playable, FrameData info)
+        {
+            RestoreAimConstraints();
         }
     }
 
