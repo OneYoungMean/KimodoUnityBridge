@@ -6,6 +6,30 @@ using global::System;
 using global::System.Collections.Generic;
 using global::Google.FlatBuffers;
 
+public struct CameraTrack : IFlatbufferObject
+{
+  private Table __p;
+  public ByteBuffer ByteBuffer { get { return __p.bb; } }
+  public CameraTrack __assign(int _i, ByteBuffer _bb) { __init(_i, _bb); return this; }
+  public void __init(int _i, ByteBuffer _bb) { __p = new Table(_i, _bb); }
+  public float Fps { get { int o = __p.__offset(4); return o != 0 ? __p.bb.GetFloat(o + __p.bb_pos) : 0.0f; } }
+  public uint NumFrames { get { int o = __p.__offset(6); return o != 0 ? __p.bb.GetUint(o + __p.bb_pos) : 0u; } }
+  public int PositionsLength { get { int o = __p.__offset(8); return o != 0 ? __p.__vector_len(o) : 0; } }
+  public float Positions(int j) { int o = __p.__offset(8); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
+  public float[] GetPositionsArray() { return __p.__vector_as_array<float>(8); }
+  public int RotationsLength { get { int o = __p.__offset(10); return o != 0 ? __p.__vector_len(o) : 0; } }
+  public float Rotations(int j) { int o = __p.__offset(10); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
+  public float[] GetRotationsArray() { return __p.__vector_as_array<float>(10); }
+  public static void StartCameraTrack(FlatBufferBuilder builder) { builder.StartTable(4); }
+  public static void AddFps(FlatBufferBuilder builder, float value) { builder.AddFloat(0, value, 0.0f); }
+  public static void AddNumFrames(FlatBufferBuilder builder, uint value) { builder.AddUint(1, value, 0); }
+  public static void AddPositions(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(2, value.Value, 0); }
+  public static void AddRotations(FlatBufferBuilder builder, VectorOffset value) { builder.AddOffset(3, value.Value, 0); }
+  public static void StartPositionsVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
+  public static void StartRotationsVector(FlatBufferBuilder builder, int count) { builder.StartVector(4, count, 4); }
+  public static Offset<CameraTrack> EndCameraTrack(FlatBufferBuilder builder) { return new Offset<CameraTrack>(builder.EndTable()); }
+}
+
 public struct MotionPacket : IFlatbufferObject
 {
   private Table __p;
@@ -63,6 +87,8 @@ public struct MotionPacket : IFlatbufferObject
   public ArraySegment<byte>? GetFootContactsBytes() { return __p.__vector_as_arraysegment(22); }
 #endif
   public byte[] GetFootContactsArray() { return __p.__vector_as_array<byte>(22); }
+  public bool HasCameraTrack { get { return __p.__offset(24) != 0; } }
+  public CameraTrack CameraTrack { get { int o = __p.__offset(24); return o != 0 ? new CameraTrack().__assign(__p.__indirect(o + __p.bb_pos), __p.bb) : default(CameraTrack); } }
 
   public static Offset<MotionPacket> CreateMotionPacket(FlatBufferBuilder builder,
       uint version = 1,
@@ -74,8 +100,10 @@ public struct MotionPacket : IFlatbufferObject
       VectorOffset root_positionsOffset = default(VectorOffset),
       VectorOffset local_rot_quatsOffset = default(VectorOffset),
       StringOffset model_nameOffset = default(StringOffset),
-      VectorOffset foot_contactsOffset = default(VectorOffset)) {
-    builder.StartTable(10);
+      VectorOffset foot_contactsOffset = default(VectorOffset),
+      Offset<CameraTrack> camera_trackOffset = default(Offset<CameraTrack>)) {
+    builder.StartTable(11);
+    MotionPacket.AddCameraTrack(builder, camera_trackOffset);
     MotionPacket.AddFootContacts(builder, foot_contactsOffset);
     MotionPacket.AddModelName(builder, model_nameOffset);
     MotionPacket.AddLocalRotQuats(builder, local_rot_quatsOffset);
@@ -89,7 +117,7 @@ public struct MotionPacket : IFlatbufferObject
     return MotionPacket.EndMotionPacket(builder);
   }
 
-  public static void StartMotionPacket(FlatBufferBuilder builder) { builder.StartTable(10); }
+  public static void StartMotionPacket(FlatBufferBuilder builder) { builder.StartTable(11); }
   public static void AddVersion(FlatBufferBuilder builder, uint version) { builder.AddUint(0, version, 1); }
   public static void AddFps(FlatBufferBuilder builder, float fps) { builder.AddFloat(1, fps, 0.0f); }
   public static void AddNumFrames(FlatBufferBuilder builder, uint numFrames) { builder.AddUint(2, numFrames, 0); }
@@ -120,6 +148,7 @@ public struct MotionPacket : IFlatbufferObject
   public static void StartLocalRotQuatsVector(FlatBufferBuilder builder, int numElems) { builder.StartVector(4, numElems, 4); }
   public static void AddModelName(FlatBufferBuilder builder, StringOffset modelNameOffset) { builder.AddOffset(8, modelNameOffset.Value, 0); }
   public static void AddFootContacts(FlatBufferBuilder builder, VectorOffset footContactsOffset) { builder.AddOffset(9, footContactsOffset.Value, 0); }
+  public static void AddCameraTrack(FlatBufferBuilder builder, Offset<CameraTrack> cameraTrackOffset) { builder.AddOffset(10, cameraTrackOffset.Value, 0); }
   public static VectorOffset CreateFootContactsVector(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); for (int i = data.Length - 1; i >= 0; i--) builder.AddByte(data[i]); return builder.EndVector(); }
   public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); builder.Add(data); return builder.EndVector(); }
   public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, ArraySegment<byte> data) { builder.StartVector(1, data.Count, 1); builder.Add(data); return builder.EndVector(); }
@@ -149,6 +178,7 @@ static public class MotionPacketVerify
       && verifier.VerifyVectorOfData(tablePos, 18 /*LocalRotQuats*/, 4 /*float*/, false)
       && verifier.VerifyString(tablePos, 20 /*ModelName*/, false)
       && verifier.VerifyVectorOfData(tablePos, 22 /*FootContacts*/, 1 /*byte*/, false)
+      && verifier.VerifyField(tablePos, 24 /*CameraTrack*/, 4 /*offset*/, 4, false)
       && verifier.VerifyTableEnd(tablePos);
   }
 }

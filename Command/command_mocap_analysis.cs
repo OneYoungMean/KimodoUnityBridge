@@ -31,6 +31,12 @@ namespace KimodoUnityBridge.Command
                 {
                     throw new InvalidOperationException("FlowHMR selects the tracked performer automatically; the person argument is not supported.");
                 }
+                bool enableCamera = arguments.Value<bool?>("enable_camera") ?? false;
+                Camera mainCamera = null;
+                if (enableCamera)
+                {
+                    mainCamera = ResolveSingleMainCamera();
+                }
 
                 string requestId = "mocap:" + Guid.NewGuid().ToString("N");
                 lock (JobsLock)
@@ -44,6 +50,7 @@ namespace KimodoUnityBridge.Command
                         ["source_type"] = kind,
                         ["media_path"] = mediaPath,
                         ["character"] = target.CharacterRef,
+                        ["enable_camera"] = enableCamera,
                         ["started_at_utc"] = DateTime.UtcNow.ToString("O")
                     };
                     TrimTerminalTasksLocked(MocapAnalysisTasks, MaxRememberedJobs, "completed", "failed");
@@ -51,7 +58,7 @@ namespace KimodoUnityBridge.Command
 
                 EditorApplication.delayCall += () =>
                 {
-                    _ = RunMocapAnalysisTaskAsync(requestId, kind, mediaPath, person, target.CharacterRef, session.Id);
+                    _ = RunMocapAnalysisTaskAsync(requestId, kind, mediaPath, person, target.CharacterRef, session.Id, enableCamera, mainCamera);
                 };
                 return Ok(new JObject
                 {
@@ -66,15 +73,17 @@ namespace KimodoUnityBridge.Command
             string mediaPath,
             string person,
             string characterReference,
-            Guid sessionId)
+            Guid sessionId,
+            bool enableCamera,
+            Camera mainCamera)
         {
             UpdateMocapAnalysisTask(requestId, "running", "estimating", "Running FlowHMR pose estimation...");
             try
             {
                 JObject analysis = await KimodoBridgeService.Shared.AnalyzeMocapAsync(
-                    kind, mediaPath, person, CancellationToken.None);
+                    kind, mediaPath, person, enableCamera, CancellationToken.None);
                 await RunOnEditorThreadAsync(() =>
-                    CompleteFlowHmrTimelineImport(requestId, analysis, characterReference, sessionId));
+                    CompleteFlowHmrTimelineImport(requestId, analysis, characterReference, sessionId, enableCamera, mainCamera));
             }
             catch (Exception exception)
             {
@@ -104,7 +113,9 @@ namespace KimodoUnityBridge.Command
             string requestId,
             JObject analysis,
             string characterReference,
-            Guid expectedSessionId)
+            Guid expectedSessionId,
+            bool enableCamera,
+            Camera mainCamera)
         {
             try
             {
@@ -128,6 +139,19 @@ namespace KimodoUnityBridge.Command
                     1.0 / Math.Max(1f, clip.frameRate),
                     (analysis.Value<int?>("kmb_frame_count") ?? 1) / (double)Math.Max(1f, clip.frameRate));
                 character.NextStartSeconds = animation.TimelineClip.end + ClipSafeZoneSeconds;
+                if (enableCamera)
+                {
+                    if (!KimodoFlowHmrCameraTrackImporter.TryCreateCameraTrack(
+                        session.Director, session.TimelineAsset, mainCamera, analysis, animation.TimelineStartSeconds, out TimelineClip cameraClip, out string cameraError))
+                        throw new InvalidOperationException(cameraError);
+                    analysis["camera_track"] = new JObject
+                    {
+                        ["enabled"] = true,
+                        ["main_camera"] = mainCamera.name,
+                        ["timeline_start_seconds"] = cameraClip.start,
+                        ["timeline_duration_seconds"] = cameraClip.duration
+                    };
+                }
                 SaveTimelineSession(session);
                 analysis["clip"] = new JObject
                 {
@@ -146,6 +170,19 @@ namespace KimodoUnityBridge.Command
             {
                 UpdateMocapAnalysisTask(requestId, "failed", "failed", exception.Message, analysis);
             }
+        }
+
+        private static Camera ResolveSingleMainCamera()
+        {
+            UnityEngine.SceneManagement.Scene activeScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            Camera[] candidates = UnityEngine.Object.FindObjectsOfType<Camera>(true)
+                .Where(item => item != null && item.enabled && item.gameObject.scene == activeScene && item.CompareTag("MainCamera"))
+                .ToArray();
+            if (candidates.Length == 0)
+                throw new InvalidOperationException("enable_camera requires one enabled scene Camera tagged MainCamera.");
+            if (candidates.Length > 1)
+                throw new InvalidOperationException($"enable_camera requires exactly one enabled MainCamera; found {candidates.Length}.");
+            return candidates[0];
         }
 
         private static void UpdateMocapAnalysisTask(

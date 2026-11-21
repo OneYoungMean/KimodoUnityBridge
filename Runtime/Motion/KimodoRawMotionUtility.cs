@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using TimelineInject;
 using UnityEngine;
 using Google.FlatBuffers;
@@ -15,6 +16,8 @@ namespace KimodoBridge
         internal readonly List<float> localRotQuats;
         internal readonly int rootJointIndex;
         internal byte[] footContacts;
+        internal Vector3[] cameraPositions;
+        internal List<float> cameraRotQuats;
 
         internal KimodoRawMotionData(
             int frameCount,
@@ -25,7 +28,9 @@ namespace KimodoBridge
             Vector3[] rootPositions,
             List<float> localRotQuats,
             int rootJointIndex,
-            byte[] footContacts = null)
+            byte[] footContacts = null,
+            Vector3[] cameraPositions = null,
+            List<float> cameraRotQuats = null)
         {
             FrameCount = frameCount;
             JointCount = jointCount;
@@ -38,6 +43,8 @@ namespace KimodoBridge
             this.footContacts = footContacts != null && footContacts.Length == frameCount * KimodoFootContactTrackUtility.ChannelCount
                 ? footContacts
                 : Array.Empty<byte>();
+            this.cameraPositions = cameraPositions ?? Array.Empty<Vector3>();
+            this.cameraRotQuats = cameraRotQuats ?? new List<float>();
         }
 
         public int FrameCount { get; }
@@ -48,6 +55,18 @@ namespace KimodoBridge
         public int RootJointIndex => rootJointIndex;
         public IReadOnlyList<string> JointNames => jointNames;
         public bool HasFootContacts => footContacts.Length >= FrameCount * KimodoFootContactTrackUtility.ChannelCount;
+        public bool HasCameraTrack => cameraPositions.Length == FrameCount && cameraRotQuats.Count >= FrameCount * 4;
+
+        internal bool TryReadCamera(int frameIndex, out Vector3 position, out Quaternion rotation)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            if (!HasCameraTrack || frameIndex < 0 || frameIndex >= FrameCount) return false;
+            position = cameraPositions[frameIndex];
+            int i = frameIndex * 4;
+            rotation = new Quaternion(cameraRotQuats[i + 1], cameraRotQuats[i + 2], cameraRotQuats[i + 3], cameraRotQuats[i]).normalized;
+            return IsFinite(position.x) && IsFinite(position.y) && IsFinite(position.z);
+        }
 
         internal bool TryReadUnityRootPosition(int frameIndex, out Vector3 value)
         {
@@ -656,6 +675,38 @@ namespace KimodoBridge
                 }
             }
 
+            Vector3[] cameraPositions = Array.Empty<Vector3>();
+            List<float> cameraRotations = new List<float>();
+            CameraTrack cameraTrack = packet.CameraTrack;
+            if (packet.HasCameraTrack && cameraTrack.NumFrames > 0)
+            {
+                if (cameraTrack.NumFrames != packet.NumFrames || cameraTrack.PositionsLength < frameCount * 3 || cameraTrack.RotationsLength < frameCount * 4)
+                {
+                    error = "FlatBuffer camera_track lengths do not match the motion frame count.";
+                    return false;
+                }
+                float[] positions = cameraTrack.GetPositionsArray();
+                float[] rotations = cameraTrack.GetRotationsArray();
+                cameraPositions = new Vector3[frameCount];
+                for (int frame = 0; frame < frameCount; frame++)
+                {
+                    int p = frame * 3;
+                    cameraPositions[frame] = new Vector3(positions[p], positions[p + 1], positions[p + 2]);
+                    if (!IsFinite(cameraPositions[frame].x) || !IsFinite(cameraPositions[frame].y) || !IsFinite(cameraPositions[frame].z))
+                    {
+                        error = $"FlatBuffer camera_track contains a non-finite position at frame {frame}.";
+                        return false;
+                    }
+                }
+                for (int i = 0; i < frameCount * 4; i++)
+                    if (!IsFinite(rotations[i]))
+                    {
+                        error = $"FlatBuffer camera_track contains a non-finite rotation scalar at index {i}.";
+                        return false;
+                    }
+                cameraRotations.AddRange(rotations.Take(frameCount * 4));
+            }
+
             motion = new KimodoRawMotionData(
                 frameCount,
                 jointCount,
@@ -665,7 +716,9 @@ namespace KimodoBridge
                 rootPositions,
                 new List<float>(localRotQuatArray),
                 rootJoint,
-                footContacts);
+                footContacts,
+                cameraPositions,
+                cameraRotations);
             return true;
         }
 

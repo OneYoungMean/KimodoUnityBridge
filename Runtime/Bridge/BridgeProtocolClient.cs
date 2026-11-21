@@ -181,6 +181,7 @@ namespace KimodoBridge
             string kind,
             string mediaPath,
             string person,
+            bool enableCamera,
             CancellationToken token)
         {
             string normalizedKind = (kind ?? string.Empty).Trim().ToLowerInvariant();
@@ -193,6 +194,10 @@ namespace KimodoBridge
                 ["cmd"] = normalizedKind == "video" ? "pose.fromvideo" : "pose.frompicture",
                 ["media_path"] = mediaPath ?? string.Empty
             };
+            if (normalizedKind == "video")
+            {
+                request["enable_camera"] = enableCamera;
+            }
             if (normalizedKind == "video" && !string.IsNullOrWhiteSpace(person))
             {
                 request["person"] = person;

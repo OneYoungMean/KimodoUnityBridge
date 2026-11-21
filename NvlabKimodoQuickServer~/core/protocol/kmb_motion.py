@@ -26,6 +26,17 @@ def _seconds_to_protocol_frame_index(seconds: float, fps: float) -> int:
 
 
 @dataclass(frozen=True)
+class KmbCameraTrack:
+    fps: float
+    positions: np.ndarray
+    rotations: np.ndarray
+
+    @property
+    def num_frames(self) -> int:
+        return int(self.positions.shape[0])
+
+
+@dataclass(frozen=True)
 class KmbMotion:
     payload: bytes
     model_name: str
@@ -35,6 +46,7 @@ class KmbMotion:
     root_positions: np.ndarray
     local_rot_quats: np.ndarray
     foot_contacts: np.ndarray | None
+    camera_track: KmbCameraTrack | None = None
 
     @property
     def num_frames(self) -> int:
@@ -99,6 +111,21 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
         raise error_type("KMB1 motion vector lengths do not match its header.")
     if not np.isfinite(roots).all() or not np.isfinite(quats).all():
         raise error_type("KMB1 contains non-finite motion values.")
+    camera_track = None
+    camera = packet.CameraTrack()
+    if camera is not None and int(camera.NumFrames()) > 0:
+        camera_frames = int(camera.NumFrames())
+        camera_positions = np.asarray(camera.PositionsAsNumpy(), dtype=np.float32).copy()
+        camera_rotations = np.asarray(camera.RotationsAsNumpy(), dtype=np.float32).copy()
+        if camera_frames != num_frames or camera_positions.size != camera_frames * 3 or camera_rotations.size != camera_frames * 4:
+            raise error_type("KMB1 camera track lengths do not match its frame count.")
+        if not np.isfinite(camera_positions).all() or not np.isfinite(camera_rotations).all():
+            raise error_type("KMB1 camera track contains non-finite values.")
+        camera_track = KmbCameraTrack(
+            fps=float(camera.Fps()) if float(camera.Fps()) > 0 else float(packet.Fps()),
+            positions=camera_positions.reshape(camera_frames, 3),
+            rotations=camera_rotations.reshape(camera_frames, 4),
+        )
     return KmbMotion(
         payload=bytes(payload),
         model_name=(packet.ModelName() or b"").decode("utf-8", errors="strict"),
@@ -108,6 +135,7 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
         root_positions=roots.reshape(num_frames, 3),
         local_rot_quats=quats.reshape(num_frames, num_joints, 4),
         foot_contacts=contacts,
+        camera_track=camera_track,
     )
 
 
@@ -143,6 +171,23 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
     root_positions = builder.CreateNumpyVector(roots)
     rotations = builder.CreateNumpyVector(quats)
     foot_contacts = builder.CreateNumpyVector(contacts) if contacts.size else None
+    camera_track_offset = None
+    if motion.camera_track is not None:
+        camera = motion.camera_track
+        if camera.num_frames != motion.num_frames:
+            raise ValueError("KMB camera track frame count must match the source motion.")
+        positions = np.ascontiguousarray(camera.positions[start:end], dtype=np.float32).reshape(-1)
+        camera_rotation_values = np.ascontiguousarray(camera.rotations[start:end], dtype=np.float32).reshape(-1)
+        if positions.size != frame_count * 3 or camera_rotation_values.size != frame_count * 4:
+            raise ValueError("KMB camera track vectors do not match the motion slice.")
+        camera_positions = builder.CreateNumpyVector(positions)
+        camera_rotations = builder.CreateNumpyVector(camera_rotation_values)
+        MotionPacket.CameraTrackStart(builder)
+        MotionPacket.CameraTrackAddRotations(builder, camera_rotations)
+        MotionPacket.CameraTrackAddPositions(builder, camera_positions)
+        MotionPacket.CameraTrackAddNumFrames(builder, frame_count)
+        MotionPacket.CameraTrackAddFps(builder, float(camera.fps))
+        camera_track_offset = MotionPacket.CameraTrackEnd(builder)
 
     MotionPacket.Start(builder)
     MotionPacket.AddVersion(builder, 1)
@@ -156,6 +201,8 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
     MotionPacket.AddModelName(builder, model_name)
     if foot_contacts is not None:
         MotionPacket.AddFootContacts(builder, foot_contacts)
+    if camera_track_offset is not None:
+        MotionPacket.AddCameraTrack(builder, camera_track_offset)
     packet = MotionPacket.End(builder)
     builder.Finish(packet, file_identifier=b"KMB1")
     return bytes(builder.Output())

@@ -276,6 +276,7 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyze["description"]?.Value<string>(), Does.Contain("one scene character"));
             Assert.That(document["tools"]?.Values<JObject>().Any(item => item.Value<string>("name") == "analysis.new"), Is.False);
             Assert.That(videoAnalysis["inputSchema"]?["properties"]?["video_path"], Is.Not.Null);
+            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["enable_camera"]?.Value<string>("type"), Is.EqualTo("boolean"));
             Assert.That(pictureAnalysis["inputSchema"]?["properties"]?["image_path"], Is.Not.Null);
             AssertRequiredProperty(videoAnalysis, "character");
             AssertRequiredProperty(pictureAnalysis, "character");

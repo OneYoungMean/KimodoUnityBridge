@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from core.protocol.kmb_motion import KmbMotion, encode_kmb1
+from core.protocol.kmb_motion import KmbCameraTrack, KmbMotion, encode_kmb1
 
 
 SMPLH_JOINT_NAMES = (
@@ -52,7 +52,63 @@ def _axis_angle_to_wxyz(axis_angle: np.ndarray) -> np.ndarray:
     return result.astype(np.float32)
 
 
-def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None = None) -> KmbMotion:
+def _rotation_matrix_to_wxyz(matrix: np.ndarray) -> np.ndarray:
+    """Convert proper 3x3 matrices to normalized WXYZ quaternions."""
+    values = np.asarray(matrix, dtype=np.float64)
+    result = np.empty(values.shape[:-2] + (4,), dtype=np.float64)
+    trace = np.trace(values, axis1=-2, axis2=-1)
+    positive = trace > 0.0
+    s = np.sqrt(np.maximum(trace[positive] + 1.0, 1e-12)) * 2.0
+    result[positive, 0] = 0.25 * s
+    result[positive, 1] = (values[positive, 2, 1] - values[positive, 1, 2]) / s
+    result[positive, 2] = (values[positive, 0, 2] - values[positive, 2, 0]) / s
+    result[positive, 3] = (values[positive, 1, 0] - values[positive, 0, 1]) / s
+    remaining = ~positive
+    for index in np.flatnonzero(remaining):
+        row = values[index]
+        if row[0, 0] >= row[1, 1] and row[0, 0] >= row[2, 2]:
+            s = np.sqrt(max(1.0 + row[0, 0] - row[1, 1] - row[2, 2], 1e-12)) * 2.0
+            result[index] = ((row[2, 1] - row[1, 2]) / s, 0.25 * s,
+                             (row[0, 1] + row[1, 0]) / s, (row[0, 2] + row[2, 0]) / s)
+        elif row[1, 1] >= row[2, 2]:
+            s = np.sqrt(max(1.0 + row[1, 1] - row[0, 0] - row[2, 2], 1e-12)) * 2.0
+            result[index] = ((row[0, 2] - row[2, 0]) / s, (row[0, 1] + row[1, 0]) / s,
+                             0.25 * s, (row[1, 2] + row[2, 1]) / s)
+        else:
+            s = np.sqrt(max(1.0 + row[2, 2] - row[0, 0] - row[1, 1], 1e-12)) * 2.0
+            result[index] = ((row[1, 0] - row[0, 1]) / s, (row[0, 2] + row[2, 0]) / s,
+                             (row[1, 2] + row[2, 1]) / s, 0.25 * s)
+    result /= np.maximum(np.linalg.norm(result, axis=-1, keepdims=True), 1e-12)
+    return result.astype(np.float32)
+
+
+def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float) -> KmbCameraTrack:
+    path = Path(camera_npz_path).expanduser().resolve(strict=True)
+    with np.load(path, allow_pickle=False) as data:
+        if "camera_RT_yup" in data.files:
+            camera_rt = np.asarray(data["camera_RT_yup"], dtype=np.float64)
+        elif "RT" in data.files:
+            camera_rt = np.asarray(data["RT"], dtype=np.float64)
+        else:
+            raise ValueError("FlowHMR camera cache has no RT/camera_RT_yup field.")
+    if camera_rt.shape != (frame_count, 4, 4):
+        raise ValueError(f"FlowHMR camera cache frame count {camera_rt.shape} does not match motion {frame_count}.")
+    world_from_camera = np.linalg.inv(camera_rt)
+    relative_camera = np.linalg.inv(world_from_camera[0])[None] @ world_from_camera
+    # FlowHMR and Unity use different handedness for the imported SMPL motion.
+    # Conjugating by this reflection keeps a proper rotation while matching the
+    # root-position conversion already used by KMB1's Unity parser.
+    reflection = np.diag([-1.0, 1.0, 1.0])
+    positions = relative_camera[:, :3, 3] @ reflection.T
+    rotations = reflection[None] @ relative_camera[:, :3, :3] @ reflection[None]
+    quaternions = _rotation_matrix_to_wxyz(rotations)
+    if not np.isfinite(positions).all() or not np.isfinite(quaternions).all():
+        raise ValueError("FlowHMR camera cache contains non-finite values.")
+    return KmbCameraTrack(float(fps), positions.astype(np.float32), quaternions)
+
+
+def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None = None,
+                          camera_npz_path: str | Path | None = None) -> KmbMotion:
     """Read the official FlowHMR NPZ output and build a SMPL-H KMB motion."""
     path = Path(npz_path).expanduser().resolve(strict=True)
     with np.load(path, allow_pickle=False) as data:
@@ -80,6 +136,7 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         if not np.isfinite(contacts).all():
             raise ValueError("FlowHMR foot_contacts contains non-finite values.")
         contacts = (contacts >= 0.5).astype(np.uint8)
+    camera_track = _load_camera_track(camera_npz_path, poses.shape[0], fps) if camera_npz_path is not None else None
     if frame_indices is not None:
         indices = np.asarray(frame_indices, dtype=np.int64)
         if indices.ndim != 1 or indices.size == 0 or np.any(indices < 0) or np.any(indices >= poses.shape[0]):
@@ -88,6 +145,8 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         roots = roots[indices]
         if contacts is not None:
             contacts = contacts[indices]
+        if camera_track is not None:
+            camera_track = KmbCameraTrack(camera_track.fps, camera_track.positions[indices], camera_track.rotations[indices])
 
     return KmbMotion(
         payload=b"",
@@ -98,11 +157,13 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         root_positions=roots,
         local_rot_quats=_axis_angle_to_wxyz(poses),
         foot_contacts=contacts,
+        camera_track=camera_track,
     )
 
 
-def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = None) -> tuple[bytes, dict[str, Any]]:
-    motion = flowhmr_npz_to_motion(npz_path, frame_indices=frame_indices)
+def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = None,
+                       camera_npz_path: str | Path | None = None) -> tuple[bytes, dict[str, Any]]:
+    motion = flowhmr_npz_to_motion(npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path)
     payload = encode_kmb1(motion)
     return payload, {
         "format": "kmb_v1",
@@ -110,4 +171,5 @@ def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = N
         "fps": motion.fps,
         "frame_count": motion.num_frames,
         "joint_count": len(motion.joint_names),
+        "camera_track": motion.camera_track is not None,
     }

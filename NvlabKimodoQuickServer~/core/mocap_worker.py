@@ -15,14 +15,16 @@ from core.flowhmr_adapter import flowhmr_npz_to_kmb
 from core.flowhmr_memory import CONSERVATIVE_FLOWHMR_OPTIONS, is_cuda_oom
 
 
-def _build_result(kind: str, npz_path: Path, person: str | None) -> tuple[dict[str, Any], bytes]:
+def _build_result(kind: str, npz_path: Path, person: str | None,
+                  camera_npz_path: Path | None = None) -> tuple[dict[str, Any], bytes]:
     import numpy as np
     with np.load(npz_path, allow_pickle=False) as data:
         poses = np.asarray(data["poses"])
         fps = float(np.asarray(data.get("mocap_framerate", 30.0)).reshape(-1)[0])
         frame_count = int(poses.shape[0])
     frame_indices = [frame_count // 2] if kind == "picture" else None
-    payload, kmb_meta = flowhmr_npz_to_kmb(npz_path, frame_indices=frame_indices)
+    payload, kmb_meta = flowhmr_npz_to_kmb(
+        npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path)
     output_frame_count = 1 if frame_indices else frame_count
     result = {
         "status": "done", "analysis_schema_version": "flowhmr_smplh_kmb_v1",
@@ -34,6 +36,9 @@ def _build_result(kind: str, npz_path: Path, person: str | None) -> tuple[dict[s
                               "purpose": "flowhmr_motion", "start_frame": 0,
                               "end_frame_exclusive": output_frame_count}],
     }
+    if camera_npz_path is not None:
+        result["camera_enabled"] = True
+        result["camera_cache_path"] = str(camera_npz_path)
     if person is not None:
         result["person"] = person
     return result, payload
@@ -42,7 +47,7 @@ def _build_result(kind: str, npz_path: Path, person: str | None) -> tuple[dict[s
 def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
             flowhmr_python: Path, person: str | None = None, device: str = "cuda",
             vggt_interval: int = 1, sam_chunk_size: int = 16,
-            static_camera: bool = False) -> tuple[dict[str, Any], bytes]:
+            static_camera: bool = False, enable_camera: bool = False) -> tuple[dict[str, Any], bytes]:
     with tempfile.TemporaryDirectory(prefix="kimodo-flowhmr-") as temp_text:
         temp = Path(temp_text)
         staged = temp / f"kimodo_{uuid.uuid4().hex}{media.suffix.lower()}"
@@ -76,8 +81,9 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
                 retry = [str(flowhmr_python), str(flowhmr_root / "run_v2m_demo_generation.py"), str(retry_staged),
                          "--ckpt", str(checkpoint), "--device", device,
                          "--vggt_interval", str(CONSERVATIVE_FLOWHMR_OPTIONS.vggt_interval),
-                         "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size),
-                         "--static_camera"]
+                         "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size)]
+                if not enable_camera:
+                    retry.append("--static_camera")
                 completed = subprocess.run(retry, cwd=str(flowhmr_root), capture_output=True, text=True, check=False)
                 staged = retry_staged
                 diagnostic = (completed.stderr or completed.stdout or diagnostic).strip()
@@ -87,8 +93,9 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
                     cpu_retry = [str(flowhmr_python), str(flowhmr_root / "run_v2m_demo_generation.py"), str(cpu_staged),
                                  "--ckpt", str(checkpoint), "--device", "cpu",
                                  "--vggt_interval", str(CONSERVATIVE_FLOWHMR_OPTIONS.vggt_interval),
-                                 "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size),
-                                 "--static_camera"]
+                                 "--sam_chunk_size", str(CONSERVATIVE_FLOWHMR_OPTIONS.sam_chunk_size)]
+                    if not enable_camera:
+                        cpu_retry.append("--static_camera")
                     completed = subprocess.run(cpu_retry, cwd=str(flowhmr_root), capture_output=True, text=True, check=False)
                     staged = cpu_staged
                     diagnostic = (completed.stderr or completed.stdout or diagnostic).strip()
@@ -103,7 +110,12 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
         candidates = sorted(output_dir.glob("*.npz"), key=lambda p: p.stat().st_mtime, reverse=True)
         if not candidates:
             raise RuntimeError(f"FlowHMR completed without writing an NPZ result under {output_dir}.")
-        return _build_result(kind, candidates[0], person)
+        camera_path = None
+        if enable_camera:
+            camera_path = output_dir / f"{staged.stem}_vggt_camera.npz"
+            if not camera_path.is_file():
+                raise RuntimeError(f"FlowHMR did not produce its dynamic camera cache: {camera_path}")
+        return _build_result(kind, candidates[0], person, camera_path)
 
 
 def main() -> int:
@@ -117,11 +129,12 @@ def main() -> int:
     parser.add_argument("--vggt-interval", type=int, default=1)
     parser.add_argument("--sam-chunk-size", type=int, default=16)
     parser.add_argument("--static-camera", action="store_true")
+    parser.add_argument("--enable-camera", action="store_true")
     parser.add_argument("--person", choices=("left", "right"))
     args = parser.parse_args()
     result, payload = analyze(args.kind, args.media, args.flowhmr_root, args.checkpoint,
                               args.flowhmr_python, args.person, args.device,
-                              args.vggt_interval, args.sam_chunk_size, args.static_camera)
+                              args.vggt_interval, args.sam_chunk_size, args.static_camera, args.enable_camera)
     result["_binary_payload"] = payload.hex()
     sys.stdout.write(json.dumps(result, separators=(",", ":"), allow_nan=False))
     return 0

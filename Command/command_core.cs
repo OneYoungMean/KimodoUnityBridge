@@ -202,6 +202,7 @@ namespace KimodoUnityBridge.Command
                         Properties(
                             Required("video_path", "string", "Absolute path to a local video readable by QuickServer."),
                             Required("character", "string", "Timeline character name or object_ref whose bound Avatar receives the muscle clip."),
+                            Optional("enable_camera", "boolean", "Estimate and import the FlowHMR dynamic camera track onto the scene Main Camera. Defaults to false."),
                             WaitSecondsProperty(10.0, allowAboveLimit: true))),
                     CommandDefinition(PoseFromPictureCommand,
                         "Estimate a still-image pose with FlowHMR and return one SMPL-H KMB1 frame.",

@@ -6,6 +6,28 @@ import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
+class CameraTrack(object):
+    __slots__ = ['_tab']
+    def Init(self, buf, pos): self._tab = flatbuffers.table.Table(buf, pos)
+    def Fps(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos) if o else 0.0
+    def NumFrames(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos) if o else 0
+    def PositionsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o) if o else 0
+    def PositionsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return self._tab.VectorLen(o) if o else 0
+    def RotationsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o) if o else 0
+    def RotationsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return self._tab.VectorLen(o) if o else 0
+
 class MotionPacket(object):
     __slots__ = ['_tab']
 
@@ -191,8 +213,16 @@ class MotionPacket(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
         return o == 0
 
+    def CameraTrack(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            x = CameraTrack()
+            x.Init(self._tab.Bytes, self._tab.Indirect(o + self._tab.Pos))
+            return x
+        return None
+
 def MotionPacketStart(builder):
-    builder.StartObject(10)
+    builder.StartObject(11)
 
 def Start(builder):
     MotionPacketStart(builder)
@@ -332,6 +362,36 @@ def MotionPacketCreateFootContactsVector(builder, data):
 
 def CreateFootContactsVector(builder, data):
     MotionPacketCreateFootContactsVector(builder, data)
+
+def CameraTrackStart(builder):
+    builder.StartObject(4)
+
+def CameraTrackAddFps(builder, fps):
+    builder.PrependFloat32Slot(0, fps, 0.0)
+
+def CameraTrackAddNumFrames(builder, numFrames):
+    builder.PrependUint32Slot(1, numFrames, 0)
+
+def CameraTrackAddPositions(builder, positions):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(positions), 0)
+
+def CameraTrackStartPositionsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def CameraTrackAddRotations(builder, rotations):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(rotations), 0)
+
+def CameraTrackStartRotationsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def CameraTrackEnd(builder):
+    return builder.EndObject()
+
+def MotionPacketAddCameraTrack(builder, cameraTrack):
+    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(cameraTrack), 0)
+
+def AddCameraTrack(builder, cameraTrack):
+    MotionPacketAddCameraTrack(builder, cameraTrack)
 
 def MotionPacketEnd(builder):
     return builder.EndObject()

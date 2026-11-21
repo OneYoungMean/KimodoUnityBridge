@@ -14,7 +14,8 @@ MAX_KMB_BYTES = 256 * 1024**2
 WORKER_TIMEOUT_SECONDS = 1800
 
 
-def analyze_media(kind: str, media_path: str, person: str | None = None) -> tuple[dict[str, Any], bytes]:
+def analyze_media(kind: str, media_path: str, person: str | None = None,
+                  enable_camera: bool = False) -> tuple[dict[str, Any], bytes]:
     normalized_kind = str(kind or "").strip().lower()
     if normalized_kind not in {"video", "picture"}:
         raise ValueError("Analysis kind must be 'video' or 'picture'.")
@@ -59,8 +60,10 @@ def analyze_media(kind: str, media_path: str, person: str | None = None) -> tupl
                "--checkpoint", str(checkpoint), "--flowhmr-python", str(python),
                "--device", device, "--vggt-interval", str(memory_options.vggt_interval),
                "--sam-chunk-size", str(memory_options.sam_chunk_size)]
-    if memory_options.static_camera:
+    if memory_options.static_camera and not enable_camera:
         command.append("--static-camera")
+    if enable_camera:
+        command.append("--enable-camera")
     environment = dict(os.environ)
     try:
         completed = subprocess.run(command, cwd=str(runtime_root), env=environment, capture_output=True,
