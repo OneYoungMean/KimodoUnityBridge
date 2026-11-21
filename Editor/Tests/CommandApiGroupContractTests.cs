@@ -277,9 +277,13 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(document["tools"]?.Values<JObject>().Any(item => item.Value<string>("name") == "analysis.new"), Is.False);
             Assert.That(videoAnalysis["inputSchema"]?["properties"]?["video_path"], Is.Not.Null);
             Assert.That(pictureAnalysis["inputSchema"]?["properties"]?["image_path"], Is.Not.Null);
-            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["person"]?["enum"], Is.Not.Null);
+            AssertRequiredProperty(videoAnalysis, "character");
+            AssertRequiredProperty(pictureAnalysis, "character");
+            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["person"], Is.Null);
             Assert.That(videoAnalysis["outputSchema"]?["properties"]?["request_id"], Is.Not.Null);
-            Assert.That(get["outputSchema"]?["properties"]?["poses"]?["items"]?["properties"]?["body_pose_axis_angle"], Is.Not.Null);
+            Assert.That(get["outputSchema"]?["properties"]?["poses"], Is.Null);
+            Assert.That(get["outputSchema"]?["properties"]?["kmb_payload_base64"]?.Value<string>("type"), Is.EqualTo("string"));
+            Assert.That(get["outputSchema"]?["properties"]?["clip"]?.Value<string>("type"), Is.EqualTo("object"));
             Assert.That(get["outputSchema"]?["properties"]?["post_analysis"]?.Value<string>("type"), Is.EqualTo("object"));
             Assert.That(get["outputSchema"]?["properties"]?["analysis_schema_version"], Is.Null);
             Assert.That(get["outputSchema"]?["properties"]?["post_analysis"]?["properties"]?["analysis_path"]?.Value<string>("type"), Is.EqualTo("string"));

@@ -78,12 +78,12 @@ def _build_protocol_help(kimodo_root: str = "") -> dict[str, Any]:
             },
             {
                 "cmd": "pose.fromvideo",
-                "description": "Estimate SMPL-X pose arrays from a local video using the configured Mixamo LLM Mocap checkout.",
-                "fields": ["media_path", "person"],
+                "description": "Estimate FlowHMR SMPL-H motion from a local video and return a KMB1 attachment.",
+                "fields": ["media_path"],
             },
             {
                 "cmd": "pose.frompicture",
-                "description": "Estimate one SMPL-X pose from a local picture using the configured Mixamo LLM Mocap checkout.",
+                "description": "Estimate one FlowHMR SMPL-H pose from a local picture and return a KMB1 attachment.",
                 "fields": ["media_path"],
             },
             {
@@ -2234,12 +2234,12 @@ def _run_supervisor(args: argparse.Namespace, root_dir: str, logger: SetupLogger
                             return
                         elif cmd in ("pose.fromvideo", "pose.frompicture"):
                             kind = "video" if cmd == "pose.fromvideo" else "picture"
-                            result = mocap_analysis.analyze_media(
+                            result, binary_payload = mocap_analysis.analyze_media(
                                 kind,
                                 request.get("media_path"),
                                 request.get("person"),
                             )
-                            reply(result)
+                            reply(result, binary_payload)
                         elif cmd == "generate":
                             attachments = _read_kmb_attachments(file, request)
                             task_id = resolve_request_task_id(request)

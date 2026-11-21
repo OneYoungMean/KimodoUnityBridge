@@ -11,6 +11,7 @@ namespace KimodoBridge
         private static KimodoTrySyncRuntimeRoot trySyncRuntimeRoot;
         private static Func<bool> resolveStaticGraphEnabled;
         private static Func<string> resolveMocapRepositoryPath;
+        private static Func<string> resolveFlowHmrPythonPath;
         private static Func<bool> bootstrapRuntimeRoot;
 
         internal static void Register(
@@ -19,6 +20,7 @@ namespace KimodoBridge
             KimodoTrySyncRuntimeRoot runtimeRootSync,
             Func<bool> staticGraphResolver,
             Func<string> mocapRepositoryResolver,
+            Func<string> flowHmrPythonResolver,
             Func<bool> runtimeRootBootstrap)
         {
             resolveRuntimeRoot = runtimeRootResolver ?? throw new ArgumentNullException(nameof(runtimeRootResolver));
@@ -26,6 +28,7 @@ namespace KimodoBridge
             trySyncRuntimeRoot = runtimeRootSync ?? throw new ArgumentNullException(nameof(runtimeRootSync));
             resolveStaticGraphEnabled = staticGraphResolver ?? throw new ArgumentNullException(nameof(staticGraphResolver));
             resolveMocapRepositoryPath = mocapRepositoryResolver ?? throw new ArgumentNullException(nameof(mocapRepositoryResolver));
+            resolveFlowHmrPythonPath = flowHmrPythonResolver ?? throw new ArgumentNullException(nameof(flowHmrPythonResolver));
             bootstrapRuntimeRoot = runtimeRootBootstrap ?? throw new ArgumentNullException(nameof(runtimeRootBootstrap));
         }
 
@@ -50,6 +53,9 @@ namespace KimodoBridge
 
         internal static string ResolveMocapRepositoryPath() =>
             Require(resolveMocapRepositoryPath, "Mocap repository resolver")();
+
+        internal static string ResolveFlowHmrPythonPath() =>
+            Require(resolveFlowHmrPythonPath, "FlowHMR Python resolver")();
 
         internal static bool TryBootstrapRuntimeRoot() =>
             bootstrapRuntimeRoot?.Invoke() == true;

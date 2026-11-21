@@ -2136,26 +2136,24 @@
     },
     {
       "name": "pose.fromvideo",
-      "description": "Estimate an ordered SMPL-X pose sequence from a local video. Returns raw poses and matching FullBody constraints for downstream commands.",
+      "description": "Estimate FlowHMR SMPL-H motion from a local video and return a KMB1 binary attachment.",
       "documentation": {
-        "when_to_use": "Use when a video file should be converted into a time-ordered SMPL-X pose array for downstream retargeting or analysis.",
+        "when_to_use": "Use when a local video should be converted by FlowHMR into a SMPL-H KMB motion sequence.",
         "behavior": [
-          "Pass an absolute video_path readable by QuickServer. Supported formats are MP4, MOV, M4V, AVI, and MKV; maximum file size is 2 GiB.",
+          "Pass an absolute video_path readable by QuickServer and a Timeline character name or object_ref. Supported formats are MP4, MOV, M4V, AVI, MKV, and WEBM; maximum file size is 2 GiB.",
           "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
-          "For two people, set person to left or right to select the performer by screen position."
+          "FlowHMR selects the tracked performer automatically."
         ],
         "result_notes": [
-          "A completed request returns poses in source-video order plus one top-level constraints array, fps, frame_count, source_frame_count, joint_names, betas, and rest_joints_m.",
-          "Each pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The top-level constraints array uses the same merged raw FullBody constraint format accepted by animation generation.",
-          "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.",
-          "The result is pose data for downstream retargeting and constraint use."
+          "A completed request returns a KMB1 SMPL-H motion attachment with fps and frame_count metadata.",
+          "Unity validates the KMB, retargets it through the Timeline binding Animator Avatar, writes a Humanoid muscle clip, and appends it to the character track.",
+          "The KMB contains local WXYZ quaternions, root positions in meters, and optional foot contacts."
         ],
         "scene_effects": [
-          "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged."
+          "The completed motion is appended to the required Timeline character track as a generated muscle clip."
         ],
         "limits": [
-          "The top-level constraints array groups the sequence in the raw FullBody format for animation.generate.",
-          "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset."
+          "FlowHMR requires a compatible Python environment, its checkpoint, and locally provisioned gated assets."
         ],
         "shared_rule_refs": [
           "job_lifecycle",
@@ -2180,17 +2178,14 @@
             "default": 10.0,
             "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
           },
-          "person": {
+          "character": {
             "type": "string",
-            "enum": [
-              "left",
-              "right"
-            ],
-            "description": "Select one performer by screen side in a two-person video."
+            "description": "Timeline character name or object_ref whose bound Avatar receives the muscle clip."
           }
         },
         "required": [
-          "video_path"
+          "video_path",
+          "character"
         ],
         "additionalProperties": false
       },
@@ -2242,36 +2237,32 @@
       },
       "examples": [
         {
-          "description": "Estimate SMPL-X poses from a video, then poll for the pose array.",
+          "description": "Estimate FlowHMR SMPL-H motion from a video and poll for its KMB attachment.",
           "arguments": {
             "video_path": "C:/data/mocap.mp4",
-            "person": "left"
+            "character": "<character>"
           }
         }
       ]
     },
     {
       "name": "pose.frompicture",
-      "description": "Estimate one SMPL-X pose from a local still image. Returns raw pose data and a matching FullBody constraint for downstream commands.",
+      "description": "Estimate one FlowHMR SMPL-H pose from a local still image and return one KMB1 frame.",
       "documentation": {
-        "when_to_use": "Use when a still image should be converted into a single SMPL-X pose sample for downstream retargeting or analysis.",
+        "when_to_use": "Use when a still image should be converted by FlowHMR into a one-frame SMPL-H KMB motion.",
         "behavior": [
-          "Pass an absolute image_path for a PNG, JPG, or JPEG file readable by QuickServer; maximum file size is 2 GiB.",
+          "Pass an absolute image_path readable by QuickServer and a Timeline character name or object_ref. Supported formats are PNG, JPG, and JPEG; maximum file size is 2 GiB.",
           "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
           "The estimator treats the still image as a one-second clip and returns one pose sample."
         ],
         "result_notes": [
-          "A completed request returns one raw SMPL-X pose plus a top-level constraints array containing the matching raw FullBody constraint, along with joint_names, betas, and rest_joints_m.",
-          "The pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The constraints array uses the same format accepted by animation generation.",
-          "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.",
-          "The result is pose data for downstream retargeting and constraint use."
+          "A completed request returns a one-frame KMB1 SMPL-H motion attachment and frame metadata, then appends the retargeted Humanoid muscle clip to the required Timeline character."
         ],
         "scene_effects": [
-          "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged."
+          "The completed pose is appended to the required Timeline character track as a generated muscle clip."
         ],
         "limits": [
-          "The constraints array contains one raw FullBody frame for animation.generate.",
-          "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset."
+          "FlowHMR requires a compatible Python environment, its checkpoint, and locally provisioned gated assets."
         ],
         "shared_rule_refs": [
           "job_lifecycle",
@@ -2295,10 +2286,15 @@
             "minimum": 0,
             "default": 10.0,
             "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
+          },
+          "character": {
+            "type": "string",
+            "description": "Timeline character name or object_ref whose bound Avatar receives the muscle clip."
           }
         },
         "required": [
-          "image_path"
+          "image_path",
+          "character"
         ],
         "additionalProperties": false
       },
@@ -2350,9 +2346,10 @@
       },
       "examples": [
         {
-          "description": "Estimate one SMPL-X pose from a still image, then poll for the pose array.",
+          "description": "Estimate one SMPL-H pose from a still image, then poll for the pose array.",
           "arguments": {
-            "image_path": "C:/data/pose.jpg"
+            "image_path": "C:/data/pose.jpg",
+            "character": "<character>"
           }
         }
       ]

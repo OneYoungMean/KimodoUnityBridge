@@ -15,6 +15,7 @@ namespace KimodoBridge.Editor
                 TrySyncRuntimeRootIfNeeded,
                 ResolveKimodoStaticGraphEnabled,
                 ResolveMocapRepositoryPath,
+                ResolveFlowHmrPythonPath,
                 BootstrapRuntimeRootIfMissing);
         }
 
@@ -33,6 +34,11 @@ namespace KimodoBridge.Editor
         internal static string ResolveMocapRepositoryPath()
         {
             return KimodoPlayableClipGenerationSettings.instance.MocapRepositoryPath;
+        }
+
+        internal static string ResolveFlowHmrPythonPath()
+        {
+            return KimodoPlayableClipGenerationSettings.instance.FlowHmrPythonPath;
         }
 
         internal static bool BootstrapRuntimeRootIfMissing()

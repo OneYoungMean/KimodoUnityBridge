@@ -198,20 +198,16 @@ namespace KimodoUnityBridge.Command
                             }, false),
                             new PropertyDefinition("camera", SceneCameraSchema(), false))),
                     CommandDefinition(PoseFromVideoCommand,
-                        "Estimate an ordered SMPL-X pose sequence from a local video. Returns raw poses and matching FullBody constraints for downstream commands.",
+                        "Estimate a video motion with FlowHMR and return it as an SMPL-H KMB1 attachment.",
                         Properties(
                             Required("video_path", "string", "Absolute path to a local video readable by QuickServer."),
-                            WaitSecondsProperty(10.0, allowAboveLimit: true),
-                            new PropertyDefinition("person", new JObject
-                            {
-                                ["type"] = "string",
-                                ["enum"] = new JArray("left", "right"),
-                                ["description"] = "Select one performer by screen side in a two-person video."
-                            }, false))),
+                            Required("character", "string", "Timeline character name or object_ref whose bound Avatar receives the muscle clip."),
+                            WaitSecondsProperty(10.0, allowAboveLimit: true))),
                     CommandDefinition(PoseFromPictureCommand,
-                        "Estimate one SMPL-X pose from a local still image. Returns raw pose data and a matching FullBody constraint for downstream commands.",
+                        "Estimate a still-image pose with FlowHMR and return one SMPL-H KMB1 frame.",
                         Properties(
                             Required("image_path", "string", "Absolute path to a local PNG or JPEG readable by QuickServer."),
+                            Required("character", "string", "Timeline character name or object_ref whose bound Avatar receives the muscle clip."),
                             WaitSecondsProperty(10.0, allowAboveLimit: true))),
                     CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current scene context character and append the result.",
@@ -552,8 +548,8 @@ namespace KimodoUnityBridge.Command
                         Route("read active scene context", SessionContextCommand),
                         Route("reinstall the local server", InstallServerCommand, "then " + GetGenerationCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
-                        Route("analyze a video for SMPL-X poses", PoseFromVideoCommand, "then " + GetGenerationCommand),
-                        Route("analyze a picture for one SMPL-X pose", PoseFromPictureCommand, "then " + GetGenerationCommand),
+                        Route("convert a video to FlowHMR SMPL-H motion", PoseFromVideoCommand, "then " + GetGenerationCommand),
+                        Route("convert a picture to one FlowHMR SMPL-H pose", PoseFromPictureCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalysisCommand, "returns one composite picture and self-describing tiles"),
                         Route("capture and measure a sampled Humanoid pose", PoseAnalysisCommand, "returns a SceneView image and world-space joint measurements"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose.set"),

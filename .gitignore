@@ -7,4 +7,14 @@
 /NvlabKimodoQuickServer~/tools/flatc.exe
 /Runtime/Archive~
 
+# FlowHMR local weights and generated inference outputs are provisioned outside Git.
+/NvlabKimodoQuickServer~/vendor/FlowHMR/output/
+/NvlabKimodoQuickServer~/vendor/FlowHMR/ckpts/**/*.pt
+/NvlabKimodoQuickServer~/vendor/FlowHMR/ckpts/**/*.pth
+/NvlabKimodoQuickServer~/vendor/FlowHMR/ckpts/**/*.ckpt
+/NvlabKimodoQuickServer~/vendor/FlowHMR/checkpoints/**/*.pt
+/NvlabKimodoQuickServer~/vendor/FlowHMR/checkpoints/**/*.pth
+/NvlabKimodoQuickServer~/vendor/FlowHMR/checkpoints/**/*.ckpt
+/NvlabKimodoQuickServer~/vendor/FlowHMR/assets/body_models/**/*.npz
+
 /archive/*

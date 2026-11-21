@@ -41,6 +41,7 @@ namespace KimodoBridge
             public string LauncherPath = string.Empty;
             public bool? EnableKimodoStaticGraph;
             public string MocapRepositoryPath = string.Empty;
+            public string FlowHmrPythonPath = string.Empty;
         }
 
         private enum ExistingServerProbeResult
@@ -181,7 +182,19 @@ namespace KimodoBridge
             await EnsureConnectedAsync(null, token).ConfigureAwait(false);
             BridgeProtocolResponse response = await protocolClient.AnalyzeMocapAsync(
                 currentHost, currentPort, kind, mediaPath, person, token).ConfigureAwait(false);
-            return RequireDoneResponse(response, "QuickServer returned no Mocap analysis.", "Mocap analysis failed.");
+            JObject header = RequireDoneResponse(response, "QuickServer returned no Mocap analysis.", "Mocap analysis failed.");
+            if (string.Equals(header.Value<string>("output_format"), "kmb_attachments_v1", StringComparison.OrdinalIgnoreCase))
+            {
+                IReadOnlyList<KimodoBridgeKmbAttachment> attachments = ParseKmbAttachments(
+                    header, response?.BinaryPayload ?? Array.Empty<byte>());
+                KimodoBridgeKmbAttachment motion = attachments.FirstOrDefault(item =>
+                    string.Equals(item.Purpose, "flowhmr_motion", StringComparison.OrdinalIgnoreCase)) ?? attachments.FirstOrDefault();
+                if (motion == null)
+                    throw new InvalidOperationException("FlowHMR response contains no motion attachment.");
+                header["kmb_payload_base64"] = Convert.ToBase64String(motion.MotionBytes);
+                header["kmb_frame_count"] = motion.MotionData.FrameCount;
+            }
+            return header;
         }
 
         public async Task<JObject> GetStatusAsync(string taskId, CancellationToken token = default)
@@ -545,7 +558,8 @@ namespace KimodoBridge
                             context.LauncherPath,
                             ownerProcessId: Process.GetCurrentProcess().Id,
                             enableKimodoStaticGraph: context.EnableKimodoStaticGraph,
-                            mocapRepositoryPath: context.MocapRepositoryPath);
+                            mocapRepositoryPath: context.MocapRepositoryPath,
+                            flowHmrPythonPath: context.FlowHmrPythonPath);
                         ReportProgress(progress, "Bridge process launched.");
                     }
                     else
@@ -1142,10 +1156,12 @@ namespace KimodoBridge
             string runtimeRoot;
             bool? enableKimodoStaticGraph = null;
             string mocapRepositoryPath = string.Empty;
+            string flowHmrPythonPath = string.Empty;
 #if UNITY_EDITOR
             runtimeRoot = ResolveEditorRuntimeRootOrThrow();
             enableKimodoStaticGraph = ResolveEditorKimodoStaticGraphEnabled();
             mocapRepositoryPath = KimodoEditorRuntimeHooks.ResolveMocapRepositoryPath();
+            flowHmrPythonPath = KimodoEditorRuntimeHooks.ResolveFlowHmrPythonPath();
 #else
             runtimeRoot = KimodoRuntimeBootstrapUtility.EnsureRuntimeRootForCurrentMode(
                 Path.GetFullPath(Path.Combine(Application.streamingAssetsPath, "NvlabKimodoQuickServer~")));
@@ -1167,7 +1183,8 @@ namespace KimodoBridge
                 RuntimeRoot = Path.GetFullPath(runtimeRoot),
                 LauncherPath = Path.GetFullPath(launcherPath),
                 EnableKimodoStaticGraph = enableKimodoStaticGraph,
-                MocapRepositoryPath = mocapRepositoryPath
+                MocapRepositoryPath = mocapRepositoryPath,
+                FlowHmrPythonPath = flowHmrPythonPath
             };
         }
 

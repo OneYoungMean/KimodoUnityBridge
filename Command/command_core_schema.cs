@@ -187,18 +187,18 @@ namespace KimodoUnityBridge.Command
                     new[] { "Recent task records are retained up to the configured job limit." },
                     InstallServerCommand, GenerateAnimationCommand, CancelGenerationCommand),
                 PoseFromVideoCommand => CommandDocumentation(
-                    "Use when a video file should be converted into a time-ordered SMPL-X pose array for downstream retargeting or analysis.",
-                    new[] { "Pass an absolute video_path readable by QuickServer. Supported formats are MP4, MOV, M4V, AVI, and MKV; maximum file size is 2 GiB.", "The command returns status=accepted and a request_id for continued progress tracking through generation.get.", "For two people, set person to left or right to select the performer by screen position." },
-                    new[] { "A completed request returns poses in source-video order plus one top-level constraints array, fps, frame_count, source_frame_count, joint_names, betas, and rest_joints_m.", "Each pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The top-level constraints array uses the same merged raw FullBody constraint format accepted by animation generation.", "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.", "The result is pose data for downstream retargeting and constraint use." },
-                    new[] { "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged." },
-                    new[] { "The top-level constraints array groups the sequence in the raw FullBody format for animation.generate.", "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset." },
+                    "Use when a local video should be converted by FlowHMR into a SMPL-H KMB motion sequence.",
+                    new[] { "Pass an absolute video_path readable by QuickServer and a Timeline character name or object_ref. Supported formats are MP4, MOV, M4V, AVI, MKV, and WEBM; maximum file size is 2 GiB.", "The command returns status=accepted and a request_id for continued progress tracking through generation.get.", "FlowHMR automatically selects the tracked performer." },
+                    new[] { "A completed request returns a KMB1 SMPL-H motion attachment, frame rate, and frame count. The KMB bytes are exposed as kmb_payload_base64 in the completed task result.", "Unity validates the KMB, retargets it through the required Timeline binding Avatar, writes a Humanoid muscle clip, and appends that clip to the character track.", "The KMB contains local WXYZ joint quaternions, root positions in meters, and optional foot contacts." },
+                    new[] { "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal." },
+                    new[] { "The generated muscle clip is appended to the required Timeline character track. The configured FlowHMR checkout needs a separate compatible Python environment. Gated VGGT-Omega, SAM 3D Body, and SMPL-H assets must be provisioned locally." },
                     PoseFromPictureCommand, GetGenerationCommand, RetargetAnimationCommand),
                 PoseFromPictureCommand => CommandDocumentation(
-                    "Use when a still image should be converted into a single SMPL-X pose sample for downstream retargeting or analysis.",
-                    new[] { "Pass an absolute image_path for a PNG, JPG, or JPEG file readable by QuickServer; maximum file size is 2 GiB.", "The command returns status=accepted and a request_id for continued progress tracking through generation.get.", "The estimator treats the still image as a one-second clip and returns one pose sample." },
-                    new[] { "A completed request returns one raw SMPL-X pose plus a top-level constraints array containing the matching raw FullBody constraint, along with joint_names, betas, and rest_joints_m.", "The pose contains raw global_orient_axis_angle, body_pose_axis_angle, and translation_m values. The constraints array uses the same format accepted by animation generation.", "Rotations are axis-angle radians; translation and rest joints are in meters. The global coordinate space is gravity-aligned Y-up. Optional incam_* fields use OpenCV camera coordinates: X-right, Y-down, Z-forward.", "The result is pose data for downstream retargeting and constraint use." },
-                    new[] { "The result is data for downstream commands and leaves Unity scene objects and animation assets unchanged." },
-                    new[] { "The constraints array contains one raw FullBody frame for animation.generate.", "The request requires QuickServer's GVHMR runtime, checkpoints, and SMPL-X Avatar asset." },
+                    "Use when a local still image should be converted by FlowHMR into a one-frame SMPL-H KMB motion.",
+                    new[] { "Pass an absolute image_path for a PNG, JPG, or JPEG file readable by QuickServer and a Timeline character name or object_ref; maximum file size is 2 GiB.", "The command returns status=accepted and a request_id for continued progress tracking through generation.get.", "The estimator treats the still image as a one-second clip and returns one pose sample." },
+                    new[] { "A completed request returns a one-frame KMB1 SMPL-H motion attachment and its frame metadata; the binary motion is exposed as kmb_payload_base64 in the completed task result, and the frame is appended as a muscle clip on the required Timeline character." },
+                    new[] { "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal." },
+                    new[] { "The generated muscle clip is appended to the required Timeline character track. FlowHMR requires a separate compatible Python environment plus its checkpoint and locally provisioned gated assets." },
                     PoseFromVideoCommand, GetGenerationCommand, RetargetAnimationCommand),
                 CancelGenerationCommand => CommandDocumentation(
                     "Request cancellation of an active animation generation.",
@@ -305,7 +305,7 @@ namespace KimodoUnityBridge.Command
                 GenerateAnimationCommand => new[] { "request_id", "status", "check", "warnings", "wait_seconds" },
                 PoseGetCommand => new[] { "pose", "source", "character_root", "data" },
                 PoseSetCommand => new[] { "pose", "data" },
-                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "waited_seconds", "poll_after_seconds", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "clip_settings", "animation_id", "seed", "analysis", "post_analysis", "source_type", "skeleton", "person", "fps", "source_frame_count", "frame_count", "joint_names", "pose_parameterization", "coordinate_spaces", "betas", "rest_joints_m", "poses", "constraints", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
+                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "waited_seconds", "poll_after_seconds", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "clip_settings", "animation_id", "seed", "analysis", "post_analysis", "source_type", "skeleton", "fps", "source_frame_count", "frame_count", "output_format", "kmb", "kmb_attachments", "kmb_payload_base64", "kmb_frame_count", "byte_length", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
                 CancelGenerationCommand => new[] { "request_id", "status", "stage", "message", "canceled", "clip" },
                 SessionClearCommand => new[] { "cleared", "name", "destroyed_context_count", "recreated_on_next_command" },
                 _ => Array.Empty<string>()
@@ -343,11 +343,11 @@ namespace KimodoUnityBridge.Command
                 case "runtime_version": case "install_mode": case "image_path": case "source_character": case "character":
                 case "name": case "asset_path": case "stage": case "started_at_utc": case "estimated_completion_utc":
                 case "backend_progress": case "analysis_schema_version":
-                case "source_type": case "skeleton": case "person": case "path": case "rig_type":
+                case "source_type": case "skeleton": case "person": case "path": case "rig_type": case "output_format": case "kmb_payload_base64":
                     return new JObject { ["type"] = "string" };
                 case "width": case "height": case "tile_count": case "completed_tiles": case "duration_frames_60": case "current_frame_60":
                 case "destroyed_context_count": case "duration_frames": case "progress_current": case "progress_total": case "count": case "seed":
-                case "source_frame_count": case "frame_count": case "source_frame":
+                case "source_frame_count": case "frame_count": case "source_frame": case "kmb_frame_count": case "byte_length":
                     return new JObject { ["type"] = "integer" };
                 case "frame_rate": case "fps":
                     return new JObject { ["type"] = "number" };
@@ -359,6 +359,10 @@ namespace KimodoUnityBridge.Command
                     return NullableSchema(new JObject { ["type"] = "number" });
                 case "wait_seconds":
                     return new JObject { ["type"] = "number" };
+                case "kmb":
+                    return new JObject { ["type"] = "object" };
+                case "kmb_attachments":
+                    return ArraySchema("object");
                 case "ok": case "retargeted": case "cleared": case "server_connected": case "canceled": case "target_alive":
                 case "recreated_on_next_command": case "scene_lighting": case "show_skybox": case "show_gizmos":
                     return new JObject { ["type"] = "boolean" };

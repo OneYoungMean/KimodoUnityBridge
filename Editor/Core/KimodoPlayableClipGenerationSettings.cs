@@ -29,6 +29,7 @@ namespace KimodoBridge.Editor
         [SerializeField] private bool setupWizardCompleted;
         [SerializeField] private string quickServerPath = string.Empty;
         [SerializeField] private string mocapRepositoryPath = string.Empty;
+        [SerializeField] private string flowHmrPythonPath = string.Empty;
         [SerializeField] private bool autoSyncQuickServer = true;
         [SerializeField, HideInInspector] private bool advancedCurveFilterFoldout = true;
 
@@ -163,6 +164,12 @@ namespace KimodoBridge.Editor
             set => mocapRepositoryPath = value?.Trim() ?? string.Empty;
         }
 
+        internal string FlowHmrPythonPath
+        {
+            get => flowHmrPythonPath?.Trim() ?? string.Empty;
+            set => flowHmrPythonPath = value?.Trim() ?? string.Empty;
+        }
+
         internal void SaveSettings()
         {
             bool effectiveKeepCpuForce = KeepCpuForceExperimental;
@@ -177,6 +184,7 @@ namespace KimodoBridge.Editor
             keepCpuForceExperimental = effectiveKeepCpuForce;
             quickServerPath = quickServerPath?.Trim() ?? string.Empty;
             mocapRepositoryPath = mocapRepositoryPath?.Trim() ?? string.Empty;
+            flowHmrPythonPath = flowHmrPythonPath?.Trim() ?? string.Empty;
             EditorPrefs.SetBool(KeepCpuForceEditorPrefsKey, effectiveKeepCpuForce);
             Save(true);
         }

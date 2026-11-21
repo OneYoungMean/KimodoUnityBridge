@@ -14,7 +14,6 @@ import urllib.request
 
 DEFAULT_SETUP_LOG_NAME = "setup.log"
 BITSANDBYTES_REQUIRED = "0.49.2"
-PYTORCH3D_WHEEL_INDEX = "https://ImageMindAnalytics.github.io/pytorch3d-wheels/simple/"
 
 
 @dataclass
@@ -43,6 +42,17 @@ class ProjectPaths:
         if os.name == "nt":
             return self.venv_dir / "Scripts" / "python.exe"
         return self.venv_dir / "bin" / "python"
+
+    @property
+    def flowhmr_venv_dir(self) -> Path:
+        override = os.environ.get("KIMODO_FLOWHMR_VENV", "").strip()
+        return Path(override).expanduser().resolve() if override else self.root_dir / ".flowhmr-venv"
+
+    @property
+    def flowhmr_python(self) -> Path:
+        if os.name == "nt":
+            return self.flowhmr_venv_dir / "Scripts" / "python.exe"
+        return self.flowhmr_venv_dir / "bin" / "python"
 
 
 @dataclass
@@ -218,6 +228,7 @@ def _write_sentinel(paths: ProjectPaths, setup_mode: str, torch_runtime: str) ->
             f'root_dir="{paths.root_dir}"',
             f'source_root="{paths.source_root}"',
             f'venv_python="{paths.venv_python}"',
+            f'flowhmr_python="{paths.flowhmr_python}"',
             "",
         ]
     )
@@ -347,45 +358,6 @@ def _run_capture(command: list[str], cwd: Path | None = None, env: dict[str, str
         check=False,
     )
     return completed.returncode, completed.stdout or ""
-
-
-def _ensure_pytorch3d(paths: ProjectPaths, uv_bin: str, logger: SetupLogger, default_index: str) -> None:
-    if sys.platform != "win32":
-        return
-    import_check = "from pytorch3d.transforms import axis_angle_to_matrix"
-    rc, _ = _run_capture([str(paths.venv_python), "-c", import_check])
-    if rc == 0:
-        return
-
-    version_script = (
-        "import torch; print(''.join(torch.__version__.split('+')[0].split('.'))); "
-        "print('cpu' if torch.version.cuda is None else 'cu' + torch.version.cuda.replace('.', ''))"
-    )
-    rc, output = _run_capture([str(paths.venv_python), "-c", version_script])
-    values = output.splitlines()
-    if rc != 0 or len(values) < 2:
-        raise SetupError("Could not determine the installed Torch/CUDA version for the PyTorch3D wheel.")
-
-    requirement = f"pytorch3d==0.7.9+pt{values[0].strip()}{values[1].strip()}"
-    logger.log(f"[STEP] Installing GVHMR PyTorch3D wheel {requirement}...")
-    _run_logged(
-        [
-            uv_bin,
-            "pip",
-            "install",
-            "--python",
-            str(paths.venv_python),
-            "--default-index",
-            default_index,
-            "--extra-index-url",
-            PYTORCH3D_WHEEL_INDEX,
-            requirement,
-        ],
-        logger,
-    )
-    rc, _ = _run_capture([str(paths.venv_python), "-c", import_check])
-    if rc != 0:
-        raise SetupError("PyTorch3D installed but its transforms module could not be imported.")
 
 
 def _mirror_is_fast(findlinks_url: str, threshold_ms: int) -> bool:
@@ -623,6 +595,49 @@ def _runtime_import_check(paths: ProjectPaths) -> None:
         raise SetupError(f"Runtime import check failed.\n{output}")
 
 
+def _setup_flowhmr_env(paths: ProjectPaths, logger: SetupLogger) -> None:
+    """Install FlowHMR into an isolated Python 3.10 environment, never QuickServer's venv."""
+    configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
+    if configured_python:
+        configured_path = Path(configured_python).expanduser().resolve()
+        if not configured_path.is_file():
+            raise SetupError(f"KIMODO_FLOWHMR_PYTHON does not exist: {configured_path}")
+        logger.log(f"[INFO] Using externally managed FlowHMR Python: {configured_path}")
+        return
+    source = paths.root_dir / "vendor" / "FlowHMR"
+    main_script = source / "run_v2m_demo_generation.py"
+    requirements = source / "requirements.txt"
+    web_requirements = source / "tools" / "web" / "requirements.txt"
+    yolox_setup = source / "third_party" / "YOLOX" / "setup.py"
+    missing = [str(path) for path in (main_script, requirements, web_requirements, yolox_setup) if not path.is_file()]
+    if missing:
+        raise SetupError("Bundled FlowHMR source is incomplete: " + ", ".join(missing))
+    if paths.flowhmr_python.exists() and not os.environ.get("KIMODO_SETUP_FLOWHMR_FORCE"):
+        rc, _ = _run_capture([str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr; print(torch.__version__)"])
+        if rc == 0:
+            logger.log(f"[INFO] FlowHMR environment already ready: {paths.flowhmr_python}")
+            return
+
+    uv_bin = _find_uv_bin(paths, logger)
+    logger.log("[STEP] Creating isolated FlowHMR Python 3.10 environment (QuickServer .venv is untouched)...")
+    _run_logged([uv_bin, "python", "install", "3.10"], logger)
+    paths.flowhmr_venv_dir.parent.mkdir(parents=True, exist_ok=True)
+    _run_logged([uv_bin, "venv", str(paths.flowhmr_venv_dir), "--python", "3.10", "--allow-existing"], logger)
+    if not paths.flowhmr_python.is_file():
+        raise SetupError(f"Missing FlowHMR environment Python: {paths.flowhmr_python}")
+
+    default_index = _select_uv_default_index()
+    _run_logged([uv_bin, "pip", "install", "--python", str(paths.flowhmr_python),
+                 "--default-index", default_index, "-r", str(requirements), "-r", str(web_requirements)], logger)
+    _run_logged([uv_bin, "pip", "install", "--python", str(paths.flowhmr_python),
+                 "--default-index", default_index, "--no-build-isolation", "--no-deps",
+                 "--editable", str(yolox_setup.parent)], logger)
+    rc, output = _run_capture([str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr, yolox; print('torch='+torch.__version__)"])
+    if rc != 0:
+        raise SetupError(f"FlowHMR environment validation failed.\n{output}")
+    logger.log(f"[OK] FlowHMR environment ready: {paths.flowhmr_python}")
+
+
 def _setup_buildenv(paths: ProjectPaths, setup_mode: str, logger: SetupLogger) -> None:
     uv_bin = _find_uv_bin(paths, logger)
     default_index = _select_uv_default_index()
@@ -784,28 +799,19 @@ def _setup_buildenv(paths: ProjectPaths, setup_mode: str, logger: SetupLogger) -
             _install_torch_via_torchruntime(paths, uv_bin, default_index, logger)
             logger.log("[INFO] torchruntime fallback active; continuing without bitsandbytes.")
 
-    mocap_requirements = paths.root_dir / "core" / "requirements_mocap.txt"
-    if mocap_requirements.is_file():
-        logger.log("[STEP] Installing GVHMR dependencies while preserving QuickServer Torch/NumPy...")
-        _run_logged(
-            [
-                uv_bin,
-                "pip",
-                "install",
-                "--python",
-                str(paths.venv_python),
-                "--default-index",
-                default_index,
-                "-r",
-                str(mocap_requirements),
-            ],
-            logger,
-        )
-        _ensure_pytorch3d(paths, uv_bin, logger, default_index)
-
     _ensure_motion_correction(paths, uv_bin, logger, default_index)
     paths.models_dir.mkdir(parents=True, exist_ok=True)
     _runtime_import_check(paths)
+    flowhmr_policy = os.environ.get("KIMODO_SETUP_FLOWHMR", "auto").strip().lower()
+    if flowhmr_policy not in {"0", "false", "no", "off", "skip"}:
+        try:
+            _setup_flowhmr_env(paths, logger)
+        except SetupError as exc:
+            if flowhmr_policy in {"1", "true", "yes", "on", "required"}:
+                raise
+            logger.log(f"[WARN] FlowHMR setup skipped: {exc}")
+    else:
+        logger.log("[INFO] FlowHMR environment setup disabled by KIMODO_SETUP_FLOWHMR.")
     paths.run_marker.mkdir(parents=True, exist_ok=True)
     logger.log("[OK] Build environment staged.")
 
@@ -836,7 +842,13 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
         archive_path(paths.setup_sentinel, paths.recycle_dir)
 
     sentinel = _read_sentinel(paths.setup_sentinel)
-    if sentinel.get("setup_mode", "").lower() == requested_mode and paths.venv_python.exists():
+    flowhmr_policy = os.environ.get("KIMODO_SETUP_FLOWHMR", "auto").strip().lower()
+    flowhmr_ready = (
+        flowhmr_policy in {"0", "false", "no", "off", "skip"}
+        or bool(os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip())
+        or paths.flowhmr_python.exists()
+    )
+    if sentinel.get("setup_mode", "").lower() == requested_mode and paths.venv_python.exists() and flowhmr_ready:
         log_path = Path(options.log_path).resolve() if options.log_path else paths.default_setup_log_path
         with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
             logger.log(f"[PHASE] setup skipped reason=existing_marker mode={requested_mode}")

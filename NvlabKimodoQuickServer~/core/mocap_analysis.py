@@ -7,23 +7,21 @@ import subprocess
 import sys
 from typing import Any
 
-from .mocap_assets import ensure_gvhmr_assets
-
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 PICTURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 MAX_MEDIA_BYTES = 2 * 1024**3
+MAX_KMB_BYTES = 256 * 1024**2
 WORKER_TIMEOUT_SECONDS = 1800
 
 
-def analyze_media(kind: str, media_path: str, person: str | None = None) -> dict[str, Any]:
+def analyze_media(kind: str, media_path: str, person: str | None = None) -> tuple[dict[str, Any], bytes]:
     normalized_kind = str(kind or "").strip().lower()
     if normalized_kind not in {"video", "picture"}:
         raise ValueError("Analysis kind must be 'video' or 'picture'.")
     if person not in (None, "left", "right"):
         raise ValueError("person must be 'left' or 'right'.")
-    if normalized_kind == "picture" and person is not None:
-        raise ValueError("person is supported only for video analysis.")
-
+    if person is not None:
+        raise ValueError("FlowHMR currently selects a person automatically; manual left/right selection is not supported.")
     media = Path(str(media_path or "")).expanduser().resolve(strict=True)
     if not media.is_file():
         raise ValueError("media_path must point to a file.")
@@ -33,72 +31,61 @@ def analyze_media(kind: str, media_path: str, person: str | None = None) -> dict
     if media.stat().st_size > MAX_MEDIA_BYTES:
         raise ValueError(f"Media file exceeds the {MAX_MEDIA_BYTES}-byte limit.")
 
-    bundled_mocap_root = Path(__file__).resolve().parents[1] / "vendor" / "mixamo-llm-mocap"
-    mocap_root_text = os.environ.get("KIMODO_MOCAP_ROOT", "").strip()
-    if not mocap_root_text and bundled_mocap_root.is_dir():
-        mocap_root_text = str(bundled_mocap_root)
-    if not mocap_root_text:
-        raise RuntimeError(
-            "Mixamo LLM Mocap source was not found. Set KIMODO_MOCAP_ROOT or reinstall QuickServer."
-        )
-    try:
-        mocap_root = Path(mocap_root_text).expanduser().resolve(strict=True)
-    except FileNotFoundError as exc:
-        raise RuntimeError("KIMODO_MOCAP_ROOT directory was not found.") from exc
-    estimator = mocap_root / "pipeline" / "estimate_pose_gvhmr.py"
-    if not estimator.is_file():
-        raise RuntimeError(f"GVHMR estimator was not found: {estimator}")
-
-    configured_python = os.environ.get("KIMODO_MOCAP_PYTHON", "").strip()
-    python = Path(configured_python).expanduser().resolve(strict=True) if configured_python else Path(sys.executable)
+    runtime_root = Path(__file__).resolve().parents[1]
+    flowhmr_root = Path(os.environ.get("KIMODO_FLOWHMR_ROOT") or runtime_root / "vendor" / "FlowHMR").expanduser().resolve()
+    from .flowhmr_assets import ensure_flowhmr_assets
+    from .flowhmr_memory import device_for_free_vram_gb, options_for_free_vram_gb
+    from .kimodo_runtime import _detect_free_vram_gb
+    checkpoint = ensure_flowhmr_assets(flowhmr_root)
+    configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
+    if configured_python:
+        python = Path(configured_python).expanduser().resolve(strict=True)
+    else:
+        default_flowhmr_python = runtime_root / ".flowhmr-venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+        if not default_flowhmr_python.is_file():
+            raise RuntimeError(
+                f"FlowHMR Python was not found at {default_flowhmr_python}. Run QuickServer setup or set KIMODO_FLOWHMR_PYTHON."
+            )
+        python = default_flowhmr_python
     if not python.is_file():
-        raise RuntimeError(
-            "GVHMR Python was not found. Set KIMODO_MOCAP_PYTHON or install GVHMR dependencies "
-            "in the QuickServer environment."
-        )
+        raise RuntimeError("FlowHMR Python was not found. Set KIMODO_FLOWHMR_PYTHON to its environment Python executable.")
 
     worker = Path(__file__).with_name("mocap_worker.py")
-    command = [
-        str(python), str(worker), "--kind", normalized_kind,
-        "--media", str(media), "--mocap-root", str(mocap_root),
-    ]
-    if person is not None:
-        command.extend(("--person", person))
+    free_vram_gb = _detect_free_vram_gb("cuda")
+    memory_options = options_for_free_vram_gb(free_vram_gb)
+    device = os.environ.get("KIMODO_FLOWHMR_DEVICE", "").strip() or device_for_free_vram_gb(free_vram_gb)
+    command = [sys.executable, str(worker), "--kind", normalized_kind,
+               "--media", str(media), "--flowhmr-root", str(flowhmr_root),
+               "--checkpoint", str(checkpoint), "--flowhmr-python", str(python),
+               "--device", device, "--vggt-interval", str(memory_options.vggt_interval),
+               "--sam-chunk-size", str(memory_options.sam_chunk_size)]
+    if memory_options.static_camera:
+        command.append("--static-camera")
     environment = dict(os.environ)
-    # shortcut: trust only checkpoints provisioned by ensure_gvhmr_assets; required for Torch 2.6+ YOLO pickles.
-    environment["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
-    runtime_root = Path(__file__).resolve().parents[1]
-    gvhmmr_root = Path(environment.get("GVHMR_ROOT") or runtime_root / "vendor" / "GVHMR").resolve()
-    environment["GVHMR_ROOT"] = str(gvhmmr_root)
-    ensure_gvhmr_assets(gvhmmr_root)
-
     try:
-        completed = subprocess.run(
-            command,
-            cwd=str(mocap_root),
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=WORKER_TIMEOUT_SECONDS,
-            check=False,
-        )
+        completed = subprocess.run(command, cwd=str(runtime_root), env=environment, capture_output=True,
+                                   text=True, timeout=WORKER_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"Mocap analysis exceeded {WORKER_TIMEOUT_SECONDS} seconds.") from exc
+        raise RuntimeError(f"FlowHMR analysis exceeded {WORKER_TIMEOUT_SECONDS} seconds.") from exc
     if completed.returncode != 0:
         diagnostic = (completed.stderr or completed.stdout or "worker exited without diagnostics").strip()
-        raise RuntimeError(f"Mocap analysis failed: {diagnostic[-4000:]}")
+        raise RuntimeError(f"FlowHMR analysis failed: {diagnostic[-4000:]}")
     try:
         result = json.loads(completed.stdout)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Mocap worker returned invalid JSON.") from exc
-    if not isinstance(result, dict) or result.get("status") != "done" or not isinstance(result.get("poses"), list):
-        raise RuntimeError("Mocap worker returned an incomplete pose result.")
-    return result
+        payload = bytes.fromhex(result.pop("_binary_payload"))
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise RuntimeError("FlowHMR worker returned an invalid KMB response.") from exc
+    if (not isinstance(result, dict) or result.get("status") != "done" or
+            result.get("output_format") != "kmb_attachments_v1" or not payload or len(payload) > MAX_KMB_BYTES):
+        raise RuntimeError("FlowHMR worker returned an incomplete or oversized KMB motion.")
+    if int(result.get("byte_length", -1)) != len(payload):
+        raise RuntimeError("FlowHMR worker KMB byte length does not match its manifest.")
+    return result, payload
 
 
 def error_code_for_exception(exc: Exception) -> str:
     message = str(exc).lower()
-    if "kimodo_mocap_root" in message or "gvhmr python" in message or "estimator was not found" in message:
+    if "flowhmr python" in message or "flowhmr source" in message or "checkpoint is missing" in message:
         return "mocap_not_configured"
     if isinstance(exc, FileNotFoundError):
         return "media_not_found"

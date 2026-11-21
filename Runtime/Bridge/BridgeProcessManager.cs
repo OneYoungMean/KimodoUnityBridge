@@ -50,7 +50,8 @@ namespace KimodoBridge
             string launcherPath,
             int ownerProcessId,
             bool? enableKimodoStaticGraph = null,
-            string mocapRepositoryPath = null)
+            string mocapRepositoryPath = null,
+            string flowHmrPythonPath = null)
         {
             ThrowIfDisposed();
             if (IsRunning)
@@ -79,7 +80,11 @@ namespace KimodoBridge
             }
             if (!string.IsNullOrWhiteSpace(mocapRepositoryPath))
             {
-                startInfo.EnvironmentVariables["KIMODO_MOCAP_ROOT"] = Path.GetFullPath(mocapRepositoryPath.Trim());
+                startInfo.EnvironmentVariables["KIMODO_FLOWHMR_ROOT"] = Path.GetFullPath(mocapRepositoryPath.Trim());
+            }
+            if (!string.IsNullOrWhiteSpace(flowHmrPythonPath))
+            {
+                startInfo.EnvironmentVariables["KIMODO_FLOWHMR_PYTHON"] = Path.GetFullPath(flowHmrPythonPath.Trim());
             }
             UnityEngine.Debug.Log($"[Kimodo][BridgeProcess] launch cmd: {startInfo.FileName} {startInfo.Arguments} (cwd={startInfo.WorkingDirectory})");
             var proc = new Process { StartInfo = startInfo, EnableRaisingEvents = true };

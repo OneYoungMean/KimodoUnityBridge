@@ -1,0 +1,128 @@
+exp: output/flowhmr_latest
+grpo:
+  adv_clip_max: 5.0
+  adv_std_floor: 0.0001
+  cfg_scale: 1.0
+  clip_range: 0.001
+  do_validation: true
+  eta: 0.7
+  group_size: 4
+  init_same_noise: true
+  inner_updates: 4
+  iters_per_group: 100
+  joint_range: null
+  kl_coeff: 0.0
+  manual_grad_sync: true
+  max_timesteps: 8
+  mpjpe_weight: 1.0
+  num_generations: 8
+  probe_every_steps: 100
+  prog_overlap: true
+  prog_overlap_step: 1
+  ref_kl_coeff: 0.0
+  roll_back: true
+  sample_strategy: progressive
+  sampling_steps: 20
+  save_every_steps: 100
+  score_scale: 0.15
+  sim:
+    batch_timeout: 600
+    device_id: -1
+    enabled: true
+    max_frames: 180
+    num_envs: 32
+    phc_python: null
+    phc_root: null
+    work_dir: null
+  tracking_weight: 1.0
+load_from_checkpoint: checkpoints/flowhmr_base/flowhmr_base.ckpt
+max_frame: 360
+mean_std_dir: assets/motion_stats.json
+motion_fps: 30
+network_module: flowhmr/network/hymotion_mmdit_for_v2m.HunyuanMotionMMDiT
+network_module_args:
+  apply_rope_to_single_branch: true
+  ctxt_input_dim:
+    camera_R: 9
+    feature: 3072
+  dropout: 0.0
+  feat_dim: 1024
+  final_layer_cfg:
+    act_type: silu
+    zero_init: true
+  gradient_checkpointing: true
+  input_dim: 491
+  insert_start_token: false
+  mask_mode: narrowband_v2m
+  mlp_ratio: 4.0
+  narrowband_length: 2.0
+  narrowband_tm_length: 0.0
+  narrowband_tt_length: null
+  narrowband_v2m_length: 3.0
+  num_heads: 16
+  num_layers: 18
+  text_refiner_cfg:
+    num_layers: 2
+  text_refiner_module: flowhmr/network/token_refiner.SingleTokenRefiner
+  time_factor: 1000.0
+  vtxt_input_dim: 768
+  with_long_skip_connection: false
+sampler_seed: 42
+save_interval: 1
+skip_log_zero_epoch: false
+torch_compile: false
+train:
+  batch_size: 4
+  batch_size_val: 1
+  disable_tqdm: true
+  grad_clip:
+    max_norm: 1.0
+    norm_type: 2
+  lr: 2.5e-06
+  max_epoch: 8
+  num_workers: 2
+  scheduler: cosine_annealing
+  scheduler_cfg:
+    eta_min: 2.5e-07
+  train_iterations: 2500
+train_dataset: flowhmr/datasets/v2m_generation/grpo_gt_dataset.V2MGRPOGTDataset
+train_dataset_args:
+  load_hand: true
+  max_len: 180
+  roots:
+  - bbox_format: '{name}_bbox_v2.npz'
+    feature_format: '{name}_sam3d_feat_v2.pt'
+    root: data/grpo_gt_pool/list.txt
+  sample_step: 1
+train_pipeline: flowhmr/pipeline/pipeline_v2m.V2MPipeline
+train_pipeline_args:
+  fps: 30.0
+  infer_noise_scheduler_cfg:
+    validation_steps: 20
+  motion_style: basic
+  losses_cfg:
+    recons:
+      name: SmoothL1Loss
+      weight: 1.0
+  mean_std: assets/motion_stats.json
+  noise_scheduler_cfg:
+    method: euler
+  pred_type: x1
+  test_cfg:
+    text_guidance_scale: 1.0
+  train_cfg:
+    cond_mask_prob: 0.0
+    t_sample_P_mean: -0.8
+    t_sample_P_std: 0.8
+    timestep_sample_method: logit_normal
+  train_frames: 360
+trainer: flowhmr/trainer/v2m_trainer_grpo.V2MGRPOTrainer
+val_dataset: flowhmr/datasets/v2m_generation/grpo_gt_dataset.V2MGRPOGTDataset
+val_dataset_args:
+  load_hand: true
+  max_len: 180
+  roots:
+  - bbox_format: '{name}_bbox_v2.npz'
+    feature_format: '{name}_sam3d_feat_v2.pt'
+    root: data/grpo_gt_pool/list.txt
+  sample_step: 5000

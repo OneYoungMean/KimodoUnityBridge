@@ -146,12 +146,12 @@ namespace KimodoBridge.Editor
 
             EditorGUI.BeginChangeCheck();
             string mocapRepository = EditorGUILayout.DelayedTextField(
-                new GUIContent("Mixamo Mocap Repository", "Checkout containing pipeline/estimate_pose_gvhmr.py."),
+                new GUIContent("FlowHMR Repository", "FlowHMR checkout containing run_v2m_demo_generation.py and its local/gated assets."),
                 settings.MocapRepositoryPath);
             if (GUILayout.Button("Browse Mocap...", GUILayout.Width(120f)))
             {
                 string selected = EditorUtility.OpenFolderPanel(
-                    "Select Mixamo Mocap Repository", mocapRepository, string.Empty);
+                    "Select FlowHMR Repository", mocapRepository, string.Empty);
                 if (!string.IsNullOrWhiteSpace(selected))
                 {
                     mocapRepository = selected;
@@ -161,6 +161,25 @@ namespace KimodoBridge.Editor
             if (EditorGUI.EndChangeCheck())
             {
                 settings.MocapRepositoryPath = mocapRepository;
+                settings.SaveSettings();
+            }
+
+            EditorGUI.BeginChangeCheck();
+            string flowHmrPython = EditorGUILayout.DelayedTextField(
+                new GUIContent("FlowHMR Python", "Python executable for the separate FlowHMR environment."),
+                settings.FlowHmrPythonPath);
+            if (GUILayout.Button("Browse Python...", GUILayout.Width(120f)))
+            {
+                string selected = EditorUtility.OpenFilePanel("Select FlowHMR Python", flowHmrPython, string.Empty);
+                if (!string.IsNullOrWhiteSpace(selected))
+                {
+                    flowHmrPython = selected;
+                    GUI.changed = true;
+                }
+            }
+            if (EditorGUI.EndChangeCheck())
+            {
+                settings.FlowHmrPythonPath = flowHmrPython;
                 settings.SaveSettings();
             }
 
