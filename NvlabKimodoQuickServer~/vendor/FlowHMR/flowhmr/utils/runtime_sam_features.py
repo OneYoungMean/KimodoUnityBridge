@@ -22,7 +22,8 @@ from sam_3d_body import SAM3DBodyEstimator, load_sam_3d_body
 
 
 # Checkpoint paths
-_sam_ckpt_dir = osp.join(_repo_root, "ckpts", "sam-3d-body-dinov3")
+_assets_root = osp.abspath(os.environ.get("FLOWHMR_ASSETS_ROOT", _repo_root))
+_sam_ckpt_dir = osp.join(_assets_root, "ckpts", "sam-3d-body-dinov3")
 SAM3D_CKPT_PATH = osp.join(_sam_ckpt_dir, "model.ckpt")
 SAM3D_MHR_PATH = osp.join(_sam_ckpt_dir, "assets", "mhr_model.pt")
 
@@ -170,6 +171,43 @@ class Sam3DTokenExtractor:
                 gpu_preprocess=gpu_preprocess, merge_hands=True,
             ))
         return torch.cat(tokens)
+
+    @torch.no_grad()
+    def extract_video_keypoints(self, video_path: str, *, bbox_xyxy: Tensor,
+                                K_all: Tensor, frame_indices, frame_offset: int = 0) -> np.ndarray:
+        """Run the full body pass on selected frames and return image-space MHR70 points."""
+        indices = sorted({int(index) for index in frame_indices})
+        if not indices:
+            raise ValueError("frame_indices must contain at least one frame")
+        boxes = bbox_xyxy.detach().cpu().numpy().astype(np.float32)
+        cameras = K_all.detach().cpu().numpy().astype(np.float32)
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise ValueError(f"cannot open video: {video_path}")
+        outputs = []
+        try:
+            for index in indices:
+                local_index = index - int(frame_offset)
+                if local_index < 0 or local_index >= len(boxes):
+                    raise ValueError(f"frame {index} is outside the tracked range")
+                cap.set(cv2.CAP_PROP_POS_FRAMES, index)
+                ok, frame_bgr = cap.read()
+                if not ok:
+                    raise ValueError(f"could not read frame {index} for camera alignment")
+                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                cam = torch.from_numpy(cameras[local_index]).reshape(1, 3, 3)
+                all_out = self.estimator.process_one_image(
+                    frame_rgb, bboxes=boxes[local_index].reshape(1, 4), cam_int=cam,
+                    inference_type="body",
+                )
+                if not all_out or "pred_keypoints_2d" not in all_out[0]:
+                    raise RuntimeError(f"SAM 3D Body returned no 2D keypoints for frame {index}")
+                outputs.append(np.asarray(all_out[0]["pred_keypoints_2d"], dtype=np.float32))
+        finally:
+            cap.release()
+        result = np.full((len(boxes), 70, 2), np.nan, dtype=np.float32)
+        result[[index - int(frame_offset) for index in indices]] = np.stack(outputs, axis=0)
+        return result
 
     def close(self):
         """Remove this wrapper's hooks without changing the underlying model."""

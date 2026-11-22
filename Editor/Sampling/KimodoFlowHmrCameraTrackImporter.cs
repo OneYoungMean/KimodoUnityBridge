@@ -40,8 +40,11 @@ namespace KimodoBridge.Editor
             TimelineClip timeline = track.CreateClip<KimodoCameraMotionClip>();
             KimodoCameraMotionClip clip = (KimodoCameraMotionClip)timeline.asset;
             clip.frameRate = motion.FrameRate;
-            clip.anchorPosition = camera.transform.position;
-            clip.anchorRotation = camera.transform.rotation;
+            // The server now writes camera samples in the SMPL-X rest-pose
+            // pelvis world. Do not add the scene camera's previous transform
+            // a second time; the Main Camera is only the Timeline binding.
+            clip.anchorPosition = Vector3.zero;
+            clip.anchorRotation = Quaternion.identity;
             clip.disableAimConstraints = true;
             clip.fieldOfViewCurve = new AnimationCurve();
             clip.lensShiftXCurve = new AnimationCurve();

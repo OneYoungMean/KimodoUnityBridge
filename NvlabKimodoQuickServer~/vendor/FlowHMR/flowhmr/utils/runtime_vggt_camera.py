@@ -22,11 +22,12 @@ import torch
 
 
 _repo_root = osp.normpath(osp.join(osp.dirname(__file__), "..", ".."))
+_assets_root = osp.abspath(os.environ.get("FLOWHMR_ASSETS_ROOT", _repo_root))
 _vggt_repo_dir = osp.join(_repo_root, "third_party", "vggt-omega")
 if _vggt_repo_dir not in sys.path:
     sys.path.insert(0, _vggt_repo_dir)
 
-DEFAULT_VGGT_OMEGA_CKPT = osp.join(_repo_root, "ckpts", "vggt-omega", "vggt_omega_1b_512.pt")
+DEFAULT_VGGT_OMEGA_CKPT = osp.join(_assets_root, "ckpts", "vggt-omega", "vggt_omega_1b_512.pt")
 
 
 @dataclass

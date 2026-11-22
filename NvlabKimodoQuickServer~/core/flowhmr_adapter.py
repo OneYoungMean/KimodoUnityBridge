@@ -12,6 +12,11 @@ from typing import Any
 
 import numpy as np
 
+from core.camera_alignment import (
+    CameraWorldAlignment,
+    solve_camera_world_alignment,
+    transform_camera_track_to_actor_world,
+)
 from core.protocol.kmb_motion import KmbCameraTrack, KmbMotion, encode_kmb1
 
 
@@ -82,7 +87,8 @@ def _rotation_matrix_to_wxyz(matrix: np.ndarray) -> np.ndarray:
     return result.astype(np.float32)
 
 
-def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float) -> KmbCameraTrack:
+def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float,
+                       alignment: CameraWorldAlignment) -> KmbCameraTrack:
     path = Path(camera_npz_path).expanduser().resolve(strict=True)
     with np.load(path, allow_pickle=False) as data:
         if "camera_RT_yup" in data.files:
@@ -95,14 +101,15 @@ def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float
         image_size = np.asarray(data["image_size_hw"], dtype=np.float64) if "image_size_hw" in data.files else None
     if camera_rt.shape != (frame_count, 4, 4):
         raise ValueError(f"FlowHMR camera cache frame count {camera_rt.shape} does not match motion {frame_count}.")
-    world_from_camera = np.linalg.inv(camera_rt)
-    relative_camera = np.linalg.inv(world_from_camera[0])[None] @ world_from_camera
-    # FlowHMR and Unity use different handedness for the imported SMPL motion.
+    if alignment is None:
+        raise ValueError("A camera-to-SMPL-X pelvis alignment is required for a world camera track.")
+    actor_positions, actor_rotations = transform_camera_track_to_actor_world(str(path), alignment)
+    # FlowHMR/SMPL-H and Unity use different handedness for the imported motion.
     # Conjugating by this reflection keeps a proper rotation while matching the
     # root-position conversion already used by KMB1's Unity parser.
     reflection = np.diag([-1.0, 1.0, 1.0])
-    positions = relative_camera[:, :3, 3] @ reflection.T
-    rotations = reflection[None] @ relative_camera[:, :3, :3] @ reflection[None]
+    positions = actor_positions @ reflection.T
+    rotations = reflection[None] @ actor_rotations @ reflection[None]
     quaternions = _rotation_matrix_to_wxyz(rotations)
     if not np.isfinite(positions).all() or not np.isfinite(quaternions).all():
         raise ValueError("FlowHMR camera cache contains non-finite values.")
@@ -121,7 +128,10 @@ def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float
 
 
 def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None = None,
-                          camera_npz_path: str | Path | None = None) -> KmbMotion:
+                          camera_npz_path: str | Path | None = None,
+                          bbox_npz_path: str | Path | None = None,
+                          keypoints_npz_path: str | Path | None = None,
+                          camera_alignment: CameraWorldAlignment | None = None) -> KmbMotion:
     """Read the official FlowHMR NPZ output and build a SMPL-H KMB motion."""
     path = Path(npz_path).expanduser().resolve(strict=True)
     with np.load(path, allow_pickle=False) as data:
@@ -149,7 +159,17 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         if not np.isfinite(contacts).all():
             raise ValueError("FlowHMR foot_contacts contains non-finite values.")
         contacts = (contacts >= 0.5).astype(np.uint8)
-    camera_track = _load_camera_track(camera_npz_path, poses.shape[0], fps) if camera_npz_path is not None else None
+    if camera_npz_path is not None:
+        if camera_alignment is None:
+            if bbox_npz_path is None:
+                raise ValueError("bbox_npz_path is required to align the camera to the SMPL-X pelvis world.")
+            camera_alignment = solve_camera_world_alignment(
+                str(path), str(camera_npz_path),
+                str(Path(bbox_npz_path).expanduser().resolve(strict=True)),
+                str(Path(keypoints_npz_path).expanduser().resolve(strict=True)) if keypoints_npz_path is not None else None)
+        camera_track = _load_camera_track(camera_npz_path, poses.shape[0], fps, camera_alignment)
+    else:
+        camera_track = None
     if frame_indices is not None:
         indices = np.asarray(frame_indices, dtype=np.int64)
         if indices.ndim != 1 or indices.size == 0 or np.any(indices < 0) or np.any(indices >= poses.shape[0]):
@@ -181,10 +201,25 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
 
 
 def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = None,
-                       camera_npz_path: str | Path | None = None) -> tuple[bytes, dict[str, Any]]:
-    motion = flowhmr_npz_to_motion(npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path)
+                       camera_npz_path: str | Path | None = None,
+                       bbox_npz_path: str | Path | None = None,
+                       keypoints_npz_path: str | Path | None = None) -> tuple[bytes, dict[str, Any]]:
+    alignment = None
+    if camera_npz_path is not None:
+        if bbox_npz_path is None:
+            raise ValueError("bbox_npz_path is required to align the camera to the SMPL-X pelvis world.")
+        alignment = solve_camera_world_alignment(
+            str(Path(npz_path).expanduser().resolve(strict=True)),
+            str(Path(camera_npz_path).expanduser().resolve(strict=True)),
+            str(Path(bbox_npz_path).expanduser().resolve(strict=True)),
+            str(Path(keypoints_npz_path).expanduser().resolve(strict=True)) if keypoints_npz_path is not None else None,
+        )
+    motion = flowhmr_npz_to_motion(
+        npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path,
+        bbox_npz_path=bbox_npz_path, keypoints_npz_path=keypoints_npz_path,
+        camera_alignment=alignment)
     payload = encode_kmb1(motion)
-    return payload, {
+    metadata = {
         "format": "kmb_v1",
         "skeleton": "smplh",
         "fps": motion.fps,
@@ -192,3 +227,20 @@ def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = N
         "joint_count": len(motion.joint_names),
         "camera_track": motion.camera_track is not None,
     }
+    if alignment is not None:
+        metadata["camera_space"] = "smplx_pelvis_world"
+        metadata["camera_alignment"] = {
+            "source_space": "vggt_world",
+            "target_space": "smplx_rest_pelvis_world",
+            "origin_definition": "SMPL-X/SMPL-H rest-pose pelvis XZ projection at (0,0), Y-up",
+            "camera_transform": "camera-to-world in target actor space",
+            "scale": alignment.scale,
+            "yaw_radians": alignment.yaw_radians,
+            "translation": alignment.translation.tolist(),
+            "actor_to_vggt_matrix": alignment.actor_to_vggt.reshape(-1).tolist(),
+            "vggt_to_actor_matrix": alignment.vggt_to_actor.reshape(-1).tolist(),
+            "median_observation_error_px": alignment.median_observation_error_px,
+            "frames_used": alignment.frames_used,
+            "observation_type": alignment.observation_type,
+        }
+    return payload, metadata

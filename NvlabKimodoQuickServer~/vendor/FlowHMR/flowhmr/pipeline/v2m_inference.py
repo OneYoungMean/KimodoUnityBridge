@@ -508,6 +508,7 @@ class V2MInferenceEngine:
               sam_device_ids: list[int] | None = None,
               sam_base_port: int = 29500,
               smpl_model_path: str = None,
+              j_regressor_path: str = None,
               skeleton_only: bool = False) -> "V2MInferenceEngine":
         if skeleton_only and postprocess:
             raise ValueError("postprocess requires the full SMPL-H mesh model.")
@@ -551,6 +552,7 @@ class V2MInferenceEngine:
             model_cfg, device=device, ckpt=ckpt,
             validation_steps=validation_steps,
             smpl_model_path=smpl_model_path,
+            j_regressor_path=j_regressor_path,
             load_mesh_model=not skeleton_only,
         )
         print(f"  Pipeline loaded ({sum(p.numel() for p in pipe.parameters()):,} params)")
@@ -1198,6 +1200,31 @@ class V2MInferenceEngine:
                      save_npz=True, export_mesh=export_mesh,
                      write_fbx=self.smpl_mesh is not None)
         _pcb(StageName.GENERATION, 100, "Generation complete")
+
+        # Camera-to-pelvis calibration needs image-space joints, not only the
+        # detector box.  Sample a bounded number of frames with the already
+        # loaded SAM 3D Body model and keep the sidecar next to the caches.
+        if not static_camera and self.sam_extractor is not None:
+            keypoint_path = os.path.join(sub_dir, f"{video_name}_sam3d_keypoints2d.npz")
+            if not os.path.exists(keypoint_path):
+                bbox_payload = np.load(bbox_npz_path)
+                bbox_for_alignment = bbox_payload["bbox"].astype(np.float32)
+                keypoint_payload_indices = np.linspace(0, t_track - 1, min(24, t_track)).round().astype(np.int64)
+                print(f"  [camera] extracting SAM 2D calibration points: {len(keypoint_payload_indices)} frames")
+                keypoints_2d = self.sam_extractor.extract_video_keypoints(
+                    working_video,
+                    bbox_xyxy=torch.from_numpy(bbox_for_alignment),
+                    K_all=camera_result.K,
+                    frame_indices=(keypoint_payload_indices + s).tolist(),
+                    frame_offset=s,
+                )
+                np.savez(
+                    keypoint_path,
+                    keypoints_2d=keypoints_2d,
+                    frame_range=np.asarray((s, e), dtype=np.int64),
+                    frame_indices=keypoint_payload_indices,
+                )
+                print(f"  [camera] saved 2D calibration points -> {keypoint_path}")
 
 
         return sub_dir
