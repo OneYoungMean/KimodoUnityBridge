@@ -179,8 +179,13 @@ class Sam3DTokenExtractor:
         indices = sorted({int(index) for index in frame_indices})
         if not indices:
             raise ValueError("frame_indices must contain at least one frame")
-        boxes = bbox_xyxy.detach().cpu().numpy().astype(np.float32)
-        cameras = K_all.detach().cpu().numpy().astype(np.float32)
+        # The camera extractor returns NumPy intrinsics while the detector
+        # track is usually a Torch tensor. Accept both representations here;
+        # this sidecar is an inference boundary rather than a tensor-only API.
+        boxes = (bbox_xyxy.detach().cpu().numpy()
+                 if torch.is_tensor(bbox_xyxy) else np.asarray(bbox_xyxy)).astype(np.float32)
+        cameras = (K_all.detach().cpu().numpy()
+                   if torch.is_tensor(K_all) else np.asarray(K_all)).astype(np.float32)
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise ValueError(f"cannot open video: {video_path}")
