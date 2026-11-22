@@ -11,6 +11,8 @@ import tempfile
 import uuid
 from typing import Any
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.flowhmr_adapter import flowhmr_npz_to_kmb
 from core.flowhmr_memory import CONSERVATIVE_FLOWHMR_OPTIONS, is_cuda_oom
@@ -18,7 +20,6 @@ from core.flowhmr_memory import CONSERVATIVE_FLOWHMR_OPTIONS, is_cuda_oom
 
 def _build_result(kind: str, npz_path: Path, person: str | None,
                   camera_npz_path: Path | None = None) -> tuple[dict[str, Any], bytes]:
-    import numpy as np
     with np.load(npz_path, allow_pickle=False) as data:
         poses = np.asarray(data["poses"])
         fps = float(np.asarray(data.get("mocap_framerate", 30.0)).reshape(-1)[0])
