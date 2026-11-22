@@ -249,7 +249,7 @@ def solve_camera_world_alignment(motion_npz_path: str, camera_npz_path: str,
         translation0 = target_center - rotation0 @ actor_center
         x0 = np.asarray((yaw0, 0.0, *translation0), dtype=np.float64)
         candidates.append(least_squares(
-            residual, x0, bounds=bounds, loss="soft_l1", f_scale=0.02, max_nfev=400,
+            residual, x0, bounds=bounds, loss="soft_l1", f_scale=0.02, max_nfev=2000,
         ))
     result = min(candidates, key=lambda candidate: candidate.cost)
     if not result.success or not np.isfinite(result.x).all():
