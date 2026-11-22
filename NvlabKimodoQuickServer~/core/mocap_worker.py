@@ -127,7 +127,17 @@ def analyze(kind: str, media: Path, flowhmr_root: Path, checkpoint: Path,
                 diagnostic = diagnostic or "FlowHMR exited without diagnostics"
                 raise RuntimeError(diagnostic[-4000:])
         output_dir = flowhmr_root / "output" / staged.stem
-        candidates = sorted(output_dir.glob("*.npz"), key=lambda p: p.stat().st_mtime, reverse=True)
+        # A dynamic-camera run writes several NPZ sidecars. Only the motion
+        # artifact contains poses/trans; selecting the newest NPZ can pick the
+        # VGGT camera cache and fail after inference has already succeeded.
+        candidates = []
+        for candidate in sorted(output_dir.glob("*.npz"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                with np.load(candidate, allow_pickle=False) as probe:
+                    if "poses" in probe.files and "trans" in probe.files:
+                        candidates.append(candidate)
+            except Exception:
+                continue
         if not candidates:
             raise RuntimeError(f"FlowHMR completed without writing an NPZ result under {output_dir}.")
         camera_path = None
