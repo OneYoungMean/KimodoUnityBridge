@@ -21,6 +21,48 @@ namespace KimodoUnityBridge.Command.Tests
     {
         private const string HumanoidModelPath = "Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/Armature.fbx";
 
+        [TestCase(null, "Walk forward", "Walk forward")]
+        [TestCase("  Exported Walk  ", "Walk forward", "Exported Walk")]
+        public void ResolveGeneratedAssetName_PreservesExplicitNameAndFallsBackToTimelineName(
+            string requestedName,
+            string fallbackName,
+            string expected)
+        {
+            JObject output = requestedName == null
+                ? new JObject()
+                : new JObject { ["name"] = requestedName };
+
+            Assert.That(command_context.ResolveGeneratedAssetName(output, fallbackName), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void PostAnalysisCanResolveGeneratedTimelineClipWhenAssetAndDisplayNamesDiffer()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            try
+            {
+                AnimationTrack track = timeline.CreateTrack<AnimationTrack>(null, "GeneratedCharacter");
+                TimelineClip timelineClip = track.CreateClip<KimodoPlayableClip>();
+                timelineClip.displayName = "Requested output name";
+                var generatedClip = new AnimationClip { name = "Kimodo_Requested_output_name" };
+                ((KimodoPlayableClip)timelineClip.asset).clip = generatedClip;
+                var character = new command_context.TimelineCharacterRecord(
+                    "GeneratedCharacter", null, null, null, track, track, string.Empty);
+                character.Animations.Add(new command_context.TimelineAnimationRecord(
+                    Guid.NewGuid(), generatedClip.name, "generated", generatedClip, timelineClip, null, null, 0, 180));
+
+                Assert.That(command_context.FindTimelineAnimation(
+                    character, timelineClip.displayName, timelineClip), Is.SameAs(character.Animations.Single()));
+                Assert.That(command_context.FindTimelineAnimation(
+                    character, timelineClip.displayName, null), Is.Null,
+                    "A name-only lookup reproduces the post-analysis mismatch after the Timeline is re-indexed.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(timeline);
+            }
+        }
+
         [Test]
         public void ResolveSessionCharacterByReference_AddsObjectReferenceAndRejectsAmbiguousOrInactiveSceneTargets()
         {

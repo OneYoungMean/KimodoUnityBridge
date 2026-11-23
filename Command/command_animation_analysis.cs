@@ -26,11 +26,12 @@ namespace KimodoUnityBridge.Command
 
         private static JObject AnimationAnalysisCore(
             JObject arguments,
-            bool allowActiveGenerationRange)
+            bool allowActiveGenerationRange,
+            TimelineClip knownTimelineClip = null)
         {
             try
             {
-                return AnimationAnalysisCoreInternal(arguments, allowActiveGenerationRange);
+                return AnimationAnalysisCoreInternal(arguments, allowActiveGenerationRange, knownTimelineClip);
             }
             finally
             {
@@ -43,7 +44,8 @@ namespace KimodoUnityBridge.Command
 
         private static JObject AnimationAnalysisCoreInternal(
             JObject arguments,
-            bool allowActiveGenerationRange)
+            bool allowActiveGenerationRange,
+            TimelineClip knownTimelineClip = null)
         {
             TimelineSessionRecord session = RequireTimelineSession(arguments);
             JArray clips = arguments["clips"] as JArray;
@@ -64,8 +66,7 @@ namespace KimodoUnityBridge.Command
             }
 
             string clipName = RequiredStringValue(clipReference, "clip");
-            TimelineAnimationRecord animation = character.Animations.FirstOrDefault(item =>
-                string.Equals(item.Name, clipName, StringComparison.OrdinalIgnoreCase));
+            TimelineAnimationRecord animation = FindTimelineAnimation(character, clipName, knownTimelineClip);
             if (animation == null)
             {
                 if (allowActiveGenerationRange)
@@ -149,6 +150,17 @@ namespace KimodoUnityBridge.Command
                 IsHumanoidCharacter(character),
                 pictures,
                 AnalysisContractVersion);
+        }
+
+        internal static TimelineAnimationRecord FindTimelineAnimation(
+            TimelineCharacterRecord character,
+            string clipName,
+            TimelineClip knownTimelineClip)
+        {
+            return knownTimelineClip != null
+                ? character?.Animations.FirstOrDefault(item => item.TimelineClip == knownTimelineClip)
+                : character?.Animations.FirstOrDefault(item =>
+                    string.Equals(item.Name, clipName, StringComparison.OrdinalIgnoreCase));
         }
 
         private static KimodoAnimationAnalysisResponseData CreateAnalysisResponseData(AnalysisSubject subject)

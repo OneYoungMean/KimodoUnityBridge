@@ -23,6 +23,7 @@ namespace KimodoBridge.Editor
         // duration. Short clips still receive the quality warning below.
         public const float MinimumGenerationDurationSeconds = 0f;
         private const float PositionToleranceMeters = 0.05f;
+        private const float MovementIntentDisplacementWarningMeters = 0.15f;
         private const float HeadingToleranceDegrees = 5f;
         private const float HeadingJumpWarningDegrees = 45f;
         private const float RootYJumpWarningMeters = 0.25f;
@@ -41,6 +42,7 @@ namespace KimodoBridge.Editor
             {
                 JObject duration = BuildDurationCheck(durationFrames, frameRate);
                 JObject rootTrajectory = BuildRootTrajectory(arguments, durationFrames, frameRate, generatedSamples);
+                JObject movementIntent = BuildMovementIntentCheck(arguments, durationFrames, frameRate, generatedSamples);
                 JObject overlap = BuildConstraintOverlap(arguments, frameRate, generatedSamples);
                 JObject effectors = BuildEffectorChecks(
                     arguments, characterName, modelName, frameRate, generatedSamples);
@@ -49,13 +51,15 @@ namespace KimodoBridge.Editor
                 // before it reaches the backend.
                 bool blocking = duration.Value<bool>("blocking") ||
                     (blockRootMotionLimits && HasRootMotionLimitViolation(rootTrajectory));
-                bool warning = HasWarning(duration) || HasWarning(rootTrajectory) || HasWarning(overlap) || HasWarning(effectors);
+                bool warning = HasWarning(duration) || HasWarning(rootTrajectory) || HasWarning(movementIntent) ||
+                    HasWarning(overlap) || HasWarning(effectors);
                 return new JObject
                 {
                     ["blocking"] = blocking,
                     ["overall"] = blocking ? "error" : warning ? "warning" : "ok",
                     ["duration"] = duration,
                     ["root_trajectory"] = rootTrajectory,
+                    ["movement_intent"] = movementIntent,
                     ["constraint_overlap"] = overlap,
                     ["effectors"] = effectors
                 };
@@ -240,6 +244,86 @@ namespace KimodoBridge.Editor
                 ["overlap_frame_count"] = observations.GroupBy(item => item.Frame).Count(item => item.Count() > 1),
                 ["issues"] = issues
             };
+        }
+
+        private static JObject BuildMovementIntentCheck(
+            JObject arguments,
+            int durationFrames,
+            float frameRate,
+            IReadOnlyList<KimodoMarkerSampleResult> generatedSamples)
+        {
+            JArray constraints = arguments?["constraints"] as JArray;
+            string prompt = arguments?.Value<string>("prompt") ??
+                arguments?["raw_instruction"]?.Value<string>("text") ?? string.Empty;
+            if (!HasMovementIntent(prompt))
+                return new JObject { ["status"] = "not_applicable", ["issues"] = new JArray() };
+
+            JObject pathOptions = arguments?["path"] as JObject;
+            bool hasPathAngle = pathOptions != null &&
+                (pathOptions["start_angle"] != null || pathOptions["end_angle"] != null);
+            bool hasPathDistance = pathOptions?.Property("distance") != null;
+            bool hasPathOptions = hasPathAngle && (!hasPathDistance ||
+                (pathOptions.Value<float?>("distance") ?? 0f) > MovementIntentDisplacementWarningMeters);
+            bool hasRouteCoverage = hasPathOptions ||
+                (constraints?.OfType<JObject>() ?? Enumerable.Empty<JObject>()).Any(item =>
+                    item["root_path"] != null || item["inside"] != null);
+            if (hasRouteCoverage)
+                return new JObject { ["status"] = "ok", ["issues"] = new JArray() };
+
+            List<(int Frame, Vector3 Position)> rootTargets = CollectRootObservations(
+                    arguments, frameRate, generatedSamples)
+                .Where(item => item.HasY)
+                .Select(item => (Frame: item.Frame, Position: item.Position))
+                .OrderBy(item => item.Frame)
+                .ToList();
+
+            if (rootTargets.Count < 2 || rootTargets[0].Frame > 1 ||
+                rootTargets[rootTargets.Count - 1].Frame < Mathf.Max(0, durationFrames - 2))
+                return new JObject { ["status"] = "not_applicable", ["issues"] = new JArray() };
+
+            Vector3 start = rootTargets[0].Position;
+            Vector3 end = rootTargets[rootTargets.Count - 1].Position;
+            float netDisplacement = KimodoMotionMath.PlanarDistance(start, end);
+            bool hasIntermediateRoute = rootTargets.Skip(1).Take(rootTargets.Count - 2)
+                .Any(item => KimodoMotionMath.PlanarDistance(start, item.Position) > MovementIntentDisplacementWarningMeters);
+            if (netDisplacement > MovementIntentDisplacementWarningMeters || hasIntermediateRoute)
+                return new JObject { ["status"] = "ok", ["issues"] = new JArray() };
+
+            return new JObject
+            {
+                ["status"] = "warning",
+                ["net_displacement_xz_m"] = netDisplacement,
+                ["warning_threshold_m"] = MovementIntentDisplacementWarningMeters,
+                ["issues"] = new JArray(new JObject
+                {
+                    ["code"] = "movement_intent_without_root_travel",
+                    ["message"] = "The prompt requests locomotion, but the root start and end targets have almost no net displacement and no route is specified. The generated character may appear to walk in place."
+                })
+            };
+        }
+
+        private static bool HasMovementIntent(string prompt)
+        {
+            if (string.IsNullOrWhiteSpace(prompt)) return false;
+            string normalized = prompt.Trim().ToLowerInvariant();
+            string[] stationaryPhrases =
+            {
+                "in place", "in-place", "on the spot", "without moving", "without translating",
+                "stationary", "stay still", "stand still", "原地", "踏步", "不动", "不移动", "不前进", "保持静止"
+            };
+            if (stationaryPhrases.Any(phrase => normalized.Contains(phrase))) return false;
+
+            string[] movementPhrases =
+            {
+                "walk", "run", "jog", "sprint", "travel", "move forward", "move backward",
+                "move left", "move right", "move toward", "move towards", "approach", "advance",
+                "retreat", "walk across", "run across", "走路", "行走", "步行", "走向", "走到",
+                "走过", "往前走", "向前走", "往后走", "向后走", "往左走", "向左走", "往右走", "向右走",
+                "奔跑", "跑步", "跑向", "跑到", "慢跑", "冲刺", "前进", "后退", "靠近",
+                "离开", "穿过", "穿越", "移动到", "移动至", "移动过去", "移动前往", "角色移动",
+                "人物移动", "向前移动", "向后移动", "向左移动", "向右移动", "往前移动", "往后移动"
+            };
+            return movementPhrases.Any(phrase => normalized.Contains(phrase));
         }
 
         private static JObject BuildEffectorChecks(

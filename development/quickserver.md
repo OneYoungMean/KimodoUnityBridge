@@ -4,6 +4,10 @@ If you explicitly plan to use Kimodo in Unity, we strongly recommend using Unity
 
 This page records the project-local QuickServer details that are easy to confuse with the public Unity command surface. The command schema remains the source of truth for request and response fields.
 
+## Launcher download timeouts
+
+The launchers pass `KIMODO_UV_HTTP_TIMEOUT_SEC` through to uv as `UV_HTTP_TIMEOUT` for package downloads during setup and runtime operations. It defaults to 300 seconds. Set it before starting QuickServer when a package source is slow; for example, use `$env:KIMODO_UV_HTTP_TIMEOUT_SEC = '900'` in PowerShell or `export KIMODO_UV_HTTP_TIMEOUT_SEC=900` in a Unix shell. This is separate from `KIMODO_UV_INSTALL_TIMEOUT_SEC`, which limits downloading the uv executable itself, and `KIMODO_UV_PROBE_TIMEOUT_SEC`, which limits source probes.
+
 ## Optional MP4 output
 
 The TCP `generate` request can set `output_mp4: true`. QuickServer keeps the selected motion `output_format` as the binary response and adds an absolute `mp4_path` to the JSON result. MP4 is an additional render; it does not replace the KMB, BVH, or compact JSON motion payload.

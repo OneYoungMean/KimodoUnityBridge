@@ -1009,7 +1009,7 @@ namespace KimodoUnityBridge.Command
                     ? UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.On
                     : UnityEngine.Timeline.AnimationPlayableAsset.LoopMode.Off;
                 playableClip.analyzeAfterGeneration = analyzeAfterGeneration;
-                playableClip.generatedAssetName = trace.Animation.Name;
+                playableClip.generatedAssetName = ResolveGeneratedAssetName(outputOptions, trace.Animation.Name);
                 playableClip.generatedOutputFolder = outputFolder;
                 playableClip.generationOutputMode = ParseGenerationOutputMode(outputMode);
                 WriteGenerationConstraintMarkers(trace, poseConstraints, (float)SessionFrameRate);
@@ -1055,7 +1055,7 @@ namespace KimodoUnityBridge.Command
                                     ["character"] = trace.Character.Name,
                                     ["clip"] = trace.Animation.Name
                                 })
-                            }, allowActiveGenerationRange: true);
+                            }, allowActiveGenerationRange: true, knownTimelineClip: trace.TimelineClip);
                             result.PostAnalysisJson = analysisResponse.ToString(Formatting.None);
                         }
                         catch (Exception ex)
@@ -1093,6 +1093,8 @@ namespace KimodoUnityBridge.Command
                     if (!string.Equals(issue.Value<string>("code"), "duration_below_minimum", StringComparison.OrdinalIgnoreCase))
                         warnings.Add(issue.Value<string>("message"));
                 }
+                foreach (JObject issue in generationCheck["movement_intent"]?["issues"]?.OfType<JObject>() ?? Enumerable.Empty<JObject>())
+                    warnings.Add(issue.Value<string>("message"));
                 if (warnings.Count > 0)
                     accepted["warnings"] = warnings;
                 return Started(generation, accepted);
@@ -1124,6 +1126,12 @@ namespace KimodoUnityBridge.Command
             }
 
             return mode;
+        }
+
+        internal static string ResolveGeneratedAssetName(JObject outputOptions, string fallbackName)
+        {
+            string requestedName = outputOptions?.Value<string>("name");
+            return string.IsNullOrWhiteSpace(requestedName) ? fallbackName : requestedName.Trim();
         }
 
     }

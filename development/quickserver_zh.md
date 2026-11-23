@@ -4,6 +4,10 @@
 
 本页记录项目自带 QuickServer 中容易与 Unity 公共命令混淆的细节。请求和响应字段仍以命令 schema 为准。
 
+## 启动器下载超时
+
+启动脚本会把 `KIMODO_UV_HTTP_TIMEOUT_SEC` 映射为 uv 使用的 `UV_HTTP_TIMEOUT`，控制安装和运行时操作中的包下载请求超时，默认 300 秒。包源较慢时，可在启动 QuickServer 前设置该变量；例如 PowerShell 使用 `$env:KIMODO_UV_HTTP_TIMEOUT_SEC = '900'`，Unix shell 使用 `export KIMODO_UV_HTTP_TIMEOUT_SEC=900`。它与限制 uv 可执行文件下载时间的 `KIMODO_UV_INSTALL_TIMEOUT_SEC`、限制下载源探测时间的 `KIMODO_UV_PROBE_TIMEOUT_SEC` 分开。
+
 ## 可选 MP4 输出
 
 TCP `generate` 请求可以设置 `output_mp4: true`。QuickServer 会保留所选的动作 `output_format` 作为二进制响应，并在 JSON 结果中增加绝对路径 `mp4_path`。MP4 是额外的渲染结果，不会替换 KMB、BVH 或紧凑 JSON 动作数据。

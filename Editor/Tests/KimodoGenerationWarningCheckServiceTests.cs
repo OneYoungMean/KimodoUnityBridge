@@ -31,6 +31,124 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void MovementIntent_WithNearlyStationaryRootEndpointsWarnsWithoutBlocking()
+        {
+            JObject args = MovementArgs("Walk forward", Root(0f, 0f), Root(0.05f, 0.02f));
+
+            JObject result = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(result.Value<bool>("blocking"), Is.False);
+            Assert.That(result.Value<string>("overall"), Is.EqualTo("warning"));
+            Assert.That(result["movement_intent"].Value<string>("status"), Is.EqualTo("warning"));
+            Assert.That(result["movement_intent"]["issues"].ToObject<JArray>()
+                .Any(issue => issue.Value<string>("code") == "movement_intent_without_root_travel"), Is.True);
+        }
+
+        [Test]
+        public void MovementIntent_DetectsCommonChineseTravelPrompts()
+        {
+            JObject args = MovementArgs("往前走", Root(0f, 0f), Root(0.02f, 0.01f));
+
+            JObject result = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(result.Value<bool>("blocking"), Is.False);
+            Assert.That(result["movement_intent"].Value<string>("status"), Is.EqualTo("warning"));
+        }
+
+        [TestCase("Walk in place")]
+        [TestCase("Look around")]
+        [TestCase("Move the arm")]
+        [TestCase("Cross arms")]
+        [TestCase("移动手臂")]
+        public void MovementIntent_DoesNotWarnForStationaryOrNonLocomotionPrompts(string prompt)
+        {
+            JObject args = MovementArgs(prompt, Root(0f, 0f), Root(0f, 0f));
+
+            JObject result = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(result.Value<bool>("blocking"), Is.False);
+            Assert.That(result["movement_intent"].Value<string>("status"), Is.EqualTo("not_applicable"));
+        }
+
+        [Test]
+        public void MovementIntent_DoesNotWarnWhenRootEndpointsAreIncomplete()
+        {
+            JObject args = new JObject
+            {
+                ["prompt"] = "Walk forward",
+                ["constraints"] = new JArray { RootConstraint(0, Root(0f, 0f)) }
+            };
+
+            JObject result = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(result.Value<bool>("blocking"), Is.False);
+            Assert.That(result["movement_intent"].Value<string>("status"), Is.EqualTo("not_applicable"));
+        }
+
+        [Test]
+        public void MovementIntent_DoesNotWarnWhenRootEndpointsOrIntermediateTargetsShowTravel()
+        {
+            JObject args = MovementArgs("Walk forward", Root(0f, 0f), Root(1f, 0f));
+            JObject intermediateArgs = new JObject
+            {
+                ["prompt"] = "Walk forward and return",
+                ["constraints"] = new JArray
+                {
+                    RootConstraint(0, Root(0f, 0f)),
+                    RootConstraint(90, Root(0.5f, 0f)),
+                    RootConstraint(179, Root(0f, 0f))
+                }
+            };
+
+            JObject endpointResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+            JObject intermediateResult = KimodoGenerationWarningCheckService.Build(intermediateArgs, 180, 60f);
+
+            Assert.That(endpointResult["movement_intent"].Value<string>("status"), Is.EqualTo("ok"));
+            Assert.That(intermediateResult["movement_intent"].Value<string>("status"), Is.EqualTo("ok"));
+        }
+
+        [Test]
+        public void MovementIntent_DoesNotWarnWhenRouteConstraintIsPresent()
+        {
+            JObject args = MovementArgs("Walk forward", Root(0f, 0f), Root(0f, 0f));
+            ((JArray)args["constraints"]).Insert(1, new JObject
+            {
+                ["frame"] = 60,
+                ["root_path"] = new JObject { ["path"] = new JObject { ["track"] = "Paths", ["index"] = 0 } }
+            });
+
+            JObject result = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(result["movement_intent"].Value<string>("status"), Is.EqualTo("ok"));
+        }
+
+        [Test]
+        public void MovementIntent_OnlyTreatsPathAngleOverridesAsRouteCoverage()
+        {
+            JObject args = MovementArgs("Walk forward", Root(0f, 0f), Root(0f, 0f));
+            args["path"] = new JObject { ["heading"] = 90f };
+            JObject headingOnlyResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            args["path"] = new JObject();
+            JObject emptyPathResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            args["path"] = new JObject { ["start_angle"] = 0f, ["end_angle"] = 0f };
+            JObject pathAngleResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            args["path"] = new JObject { ["start_angle"] = 0f, ["end_angle"] = 0f, ["distance"] = 0f };
+            JObject zeroDistanceResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            args["path"] = new JObject { ["start_angle"] = 0f, ["end_angle"] = 0f, ["distance"] = 1f };
+            JObject nonzeroDistanceResult = KimodoGenerationWarningCheckService.Build(args, 180, 60f);
+
+            Assert.That(headingOnlyResult["movement_intent"].Value<string>("status"), Is.EqualTo("warning"));
+            Assert.That(emptyPathResult["movement_intent"].Value<string>("status"), Is.EqualTo("warning"));
+            Assert.That(pathAngleResult["movement_intent"].Value<string>("status"), Is.EqualTo("ok"));
+            Assert.That(zeroDistanceResult["movement_intent"].Value<string>("status"), Is.EqualTo("warning"));
+            Assert.That(nonzeroDistanceResult["movement_intent"].Value<string>("status"), Is.EqualTo("ok"));
+        }
+
+        [Test]
         public void RootTrajectory_AboveTenMetersPerSecondIsReportedButRawValidationOwnsRejection()
         {
             JObject args = new JObject
@@ -199,6 +317,22 @@ namespace KimodoBridge.Editor.Tests
                 ["rotation"] = new JArray(0, 0, 0)
             };
         }
+
+        private static JObject MovementArgs(string prompt, JObject start, JObject end) => new JObject
+        {
+            ["prompt"] = prompt,
+            ["constraints"] = new JArray
+            {
+                RootConstraint(0, start),
+                RootConstraint(179, end)
+            }
+        };
+
+        private static JObject RootConstraint(int frame, JObject root) => new JObject
+        {
+            ["frame"] = frame,
+            ["root"] = root
+        };
     }
 }
 
