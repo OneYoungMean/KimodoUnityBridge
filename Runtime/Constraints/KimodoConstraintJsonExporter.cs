@@ -375,8 +375,8 @@ namespace KimodoBridge
 
         /// <summary>
         /// Builds an end-effector record from an already solved profile pose.
-        /// Runtime callers use this after source-avatar IK and muscle retarget;
-        /// the profile skeleton must not run a second IK pass.
+        /// Runtime callers use this after profile-avatar IK and export the
+        /// profile skeleton directly.
         /// </summary>
         internal static KimodoConstraintJson BuildEndEffectorFromProjectedPose(
             KimodoConstraintProjectedPose projected,

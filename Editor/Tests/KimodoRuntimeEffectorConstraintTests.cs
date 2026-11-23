@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using KimodoUnityBridge;
+using TimelineInject;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -96,7 +98,7 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void Solver_UsesSourceAvatarIkThenBuildsProfileEffectorRaw()
+        public void Solver_RetargetsSourceFkAndBuildsProfileEffectorRaw()
         {
             const string armaturePath =
                 "Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/Armature.fbx";
@@ -140,6 +142,156 @@ namespace KimodoBridge.Editor.Tests
             }
             finally
             {
+                solver.Dispose();
+                Object.DestroyImmediate(instance);
+            }
+        }
+
+        [Test]
+        public void Solver_ConvertsEndpointDeltaAndSolvesOnProfileSkeleton()
+        {
+            const string armaturePath =
+                "Packages/com.unity.kimodo_unity_motion_tools/Editor/Model/Armature.fbx";
+            GameObject asset = AssetDatabase.LoadMainAssetAtPath(armaturePath) as GameObject;
+            Assert.That(asset, Is.Not.Null);
+            Animator assetAnimator = asset.GetComponentInChildren<Animator>(true);
+            Assert.That(assetAnimator, Is.Not.Null);
+
+            GameObject instance = Object.Instantiate(asset);
+            var solver = new KimodoRuntimeEffectorConstraintSolver();
+            RetargetSkeleton sourceCache = null;
+            RetargetSkeleton profileCache = null;
+            HumanPoseHandler sourcePoseHandler = null;
+            try
+            {
+                Animator source = instance.GetComponentInChildren<Animator>(true);
+                source.runtimeAnimatorController = null;
+                source.avatar = assetAnimator.avatar;
+                source.transform.SetPositionAndRotation(
+                    new Vector3(1.5f, 0.25f, -0.75f),
+                    Quaternion.Euler(0f, 23f, 0f));
+                source.Rebind();
+                source.Update(0f);
+                Transform sourceHand = source.GetBoneTransform(HumanBodyBones.RightHand);
+                Assert.That(sourceHand, Is.Not.Null);
+
+                Vector3 target = sourceHand.position + new Vector3(0.03f, -0.01f, 0.03f);
+                bool built = solver.TryBuild(
+                    source,
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    HumanBodyBones.RightHand,
+                    target,
+                    Quaternion.identity,
+                    false,
+                    1.0,
+                    out KimodoRuntimeEffectorConstraint result,
+                    out string error);
+                Assert.That(built, Is.True, error);
+
+                Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    source.avatar,
+                    "KimodoRuntimeEffectorTestSource",
+                    out sourceCache,
+                    out error), Is.True, error);
+                Assert.That(KimodoRuntimeAvatarSkeletonBuilder.TryLoadAvatarByModelName(
+                    KimodoMotionModelProfiles.DefaultModelName,
+                    out Avatar profileAvatar,
+                    out error), Is.True, error);
+                Assert.That(KimodoRetargetAvatarUtility.TryBuildRetargetSkeleton(
+                    profileAvatar,
+                    "KimodoRuntimeEffectorTestProfile",
+                    out profileCache,
+                    out error), Is.True, error);
+
+                sourcePoseHandler = new HumanPoseHandler(source.avatar, source.transform);
+                var pose = new HumanPose();
+                sourcePoseHandler.GetHumanPose(ref pose);
+                sourceCache.root.transform.SetPositionAndRotation(
+                    source.transform.position,
+                    source.transform.rotation);
+                sourceCache.root.transform.localScale = source.transform.lossyScale;
+                sourceCache.animator.Rebind();
+                sourceCache.animator.Update(0f);
+                sourceCache.poseHandler.SetHumanPose(ref pose);
+                sourceCache.animator.Update(0f);
+                Assert.That(KimodoRetargetSamplingUtility.TryCaptureMuscleSample(
+                    sourceCache,
+                    out MuscleSample sourceSample,
+                    out error), Is.True, error);
+                Assert.That(KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                    sourceSample,
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(
+                        KimodoMotionModelProfiles.DefaultModelName),
+                    profileCache,
+                    out _,
+                    out MuscleSample profileBaselineSample,
+                    out error), Is.True, error);
+
+                Assert.That(KimodoRuntimeEffectorConstraintSolver.TryConvertEndpointDeltaGoal(
+                    source.transform,
+                    source.GetBoneTransform(HumanBodyBones.RightHand).position,
+                    sourceCache.humanScale,
+                    profileCache,
+                    HumanBodyBones.RightHand,
+                    target,
+                    out Vector3 profileGoal,
+                    out error), Is.True, error);
+                Assert.That(profileCache.GetBonePose(
+                    HumanBodyBones.Hips,
+                    out Vector3 profileRootPosition,
+                    out Quaternion profileRootRotation), Is.True);
+                Assert.That(profileCache.GetBonePose(
+                    HumanBodyBones.RightHand,
+                    out Vector3 profileBaselineEnd,
+                    out _), Is.True);
+                var profileSample = new KimodoMarkerSampleResult
+                {
+                    sampleData = profileBaselineSample,
+                    sampleValid = true,
+                    enabled = true,
+                    constraintMode = "effector",
+                    enableMask = KimodoConstraintMask.ForType("right-hand"),
+                    rootOverride = new KimodoRigidTransform
+                    {
+                        t = profileRootPosition,
+                        q = profileRootRotation,
+                        space = KimodoConstraintSpace.World
+                    },
+                    effectors = new KimodoConstraintEffectors()
+                };
+                profileSample.effectors.rightHand.t = profileGoal;
+                profileSample.effectors.rightHand.enableRotation = false;
+                profileSample.effectors.rightHand.space = KimodoConstraintSpace.World;
+                Assert.That(KimodoConstraintPosePipeline.TryApplyCanonical(
+                    profileSample,
+                    KimodoMotionModelProfiles.ResolveGenerationFrameRate(
+                        KimodoMotionModelProfiles.DefaultModelName),
+                    profileCache,
+                    out _,
+                    out _,
+                    out error), Is.True, error);
+                Assert.That(profileCache.GetBonePose(
+                    HumanBodyBones.RightHand,
+                    out Vector3 expectedProfileEnd,
+                    out _), Is.True);
+                Assert.That(Vector3.Distance(expectedProfileEnd, profileBaselineEnd), Is.GreaterThan(0.001f));
+
+                float[] exportedTarget = result.json.target_positions[0];
+                Vector3 exportedProfileEnd = new Vector3(
+                    -exportedTarget[0],
+                    exportedTarget[1],
+                    exportedTarget[2]);
+                Assert.That(Vector3.Distance(exportedProfileEnd, expectedProfileEnd), Is.LessThan(1e-4f));
+                Assert.That(
+                    Vector3.Distance(expectedProfileEnd, profileGoal),
+                    Is.LessThan(0.01f),
+                    $"Profile IK endpoint did not reach converted goal. goal={profileGoal}, end={expectedProfileEnd}");
+            }
+            finally
+            {
+                sourcePoseHandler?.Dispose();
+                profileCache?.Dispose();
+                sourceCache?.Dispose();
                 solver.Dispose();
                 Object.DestroyImmediate(instance);
             }

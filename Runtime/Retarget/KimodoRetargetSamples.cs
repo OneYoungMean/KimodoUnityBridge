@@ -145,7 +145,7 @@ namespace KimodoBridge
     public sealed class RetargetSkeleton : IDisposable
     {
         public Avatar avatar;
-        /// <summary>Avatar-derived scale used only for HumanPose RootTQ/FootTQ transport conversion.</summary>
+        /// <summary>Avatar-derived scale used by HumanPose RootTQ/FootTQ and cross-avatar goal-delta transport.</summary>
         public float humanScale = 1f;
         public GameObject root;
         public Transform skeletonRoot;

@@ -6,9 +6,9 @@ using UnityEngine;
 namespace KimodoBridge
 {
     /// <summary>
-    /// Solves one runtime effector on the source Avatar, then retargets the
-    /// solved muscle pose to the model profile. The profile pose is only
-    /// captured for export; it must not run a second IK pass.
+    /// Retargets the source FK pose to the model profile, converts the source
+    /// goal around the two FK endpoints, and solves the converted goal on the
+    /// profile Avatar before exporting that pose.
     /// </summary>
     internal sealed class KimodoRuntimeEffectorConstraintSolver : IDisposable
     {
@@ -146,19 +146,32 @@ namespace KimodoBridge
                 target.space = KimodoConstraintSpace.World;
 
                 float frameRate = KimodoMotionModelProfiles.ResolveGenerationFrameRate(modelName);
-                if (!KimodoConstraintPosePipeline.TryApplyCanonical(
-                        sample,
+                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
+                        supportSample,
                         frameRate,
-                        sourceCache,
+                        profileCache,
                         out _,
-                        out MuscleSample solvedMuscle,
+                        out MuscleSample profileBaselineSample,
                         out error))
                 {
                     return false;
                 }
 
-                if (!KimodoRetargetSamplingUtility.TrySampleTargetFromSingleMuscleSample(
-                        solvedMuscle,
+                if (!TryBuildProfileIkSample(
+                        sample,
+                        profileBaselineSample,
+                        bone,
+                        targetPosition,
+                        targetRotation,
+                        enableRotation,
+                        out KimodoMarkerSampleResult profileSample,
+                        out error))
+                {
+                    return false;
+                }
+
+                if (!KimodoConstraintPosePipeline.TryApplyCanonical(
+                        profileSample,
                         frameRate,
                         profileCache,
                         out _,
@@ -225,6 +238,102 @@ namespace KimodoBridge
                 sourceCache,
                 out sample,
                 out error);
+        }
+
+        private bool TryBuildProfileIkSample(
+            KimodoMarkerSampleResult sourceSample,
+            MuscleSample profileBaselineSample,
+            HumanBodyBones bone,
+            Vector3 sourceGoal,
+            Quaternion targetRotation,
+            bool enableRotation,
+            out KimodoMarkerSampleResult profileSample,
+            out string error)
+        {
+            profileSample = null;
+            error = string.Empty;
+            if (sourceSample == null || profileBaselineSample == null ||
+                sourceCache?.skeletonRoot == null || profileCache?.skeletonRoot == null ||
+                sourceAnimator == null || sourceAnimator.GetBoneTransform(bone) == null)
+            {
+                error = "Runtime effector profile IK inputs are not initialized.";
+                return false;
+            }
+
+            if (!TryConvertEndpointDeltaGoal(
+                    sourceAnimator.transform,
+                    sourceAnimator.GetBoneTransform(bone).position,
+                    sourceCache.humanScale,
+                    profileCache,
+                    bone,
+                    sourceGoal,
+                    out Vector3 profileGoal,
+                    out error) ||
+                !profileCache.GetBonePose(
+                    HumanBodyBones.Hips,
+                    out Vector3 profileRootPosition,
+                    out Quaternion profileRootRotation))
+            {
+                if (string.IsNullOrEmpty(error))
+                {
+                    error = "Runtime effector profile IK requires a sampled profile Hips pose.";
+                }
+                return false;
+            }
+
+            profileSample = sourceSample.Clone();
+            profileSample.sampleData = profileBaselineSample;
+            profileSample.rootOverride = new KimodoRigidTransform
+            {
+                t = profileRootPosition,
+                q = profileRootRotation.normalized,
+                space = KimodoConstraintSpace.World
+            };
+            profileSample.effectors = new KimodoConstraintEffectors();
+            KimodoRigidTransform target = ResolveEffector(profileSample.effectors, bone);
+            target.t = profileGoal;
+            target.q = targetRotation.normalized;
+            target.enableRotation = enableRotation;
+            target.space = KimodoConstraintSpace.World;
+            return true;
+        }
+
+        internal static bool TryConvertEndpointDeltaGoal(
+            Transform sourceRoot,
+            Vector3 sourceBaselineEnd,
+            float sourceHumanScale,
+            RetargetSkeleton profileCache,
+            HumanBodyBones bone,
+            Vector3 sourceGoal,
+            out Vector3 profileGoal,
+            out string error)
+        {
+            profileGoal = Vector3.zero;
+            error = string.Empty;
+            if (sourceRoot == null || profileCache?.root == null)
+            {
+                error = "Runtime effector goal conversion requires both skeleton roots.";
+                return false;
+            }
+
+            if (!profileCache.GetBonePose(bone, out Vector3 profileBaselineEnd, out _))
+            {
+                error = $"Runtime effector goal conversion requires a sampled profile '{bone}' pose.";
+                return false;
+            }
+
+            // humanScale is the scale used by Unity's HumanPose RootTQ/FootTQ
+            // transport. Use the live Animator's endpoint as the source anchor:
+            // setting its HumanPose on a virtual skeleton can move that clone's
+            // FK endpoint relative to the source scene Transform.
+            sourceHumanScale = Mathf.Max(1e-6f, sourceHumanScale);
+            float profileHumanScale = Mathf.Max(1e-6f, profileCache.humanScale);
+            Vector3 sourceRootRelativeDelta = sourceRoot.InverseTransformVector(
+                sourceGoal - sourceBaselineEnd);
+            profileGoal = profileBaselineEnd +
+                profileCache.root.transform.TransformVector(
+                    sourceRootRelativeDelta * (profileHumanScale / sourceHumanScale));
+            return true;
         }
 
         private static KimodoRigidTransform ResolveEffector(
