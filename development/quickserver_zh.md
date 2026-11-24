@@ -16,14 +16,12 @@ TCP `generate` 请求可以设置 `output_mp4: true`。QuickServer 会保留所�
 
 ## 媒体姿态分析
 
-Unity 命令 `pose.fromvideo` 和 `pose.frompicture` 都是异步命令。命令返回 `request_id`，使用 `generation.get` 轮询，并且不会修改 Unity 场景资产。Unity 命令字段是绝对路径 `video_path` 和 `image_path`；底层 QuickServer TCP 适配器使用同一操作的 `media_path` 字段。
+Unity 命令 `pose.fromvideo` 和 `pose.frompicture` 都是异步命令。它们返回 `request_id`，使用 `generation.get` 轮询，并且不会修改 Unity 场景资产。Unity 命令字段是绝对路径 `video_path` 和 `image_path`；底层 QuickServer TCP 适配器使用同一操作的 `media_path` 字段。
 
-`pose.fromvideo` 接受 MP4、MOV、M4V、AVI 和 MKV，文件上限为 2 GiB。可选的 `person` 值（`left` 或 `right`）按画面左右选择表演者。`pose.frompicture` 接受 PNG、JPG 和 JPEG，文件上限为 2 GiB，并返回一个姿态样本。内部会把静态图像按 24 FPS 重复成一秒视频以运行视频估计器，然后返回中间帧的估计结果。
+`pose.fromvideo` 接受 MP4、MOV、M4V、AVI 和 MKV，文件上限为 2 GiB。`pose.frompicture` 接受 PNG、JPG 和 JPEG，文件上限为 2 GiB，并返回一个姿态样本。处理图片时，QuickServer 会将静态图像重复为 30 FPS、时长一秒的视频，然后保留中间帧的估计结果。
 
-结果是 SMPL-X 姿态数组：旋转为弧度制轴角，位移为米，并包含源帧率、帧数、关节名称、体型参数（`betas`）、静止关节、重力对齐的 Y-up 坐标和可选的 OpenCV 相机坐标字段。这些数据用于后续重定向或构造约束，本身不是 Unity AnimationClip。
+返回结果是 KMB1 附件，包含 FlowHMR 的 52 关节 SMPL-H 动作，以及源帧率和帧数。可用时还会包含相机、逐帧全局时间和人体检测轨道；这些数据可用于在 Unity 中重定向或构造约束。
 
 ## 运行时来源与资源
 
-默认使用内置的 Mixamo LLM Mocap pipeline；设置 `KIMODO_MOCAP_ROOT` 可以指定其他 checkout。`KIMODO_MOCAP_PYTHON` 指定 GVHMR 使用的 Python 解释器；未设置时使用 QuickServer 当前解释器。`GVHMR_ROOT` 指定 GVHMR 运行时和检查点目录，默认是 `vendor/GVHMR`。
-
-分析时如果条件允许，QuickServer 会补齐缺失的 GVHMR 源码和检查点；随后要求检查点旁存在内置的轻量 SMPL-X 资源 `SMPLX_NEUTRAL_LITE_V437.npz`（3,539,332 字节，约 3.54 MB）。仅做姿态分析不需要完整 SMPL-X 模型。源码、解释器、媒体或检查点缺失时会返回分析错误，应先修复后再重试请求。
+`pose.fromvideo` 和 `pose.frompicture` 使用随包提供的 FlowHMR 源码。Setup 会为 FlowHMR 创建独立的 Python 3.10 环境；设置 `KIMODO_SETUP_FLOWHMR=0` 可跳过该环境，设置 `KIMODO_FLOWHMR_PYTHON` 可指定外部管理的解释器。FlowHMR 权重和受限的人体模型资源按上游访问条件及许可证要求放在 `models/FlowHMR` 下。

@@ -18,12 +18,10 @@ The renderer uses the UniMate plotting module. Set `KIMODO_UNIMATE_ROOT` when Un
 
 Unity commands `pose.fromvideo` and `pose.frompicture` are asynchronous. They return a `request_id`, which is polled with `generation.get`, and leave Unity scene assets unchanged. The Unity command fields are absolute `video_path` and `image_path`; the lower-level QuickServer TCP adapter calls the same operations with `media_path`.
 
-`pose.fromvideo` accepts MP4, MOV, M4V, AVI, and MKV files up to 2 GiB. Its optional `person` value (`left` or `right`) selects a performer by screen side. `pose.frompicture` accepts PNG, JPG, and JPEG files up to 2 GiB and returns one pose sample. Internally the still image is repeated for one second at 24 FPS so the video estimator can run, then the middle estimate is returned.
+`pose.fromvideo` accepts MP4, MOV, M4V, AVI, and MKV files up to 2 GiB. `pose.frompicture` accepts PNG, JPG, and JPEG files up to 2 GiB and returns one pose sample. For image inference, QuickServer repeats the still image for one second at 30 FPS, then keeps the middle estimate.
 
-The result is an SMPL-X pose array with axis-angle rotations in radians and translations in meters. It includes the source frame rate, frame counts, joint names, body shape (`betas`), rest joints, gravity-aligned Y-up coordinates, and optional OpenCV-camera fields. The data is intended for downstream retargeting or constraint construction; it is not a Unity AnimationClip by itself.
+The response contains FlowHMR's 52-joint SMPL-H motion in a KMB1 attachment, with source frame rate and frame count. Camera, per-frame global-time, and human-detection tracks are included when available; the output can be retargeted or used to build constraints in Unity.
 
 ## Runtime sources and assets
 
-The bundled Mixamo LLM Mocap pipeline is used unless `KIMODO_MOCAP_ROOT` points to another checkout. `KIMODO_MOCAP_PYTHON` selects the Python interpreter used for GVHMR; otherwise QuickServer uses its current interpreter. `GVHMR_ROOT` selects the GVHMR runtime/checkpoint directory and defaults to `vendor/GVHMR`.
-
-QuickServer provisions missing GVHMR source and checkpoints during analysis when it can, then requires the lightweight bundled `SMPLX_NEUTRAL_LITE_V437.npz` asset (3,539,332 bytes, about 3.54 MB) beside the checkpoints. Pose-only analysis does not require the full SMPL-X model. Missing source, interpreter, media, or checkpoints are reported as analysis errors and should be fixed before retrying the request.
+`pose.fromvideo` and `pose.frompicture` use the bundled FlowHMR source. Setup creates a separate Python 3.10 environment for FlowHMR; `KIMODO_SETUP_FLOWHMR=0` skips it, and `KIMODO_FLOWHMR_PYTHON` selects an externally managed interpreter. FlowHMR weights and gated body-model assets are provisioned under `models/FlowHMR` according to their upstream access and license terms.
