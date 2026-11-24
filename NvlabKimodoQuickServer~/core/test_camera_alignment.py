@@ -7,8 +7,10 @@ import numpy as np
 from camera_alignment import (
     CameraWorldAlignment,
     _MHR_TO_SMPLH,
+    _load_yup_camera_rt,
     _reconstruct_smplh_joints,
     solve_camera_world_alignment,
+    transform_camera_track_actor_to_unity,
     transform_camera_track_to_actor_world,
 )
 
@@ -88,6 +90,31 @@ class CameraAlignmentTests(unittest.TestCase):
         np.testing.assert_allclose(rotations[0].T @ rotations[0], np.eye(3), atol=1e-8)
         self.assertAlmostEqual(float(np.linalg.det(rotations[0])), 1.0, places=8)
         np.testing.assert_allclose(positions[0], alignment.vggt_to_actor[:3, :3] @ camera_world[:3, 3] + alignment.vggt_to_actor[:3, 3], atol=1e-6)
+
+    def test_raw_opencv_rt_is_converted_to_yup_before_projection(self):
+        raw = np.repeat(np.eye(4, dtype=np.float64)[None], 2, axis=0)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "camera.npz"
+            np.savez(path, RT=raw, camera_world="vggt_opencv_raw")
+            with np.load(path, allow_pickle=False) as data:
+                converted = _load_yup_camera_rt(data)
+        expected = np.repeat(np.diag((1.0, -1.0, -1.0))[None], 2, axis=0)
+        np.testing.assert_allclose(converted[:, :3, :3], expected, atol=1e-12)
+
+    def test_actor_to_unity_camera_conversion_uses_distinct_world_and_camera_bases(self):
+        actor_positions = np.asarray(((1.0, 2.0, 3.0), (-4.0, 5.0, 6.0)))
+        # OpenCV camera local axes: right, down, forward. This camera looks
+        # toward -Z in actor world, with its image-down axis toward -Y.
+        actor_rotations = np.repeat(np.diag((1.0, -1.0, -1.0))[None], 2, axis=0)
+
+        positions, rotations = transform_camera_track_actor_to_unity(actor_positions, actor_rotations)
+
+        np.testing.assert_allclose(positions, ((-1.0, 2.0, 3.0), (4.0, 5.0, 6.0)), atol=1e-7)
+        expected_rotation = np.diag((-1.0, 1.0, -1.0))
+        np.testing.assert_allclose(rotations, np.repeat(expected_rotation[None], 2, axis=0), atol=1e-12)
+        np.testing.assert_allclose(rotations[:, :, 1], np.tile((0.0, 1.0, 0.0), (2, 1)), atol=1e-12)
+        np.testing.assert_allclose(rotations[:, :, 2], np.tile((0.0, 0.0, -1.0), (2, 1)), atol=1e-12)
+        np.testing.assert_allclose(np.linalg.det(rotations), np.ones(2), atol=1e-12)
 
 
 if __name__ == "__main__":

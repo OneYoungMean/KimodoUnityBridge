@@ -15,6 +15,7 @@ import numpy as np
 from core.camera_alignment import (
     CameraWorldAlignment,
     solve_camera_world_alignment,
+    transform_camera_track_actor_to_unity,
     transform_camera_track_to_actor_world,
 )
 from core.protocol.kmb_motion import KmbCameraTrack, KmbMotion, encode_kmb1
@@ -104,12 +105,10 @@ def _load_camera_track(camera_npz_path: str | Path, frame_count: int, fps: float
     if alignment is None:
         raise ValueError("A camera-to-SMPL-X pelvis alignment is required for a world camera track.")
     actor_positions, actor_rotations = transform_camera_track_to_actor_world(str(path), alignment)
-    # FlowHMR/SMPL-H and Unity use different handedness for the imported motion.
-    # Conjugating by this reflection keeps a proper rotation while matching the
-    # root-position conversion already used by KMB1's Unity parser.
-    reflection = np.diag([-1.0, 1.0, 1.0])
-    positions = actor_positions @ reflection.T
-    rotations = reflection[None] @ actor_rotations @ reflection[None]
+    # Convert both the actor world basis and the OpenCV camera-local basis.
+    # These are distinct reflections: world X mirrors with the imported motion,
+    # and camera-local Y changes from image-down to Unity-up.
+    positions, rotations = transform_camera_track_actor_to_unity(actor_positions, actor_rotations)
     quaternions = _rotation_matrix_to_wxyz(rotations)
     if not np.isfinite(positions).all() or not np.isfinite(quaternions).all():
         raise ValueError("FlowHMR camera cache contains non-finite values.")

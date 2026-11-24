@@ -98,6 +98,66 @@ def _project(points_actor: np.ndarray, camera_rt: np.ndarray, intrinsics: np.nda
     return np.stack((u, v), axis=-1), depth
 
 
+_OPENCV_TO_YUP = np.diag((1.0, -1.0, -1.0, 1.0))
+_ACTOR_TO_UNITY_WORLD_BASIS = np.diag((-1.0, 1.0, 1.0))
+_UNITY_TO_OPENCV_CAMERA_BASIS = np.diag((1.0, -1.0, 1.0))
+
+
+def transform_camera_track_actor_to_unity(
+        actor_positions: np.ndarray, actor_rotations: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Convert an actor-space camera pose to Unity world and local-camera bases.
+
+    Actor positions are mirrored on X to match the Unity motion import. Camera
+    rotations use separate world and camera-local basis changes: actor world to
+    Unity world is an X reflection, while OpenCV camera Y-down to Unity camera
+    Y-up is a Y reflection. Applying both reflections around the rotation
+    matrix preserves a proper rotation that can be represented by a quaternion.
+    """
+    positions = np.asarray(actor_positions, dtype=np.float64)
+    rotations = np.asarray(actor_rotations, dtype=np.float64)
+    if positions.ndim != 2 or positions.shape[1] != 3:
+        raise ValueError(f"Camera positions must have shape [frames,3], got {positions.shape}.")
+    if rotations.shape != (positions.shape[0], 3, 3):
+        raise ValueError(
+            f"Camera rotations must have shape [{positions.shape[0]},3,3], got {rotations.shape}.")
+
+    unity_positions = positions @ _ACTOR_TO_UNITY_WORLD_BASIS.T
+    unity_rotations = (
+        _ACTOR_TO_UNITY_WORLD_BASIS[None]
+        @ rotations
+        @ _UNITY_TO_OPENCV_CAMERA_BASIS[None]
+    )
+    if not np.isfinite(unity_positions).all() or not np.isfinite(unity_rotations).all():
+        raise ValueError("Camera track contains non-finite values after Unity basis conversion.")
+    return unity_positions.astype(np.float32), unity_rotations
+
+
+def _load_yup_camera_rt(camera_data: Any) -> np.ndarray:
+    """Load camera-from-Y-up-world RT from a FlowHMR camera cache.
+
+    ``camera_RT_yup`` is already in the actor/SMPL Y-up basis.  Older or
+    lower-level caches expose raw VGGT OpenCV camera-from-world RT instead.
+    The latter uses camera Y-down/Z-forward axes, so the same basis change as
+    ``runtime_vggt_camera._vggt_opencv_to_yup_rt`` is required before it can
+    project the Y-up FlowHMR joints.
+    """
+    if "camera_RT_yup" in camera_data.files:
+        camera_rt = np.asarray(camera_data["camera_RT_yup"], dtype=np.float64)
+    elif "RT_vggt" in camera_data.files:
+        camera_rt = np.asarray(camera_data["RT_vggt"], dtype=np.float64) @ _OPENCV_TO_YUP
+    elif "RT" in camera_data.files or "camera_RT" in camera_data.files:
+        key = "RT" if "RT" in camera_data.files else "camera_RT"
+        camera_rt = np.asarray(camera_data[key], dtype=np.float64)
+        camera_world = str(camera_data["camera_world"]) if "camera_world" in camera_data.files else ""
+        if camera_world and "opencv" in camera_world.lower():
+            camera_rt = camera_rt @ _OPENCV_TO_YUP
+    else:
+        raise ValueError("Camera cache has no camera_RT_yup or raw VGGT RT field.")
+    if camera_rt.ndim != 3 or camera_rt.shape[1:] != (4, 4) or not np.isfinite(camera_rt).all():
+        raise ValueError(f"Camera cache has invalid RT shape or values: {camera_rt.shape}.")
+    return camera_rt
+
+
 def _select_frames(bbox: np.ndarray, image_size_hw: np.ndarray) -> np.ndarray:
     height, width = (float(image_size_hw[0]), float(image_size_hw[1]))
     if bbox.ndim != 2 or bbox.shape[1] != 4:
@@ -163,12 +223,7 @@ def solve_camera_world_alignment(motion_npz_path: str, camera_npz_path: str,
     with np.load(motion_npz_path, allow_pickle=False) as motion_data:
         actor_joints = _reconstruct_smplh_joints(motion_data)
     with np.load(camera_npz_path, allow_pickle=False) as camera_data:
-        if "camera_RT_yup" in camera_data.files:
-            camera_rt = np.asarray(camera_data["camera_RT_yup"], dtype=np.float64)
-        elif "RT" in camera_data.files:
-            camera_rt = np.asarray(camera_data["RT"], dtype=np.float64)
-        else:
-            raise ValueError("Camera cache has no camera_RT_yup or RT field.")
+        camera_rt = _load_yup_camera_rt(camera_data)
         intrinsics = np.asarray(camera_data["K"], dtype=np.float64)
         image_size_hw = np.asarray(camera_data["image_size_hw"], dtype=np.float64).reshape(-1)
     frames = actor_joints.shape[0]
@@ -210,14 +265,27 @@ def solve_camera_world_alignment(motion_npz_path: str, camera_npz_path: str,
     else:
         first_center = (observations[:, :2] + observations[:, 2:]) * 0.5
     image_center = np.stack((k[:, 0, 2], k[:, 1, 2]), axis=-1)
-    ray_offset = np.median((first_center - image_center) / np.stack((k[:, 0, 0], k[:, 1, 1]), axis=-1), axis=0)
+    ray_offsets = (first_center - image_center) / np.stack((k[:, 0, 0], k[:, 1, 1]), axis=-1)
     actor_center = np.median(points.mean(axis=1), axis=0)
+
+    # The ray is measured in camera coordinates.  Convert it through the
+    # selected frame's camera-to-world pose before using it as the initial
+    # actor-to-world translation.  With the Y-up cache this is essential: the
+    # camera's forward axis is -world Z, so putting ``initial_depth`` directly
+    # on world Z places the person behind the camera.
+    camera_targets = np.column_stack((ray_offsets * initial_depth,
+                                      np.full(len(ray_offsets), initial_depth),
+                                      np.ones(len(ray_offsets))))
+    camera_to_world = np.linalg.inv(rt)
+    world_targets = np.einsum("tij,tj->ti", camera_to_world, camera_targets)
+    target_center_world = np.median(world_targets[:, :3], axis=0)
 
     def residual(parameters: np.ndarray) -> np.ndarray:
         yaw = float(parameters[0])
-        scale = float(np.exp(parameters[1]))
-        translation = parameters[2:5]
-        projected, depth = _project(points, rt, k, scale, yaw, translation)
+        translation = parameters[1:4]
+        # FlowHMR's SMPL-H joint positions are in model meters.  Keeping their
+        # scale fixed anchors the monocular camera distance to a real unit.
+        projected, depth = _project(points, rt, k, 1.0, yaw, translation)
         if observation_type == "keypoints":
             center_residual = ((projected - observations) /
                                np.asarray((image_size_hw[1], image_size_hw[0])))
@@ -237,48 +305,53 @@ def solve_camera_world_alignment(motion_npz_path: str, camera_npz_path: str,
         return np.concatenate((center_residual, size_residual, depth_residual), axis=1).reshape(-1)
 
     candidates = []
-    bounds = (np.asarray((-np.pi, -3.0, -100.0, -100.0, 0.05)),
-              np.asarray((np.pi, 3.0, 100.0, 100.0, 100.0)))
+    bounds = (np.asarray((-np.pi, -100.0, -100.0, -100.0)),
+              np.asarray((np.pi, 100.0, 100.0, 100.0)))
     for yaw0 in (0.0, np.pi, -np.pi / 2, np.pi / 2):
         c0 = float(np.cos(yaw0))
         s0 = float(np.sin(yaw0))
         rotation0 = np.asarray(((c0, 0.0, -s0), (0.0, 1.0, 0.0), (s0, 0.0, c0)))
-        target_center = np.asarray((ray_offset[0] * initial_depth,
-                                    ray_offset[1] * initial_depth,
-                                    initial_depth))
-        translation0 = target_center - rotation0 @ actor_center
-        x0 = np.asarray((yaw0, 0.0, *translation0), dtype=np.float64)
-        candidates.append(least_squares(
+        translation0 = target_center_world - rotation0 @ actor_center
+        x0 = np.asarray((yaw0, *translation0), dtype=np.float64)
+        # Keep the geometric initialization as a candidate because the
+        # monocular scale is fixed by the metric SMPL-H body dimensions.
+        candidates.append(x0)
+        fitted = least_squares(
             residual, x0, bounds=bounds, loss="soft_l1", f_scale=0.02, max_nfev=2000,
-        ))
-    result = min(candidates, key=lambda candidate: candidate.cost)
-    if not result.success or not np.isfinite(result.x).all():
-        raise ValueError(f"Camera alignment did not converge: {result.message}")
-    yaw = float(result.x[0])
-    scale = float(np.exp(result.x[1]))
-    translation = result.x[2:5].astype(np.float64)
-    projected, depth = _project(points, rt, k, scale, yaw, translation)
-    if observation_type == "keypoints":
-        error = np.linalg.norm(projected - observations, axis=2).reshape(-1)
-    else:
-        predicted = np.stack((projected[:, :, 0].min(axis=1), projected[:, :, 1].min(axis=1),
-                              projected[:, :, 0].max(axis=1), projected[:, :, 1].max(axis=1)), axis=1)
-        error = np.linalg.norm(((predicted[:, :2] + predicted[:, 2:]) -
-                                (observations[:, :2] + observations[:, 2:])) * 0.5, axis=1)
-    if np.any(depth <= 0.0) or not np.isfinite(error).all() or float(np.median(error)) > max(image_size_hw) * 0.15:
-        raise ValueError(f"Camera alignment residual is too large: median_observation_error_px={float(np.median(error)):.2f}")
-    return CameraWorldAlignment(scale, yaw, translation, float(np.median(error)), int(indices.size), observation_type)
+        )
+        if np.isfinite(fitted.x).all():
+            candidates.append(fitted.x)
+
+    def candidate_error(parameters: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
+        projected, depth = _project(points, rt, k, 1.0, float(parameters[0]), parameters[1:4])
+        if observation_type == "keypoints":
+            error_values = np.linalg.norm(projected - observations, axis=2).reshape(-1)
+        else:
+            predicted = np.stack((projected[:, :, 0].min(axis=1), projected[:, :, 1].min(axis=1),
+                                  projected[:, :, 0].max(axis=1), projected[:, :, 1].max(axis=1)), axis=1)
+            error_values = np.linalg.norm(((predicted[:, :2] + predicted[:, 2:]) -
+                                           (observations[:, :2] + observations[:, 2:])) * 0.5, axis=1)
+        score = float(np.median(error_values)) if np.isfinite(error_values).all() else float("inf")
+        if np.any(depth <= 0.0):
+            score = float("inf")
+        return score, projected, depth
+
+    result_x = min(candidates, key=lambda candidate: candidate_error(candidate)[0])
+    best_score, projected, depth = candidate_error(result_x)
+    if not np.isfinite(result_x).all() or not np.isfinite(best_score):
+        raise ValueError("Camera alignment did not converge to a finite positive-depth solution.")
+    yaw = float(result_x[0])
+    scale = 1.0
+    translation = result_x[1:4].astype(np.float64)
+    if best_score > max(image_size_hw) * 0.15:
+        raise ValueError(f"Camera alignment residual is too large: median_observation_error_px={best_score:.2f}")
+    return CameraWorldAlignment(scale, yaw, translation, best_score, int(indices.size), observation_type)
 
 
 def transform_camera_track_to_actor_world(camera_npz_path: str, alignment: CameraWorldAlignment) -> tuple[np.ndarray, np.ndarray]:
     """Return actor-world camera positions and camera-to-world rotations."""
     with np.load(camera_npz_path, allow_pickle=False) as data:
-        if "camera_RT_yup" in data.files:
-            camera_rt = np.asarray(data["camera_RT_yup"], dtype=np.float64)
-        elif "RT" in data.files:
-            camera_rt = np.asarray(data["RT"], dtype=np.float64)
-        else:
-            raise ValueError("Camera cache has no camera_RT_yup or RT field.")
+        camera_rt = _load_yup_camera_rt(data)
     camera_world = np.linalg.inv(camera_rt)
     inverse_alignment = alignment.vggt_to_actor
     camera_actor = inverse_alignment[None] @ camera_world

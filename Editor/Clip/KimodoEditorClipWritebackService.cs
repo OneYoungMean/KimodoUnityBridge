@@ -108,6 +108,35 @@ namespace KimodoBridge.Editor
             return false;
         }
 
+        internal static bool TryArchiveGeneratedAnimationClipAsset(AnimationClip clip, out string error)
+        {
+            error = string.Empty;
+            if (clip == null)
+            {
+                return false;
+            }
+
+            string assetPath = AssetDatabase.GetAssetPath(clip);
+            if (!IsGeneratedAnimationClipAssetPath(assetPath))
+            {
+                return false;
+            }
+
+            const string archiveFolder = GeneratedClipFolder + "/archive";
+            EnsureFolderExists(archiveFolder);
+            string archivePath = AssetDatabase.GenerateUniqueAssetPath(
+                $"{archiveFolder}/{Path.GetFileName(assetPath)}");
+            string moveError = AssetDatabase.MoveAsset(assetPath, archivePath);
+            if (!string.IsNullOrEmpty(moveError))
+            {
+                error = moveError;
+                return false;
+            }
+
+            FlushWritebackAssets();
+            return true;
+        }
+
         public static bool TryLoadNamedClipCache(string cacheName, out AnimationClip cachedClip, out string error)
         {
             cachedClip = null;
