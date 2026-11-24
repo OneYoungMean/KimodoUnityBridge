@@ -188,7 +188,7 @@ namespace KimodoUnityBridge.Command
                 PoseFromMediaCommand => CommandDocumentation(
                     "Use when a local video or still image should be converted by FlowHMR into SMPL-H KMB motion.",
                     new[] { "Pass an absolute media_path readable by QuickServer and a Timeline character name or object_ref. Supported video formats are MP4, MOV, M4V, AVI, MKV, and WEBM; supported image formats are PNG, JPG, and JPEG; maximum file size is 2 GiB.", "The media type is inferred from the extension. A still image produces a one-frame pose; a video produces a full motion sequence.", "Set enable_camera=true for video only to run the dynamic VGGT camera path; this requires exactly one enabled scene Camera tagged MainCamera. The default false path uses the lighter static-camera route.", "The command returns status=accepted and a request_id for continued progress tracking through generation.get. FlowHMR automatically selects the tracked performer." },
-                    new[] { "A completed request returns a KMB1 SMPL-H motion attachment, frame rate, and frame count. Unity validates the KMB, retargets it through the required Timeline binding Avatar, writes a Humanoid muscle clip, and appends it to the character track.", "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera." },
+                    new[] { "A completed video request keeps FlowHMR's 30 FPS pose samples and frame count in KMB. The optional global_time_seconds track supplies each sample's source-timeline time; Unity uses it for non-uniform AnimationClip key times and full source-duration playback. Older KMBs without this track use diagnostic JSON timestamps when available, then frame_index / fps.", "The optional human_detection_01 track records actual detector hits per FlowHMR sample. Unity holds the nearest valid pose for samples without a hit; older KMBs without this track keep the legacy tracking-range behavior. generation.get reports track lengths and detection count, selected track id, and detected range when available.", "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera; the camera curves use the same source-timeline times." },
                     new[] { "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal." },
                     new[] { "FlowHMR code is in vendor/FlowHMR; downloadable and licensed model files are stored under models/FlowHMR. The dedicated FlowHMR Python environment remains separate from QuickServer's environment." },
                     GetGenerationCommand),
@@ -297,7 +297,7 @@ namespace KimodoUnityBridge.Command
                 GenerateAnimationCommand => new[] { "request_id", "status", "check", "warnings", "wait_seconds" },
                 PoseGetCommand => new[] { "pose", "source", "character_root", "data" },
                 PoseSetCommand => new[] { "pose", "data" },
-                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "waited_seconds", "poll_after_seconds", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "clip_settings", "animation_id", "seed", "analysis", "post_analysis", "source_type", "skeleton", "fps", "source_fps", "source_frame_count", "frame_count", "source_duration_seconds", "frame_timestamps_seconds", "tracking_frame_range", "output_format", "kmb", "kmb_attachments", "kmb_payload_base64", "kmb_frame_count", "byte_length", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
+                GetGenerationCommand => new[] { "request_id", "status", "stage", "message", "started_at_utc", "estimated_completion_utc", "eta_seconds", "progress_current", "progress_total", "progress_rate", "backend_progress", "waited_seconds", "poll_after_seconds", "runtime_root", "runtime_version", "install_mode", "server_connected", "clip", "clip_settings", "animation_id", "seed", "analysis", "post_analysis", "source_type", "skeleton", "fps", "source_fps", "source_frame_count", "frame_count", "source_duration_seconds", "frame_timestamps_seconds", "global_time_seconds_length", "tracking_frame_range", "human_detection_01_count", "human_detection_01_length", "human_detection_track_id", "human_detection_frame_range", "output_format", "kmb", "kmb_attachments", "kmb_payload_base64", "kmb_frame_count", "byte_length", "constraint_loss", "inout_sampling", "target_alive", "backend_request_json" },
                 CancelGenerationCommand => new[] { "request_id", "status", "stage", "message", "canceled", "clip" },
                 SessionClearCommand => new[] { "cleared", "name", "destroyed_context_count", "recreated_on_next_command" },
                 _ => Array.Empty<string>()
@@ -340,6 +340,7 @@ namespace KimodoUnityBridge.Command
                 case "width": case "height": case "tile_count": case "completed_tiles": case "duration_frames_60": case "current_frame_60":
                 case "destroyed_context_count": case "duration_frames": case "progress_current": case "progress_total": case "count": case "seed":
                 case "source_frame_count": case "frame_count": case "source_frame": case "kmb_frame_count": case "byte_length":
+                case "global_time_seconds_length": case "human_detection_01_length":
                     return new JObject { ["type"] = "integer" };
                 case "frame_rate": case "fps": case "source_fps":
                     return new JObject { ["type"] = "number" };
@@ -349,6 +350,8 @@ namespace KimodoUnityBridge.Command
                     return new JObject { ["type"] = "boolean" };
                 case "eta_seconds": case "progress_rate": case "waited_seconds": case "poll_after_seconds":
                     return NullableSchema(new JObject { ["type"] = "number" });
+                case "human_detection_01_count": case "human_detection_track_id":
+                    return NullableSchema(new JObject { ["type"] = "integer" });
                 case "wait_seconds":
                     return new JObject { ["type"] = "number" };
                 case "kmb":
@@ -359,6 +362,8 @@ namespace KimodoUnityBridge.Command
                     return ArraySchema("number");
                 case "tracking_frame_range":
                     return ArraySchema("integer");
+                case "human_detection_frame_range":
+                    return NullableSchema(ArraySchema("integer"));
                 case "ok": case "retargeted": case "cleared": case "server_connected": case "canceled": case "target_alive":
                 case "recreated_on_next_command": case "scene_lighting": case "show_skybox": case "show_gizmos":
                     return new JObject { ["type"] = "boolean" };

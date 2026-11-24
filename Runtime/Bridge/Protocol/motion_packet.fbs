@@ -17,6 +17,8 @@ table MotionPacket {
   model_name:string;
   foot_contacts:[ubyte];
   camera_track:CameraTrack;
+  global_time_seconds:[float];
+  human_detection_01:[ubyte];
 }
 
 root_type MotionPacket;

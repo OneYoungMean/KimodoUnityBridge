@@ -390,6 +390,20 @@ class VideoProcessor:
         return bbox_full[start:end + 1].astype(np.float32), np.array([start, end], dtype=np.int64)
 
     @staticmethod
+    def track_detection_01(result: TrackingResult, track_idx: int) -> np.ndarray:
+        """Return detector/ByteTrack hit frames for the selected track.
+
+        Interpolated bbox frames intentionally remain zero in this mask.
+        """
+        mask = np.zeros(max(0, int(result.total_frames)), dtype=np.uint8)
+        if track_idx < 0 or track_idx >= len(result.tracks):
+            return mask
+        frames = np.asarray(result.tracks[track_idx].frames, dtype=np.int64)
+        frames = frames[(frames >= 0) & (frames < mask.size)]
+        mask[frames] = 1
+        return mask
+
+    @staticmethod
     def smooth_bboxes(bbox_arr: np.ndarray, width: int, height: int) -> np.ndarray:
         """Clamp bboxes to image bounds. In-place modification + return."""
         bbox_arr[:, 0] = np.clip(bbox_arr[:, 0], 0, width - 1)

@@ -233,8 +233,54 @@ class MotionPacket(object):
             return x
         return None
 
+    def GlobalTimeSeconds(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0.0
+
+    def GlobalTimeSecondsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o)
+        return 0
+
+    def GlobalTimeSecondsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    def GlobalTimeSecondsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        return o == 0
+
+    def HumanDetection01(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    def HumanDetection01AsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    def HumanDetection01Length(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    def HumanDetection01IsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        return o == 0
+
 def MotionPacketStart(builder):
-    builder.StartObject(11)
+    builder.StartObject(13)
 
 def Start(builder):
     MotionPacketStart(builder)
@@ -416,6 +462,30 @@ def MotionPacketAddCameraTrack(builder, cameraTrack):
 
 def AddCameraTrack(builder, cameraTrack):
     MotionPacketAddCameraTrack(builder, cameraTrack)
+
+def MotionPacketAddGlobalTimeSeconds(builder, globalTimeSeconds):
+    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(globalTimeSeconds), 0)
+
+def AddGlobalTimeSeconds(builder, globalTimeSeconds):
+    MotionPacketAddGlobalTimeSeconds(builder, globalTimeSeconds)
+
+def MotionPacketStartGlobalTimeSecondsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def StartGlobalTimeSecondsVector(builder, numElems):
+    return MotionPacketStartGlobalTimeSecondsVector(builder, numElems)
+
+def MotionPacketAddHumanDetection01(builder, humanDetection01):
+    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(humanDetection01), 0)
+
+def AddHumanDetection01(builder, humanDetection01):
+    MotionPacketAddHumanDetection01(builder, humanDetection01)
+
+def MotionPacketStartHumanDetection01Vector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def StartHumanDetection01Vector(builder, numElems):
+    return MotionPacketStartHumanDetection01Vector(builder, numElems)
 
 def MotionPacketEnd(builder):
     return builder.EndObject()

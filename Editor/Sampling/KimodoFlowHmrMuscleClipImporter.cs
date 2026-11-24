@@ -76,18 +76,26 @@ namespace KimodoBridge.Editor
                 int frames = motion.FrameCount;
                 var sourceSamples = new List<MuscleSample>(frames);
                 bool hasSourceTiming = KimodoFlowHmrTiming.TryRead(
-                    analysis, frames, motion.FrameRate,
+                    motion, analysis,
                     out float[] frameTimes, out float durationSeconds,
                     out int trackingStartSample, out int trackingEndSampleExclusive, out error);
                 if (!string.IsNullOrEmpty(error))
                     return false;
+                if (motion.HasHumanDetectionTrack && !motion.HasAnyHumanDetection)
+                {
+                    error = "FlowHMR human_detection_01 contains no valid detector frames.";
+                    return false;
+                }
                 int rotationJoints = KimodoRawMotionUtility.ResolveRotationJointCount(motion);
                 for (int frame = 0; frame < frames; frame++)
                 {
-                    int poseFrame = hasSourceTiming
-                        ? KimodoFlowHmrTiming.ClampSampleToTrackingRange(
-                            frame, trackingStartSample, trackingEndSampleExclusive, frames)
-                        : frame;
+                    if (!TryResolvePoseFrame(
+                            motion, frame, hasSourceTiming,
+                            trackingStartSample, trackingEndSampleExclusive,
+                            frames, out int poseFrame, out error))
+                    {
+                        return false;
+                    }
                     for (int joint = 0; joint < bodyJointCount; joint++)
                     {
                         if (!motion.TryReadUnityLocalRotation(poseFrame, joint, rotationJoints, out Quaternion rotation))
@@ -149,6 +157,42 @@ namespace KimodoBridge.Editor
                 source.Dispose();
                 target.Dispose();
             }
+        }
+
+        internal static bool TryResolvePoseFrame(
+            KimodoRawMotionData motion,
+            int sampleFrame,
+            bool hasSourceTiming,
+            int trackingStartSample,
+            int trackingEndSampleExclusive,
+            int frameCount,
+            out int poseFrame,
+            out string error)
+        {
+            poseFrame = 0;
+            error = string.Empty;
+            if (motion == null || sampleFrame < 0 || sampleFrame >= frameCount || frameCount != motion.FrameCount)
+            {
+                error = "FlowHMR pose frame is outside the motion sample range.";
+                return false;
+            }
+
+            // human_detection_01 is aligned to the returned FlowHMR samples.
+            // Use it before legacy tracking-range mapping so VFR timestamps
+            // cannot change which pose is considered valid for this sample.
+            poseFrame = motion.HasHumanDetectionTrack
+                ? sampleFrame
+                : hasSourceTiming
+                    ? KimodoFlowHmrTiming.ClampSampleToTrackingRange(
+                        sampleFrame, trackingStartSample, trackingEndSampleExclusive, frameCount)
+                    : sampleFrame;
+            if (motion.HasHumanDetectionTrack &&
+                !motion.TryResolveHumanDetectionFrame(poseFrame, out poseFrame))
+            {
+                error = $"FlowHMR human_detection_01 has no valid pose near frame {sampleFrame}.";
+                return false;
+            }
+            return true;
         }
 
         private static bool TryGetBindLocalRotation(RetargetSkeleton cache, Transform transform, out Quaternion rotation)

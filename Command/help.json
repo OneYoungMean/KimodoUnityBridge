@@ -2146,8 +2146,9 @@
           "The command returns status=accepted and a request_id for continued progress tracking through generation.get. FlowHMR automatically selects the tracked performer."
         ],
           "result_notes": [
-            "A completed request returns a KMB1 SMPL-H motion attachment, output frame rate, source_fps, source_frame_count, source_duration_seconds, frame_timestamps_seconds, and tracking_frame_range. Unity validates the KMB, retargets it through the required Timeline binding Avatar, writes a Humanoid muscle clip, and appends that clip to the character track.",
-            "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera; both tracks use the source timestamps and full source duration."
+            "A completed video request keeps FlowHMR's 30 FPS pose samples and frame count in KMB. The optional global_time_seconds track supplies each sample's source-timeline time; Unity uses it for non-uniform AnimationClip key times and full source-duration playback. Older KMBs without this track use diagnostic JSON timestamps when available, then frame_index / fps.",
+            "The optional human_detection_01 track records actual detector hits per FlowHMR sample. Unity holds the nearest valid pose for samples without a hit; older KMBs without this track keep the legacy tracking-range behavior. generation.get reports track lengths and detection count, selected track id, and detected range when available.",
+            "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera; the camera curves use the same source-timeline times."
           ],
         "scene_effects": [
           "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal."
@@ -4037,11 +4038,50 @@
               "type": "number"
             }
           },
+          "global_time_seconds_length": {
+            "type": "integer"
+          },
           "tracking_frame_range": {
             "type": "array",
             "items": {
               "type": "integer"
             }
+          },
+          "human_detection_01_count": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "human_detection_01_length": {
+            "type": "integer"
+          },
+          "human_detection_track_id": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "human_detection_frame_range": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "joint_names": {
             "type": "array",

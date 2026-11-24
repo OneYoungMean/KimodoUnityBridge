@@ -49,7 +49,7 @@ namespace KimodoBridge.Editor
             }
 
             bool hasSourceTiming = KimodoFlowHmrTiming.TryRead(
-                analysis, motion.FrameCount, motion.FrameRate,
+                motion, analysis,
                 out float[] frameTimes, out float sourceDuration,
                 out _, out _, out string timingError);
             if (!string.IsNullOrEmpty(timingError))

@@ -1,10 +1,59 @@
 using System;
 using Newtonsoft.Json.Linq;
+using KimodoBridge;
 
 namespace KimodoBridge.Editor
 {
     internal static class KimodoFlowHmrTiming
     {
+        internal static bool TryRead(
+            KimodoRawMotionData motion,
+            JObject analysis,
+            out float[] frameTimes,
+            out float durationSeconds,
+            out int trackingStartSample,
+            out int trackingEndSampleExclusive,
+            out string error)
+        {
+            frameTimes = null;
+            durationSeconds = 0f;
+            trackingStartSample = 0;
+            trackingEndSampleExclusive = motion != null ? motion.FrameCount : 0;
+            error = string.Empty;
+            if (motion == null)
+            {
+                error = "FlowHMR motion is null.";
+                return false;
+            }
+
+            if (!motion.HasGlobalTimeTrack)
+            {
+                return TryRead(
+                    analysis, motion.FrameCount, motion.FrameRate,
+                    out frameTimes, out durationSeconds,
+                    out trackingStartSample, out trackingEndSampleExclusive, out error);
+            }
+
+            var withGlobalTimes = analysis != null
+                ? (JObject)analysis.DeepClone()
+                : new JObject();
+            var times = new JArray();
+            for (int frame = 0; frame < motion.FrameCount; frame++)
+            {
+                if (!motion.TryReadGlobalTime(frame, out float time))
+                {
+                    error = $"FlowHMR global time track is invalid at frame {frame}.";
+                    return false;
+                }
+                times.Add(time);
+            }
+            withGlobalTimes["frame_timestamps_seconds"] = times;
+            return TryRead(
+                withGlobalTimes, motion.FrameCount, motion.FrameRate,
+                out frameTimes, out durationSeconds,
+                out trackingStartSample, out trackingEndSampleExclusive, out error);
+        }
+
         internal static int ClampSampleToTrackingRange(
             int sampleIndex,
             int trackingStartSample,

@@ -973,6 +973,38 @@ class V2MInferenceEngine:
         if os.path.exists(bbox_npz_path):
             print(f"  [bbox] skip (exists): {bbox_npz_path}")
             working_video = self.proc.transcode(video_path, backup_dir=sub_dir, force_fps=30)
+            video_meta = VideoProcessor.get_video_meta(working_video)
+            with np.load(bbox_npz_path, allow_pickle=False) as cached_bbox:
+                cached_boxes = cached_bbox["bbox"].astype(np.float32)
+                cached_range = cached_bbox["start_end"].astype(np.int64)
+                cached_detection = cached_bbox["human_detection_01"].astype(np.uint8) if "human_detection_01" in cached_bbox.files else None
+                cached_track_id = int(np.asarray(cached_bbox["selected_track_id"]).reshape(-1)[0]) if "selected_track_id" in cached_bbox.files else -1
+            total_frames = int(video_meta.total_frames)
+            if total_frames > 0 and cached_range.size == 2 and cached_boxes.shape[0] == int(cached_range[1] - cached_range[0] + 1) and (
+                    cached_boxes.shape[0] != total_frames or not np.array_equal(cached_range, [0, total_frames - 1])):
+                start, end = int(cached_range[0]), int(cached_range[1])
+                full_boxes = np.empty((total_frames, 4), dtype=np.float32)
+                full_boxes[:max(0, start)] = cached_boxes[0]
+                full_boxes[start:min(total_frames, end + 1)] = cached_boxes[:max(0, min(total_frames, end + 1) - start)]
+                if end + 1 < total_frames:
+                    full_boxes[end + 1:] = cached_boxes[-1]
+                cache_payload = {
+                    "bbox": full_boxes,
+                    "start_end": np.array([0, total_frames - 1], dtype=np.int64),
+                    "tracked_start_end": np.array([start, end], dtype=np.int64),
+                }
+                if cached_detection is not None:
+                    if cached_detection.size == total_frames:
+                        full_detection = cached_detection
+                    elif cached_detection.size == cached_boxes.shape[0]:
+                        full_detection = np.zeros(total_frames, dtype=np.uint8)
+                        full_detection[start:min(total_frames, end + 1)] = cached_detection[:max(0, min(total_frames, end + 1) - start)]
+                    else:
+                        raise ValueError("Cached human_detection_01 does not match the cached bbox frames.")
+                    cache_payload["human_detection_01"] = full_detection
+                    cache_payload["selected_track_id"] = np.array([cached_track_id], dtype=np.int64)
+                np.savez(bbox_npz_path, **cache_payload)
+                print(f"  [bbox] extended cached track [{start},{end}] to full video [0,{total_frames - 1}] by holding edge boxes")
             _pcb(StageName.DETECTION, 100, "Bbox cached")
         else:
             working_video = self.proc.transcode(video_path, backup_dir=sub_dir, force_fps=30)
@@ -983,6 +1015,7 @@ class V2MInferenceEngine:
 
             if not result.tracks:
                 track_idx = -1
+                selected_track_id = -1
                 print(f"  [bbox] WARN no_tracks -> full-image bbox x {result.total_frames} frames")
             else:
                 track_idx = VideoProcessor.select_best_track(result)
@@ -1007,12 +1040,31 @@ class V2MInferenceEngine:
                     if chosen is not None and 0 <= int(chosen) < len(offered):
                         track_idx = offered[int(chosen)]
                 track = result.tracks[track_idx]
+                selected_track_id = int(track.track_id)
                 print(f"  [bbox] track {track.track_id}: length={track.length} "
                       f"frame_range=[{int(track.frames.min())},{int(track.frames.max())}] "
                       f"/ total={result.total_frames}")
-            bbox_np, start_end = VideoProcessor.track_bboxes(result, track_idx)
+            bbox_np, tracked_start_end = VideoProcessor.track_bboxes(result, track_idx)
+            human_detection_01 = VideoProcessor.track_detection_01(result, track_idx)
+            start_end = tracked_start_end.copy()
+            if track_idx >= 0 and result.total_frames > bbox_np.shape[0]:
+                track = result.tracks[track_idx]
+                bbox_np = VideoProcessor.interpolate_track(track, result.total_frames)
+                bbox_np = VideoProcessor.smooth_bboxes(bbox_np, result.width, result.height)
+                start_end = np.array([0, result.total_frames - 1], dtype=np.int64)
+                print(
+                    f"  [bbox] extending tracked range [{int(tracked_start_end[0])},{int(tracked_start_end[1])}] "
+                    f"to full video [0,{result.total_frames - 1}] by holding edge boxes"
+                )
 
-            np.savez(bbox_npz_path, bbox=bbox_np, start_end=start_end)
+            np.savez(
+                bbox_npz_path,
+                bbox=bbox_np,
+                start_end=start_end,
+                tracked_start_end=tracked_start_end,
+                human_detection_01=human_detection_01,
+                selected_track_id=np.array([selected_track_id], dtype=np.int64),
+            )
             print(f"  [bbox] saved -> {bbox_npz_path}  (shape={bbox_np.shape})")
             _pcb(StageName.DETECTION, 100, "Bbox done")
 
