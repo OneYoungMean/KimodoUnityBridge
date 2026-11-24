@@ -190,7 +190,8 @@ namespace KimodoUnityBridge.Command
             {
                 string status = pair.Value?.Value<string>("status");
                 if (string.Equals(status, firstTerminalStatus, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(status, secondTerminalStatus, StringComparison.OrdinalIgnoreCase))
+                    string.Equals(status, secondTerminalStatus, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(status, "completed_with_detection_failure", StringComparison.OrdinalIgnoreCase))
                 {
                     DateTime startedAtUtc = DateTime.MinValue;
                     string startedAtValue = pair.Value?.Value<string>("started_at_utc")

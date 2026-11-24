@@ -1,8 +1,11 @@
 #if UNITY_EDITOR
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using System.Linq;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.Timeline;
 using KimodoBridge;
 
 namespace KimodoBridge.Editor.Tests
@@ -65,7 +68,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var motion = CreateMotion(
                 5,
-                humanDetection01: new byte[] { 1, 0, 0, 1, 0 });
+                humanDetection: new byte[] { 1, 0, 0, 1, 0 });
 
             Assert.That(motion.TryResolveHumanDetectionFrame(2, out int resolved), Is.True);
             Assert.That(resolved, Is.EqualTo(0));
@@ -78,7 +81,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var motion = CreateMotion(
                 2,
-                humanDetection01: new byte[] { 0, 0 });
+                humanDetection: new byte[] { 0, 0 });
 
             Assert.That(motion.HasHumanDetectionTrack, Is.True);
             Assert.That(motion.HasAnyHumanDetection, Is.False);
@@ -92,7 +95,7 @@ namespace KimodoBridge.Editor.Tests
                 KimodoFlowHmrMuscleClipImporter.TryResolvePoseFrame(
                     CreateMotion(2), 0, 2, out _, out string error),
                 Is.False);
-            Assert.That(error, Does.Contain("human_detection_01"));
+            Assert.That(error, Does.Contain("human_detection"));
         }
 
         [Test]
@@ -100,7 +103,7 @@ namespace KimodoBridge.Editor.Tests
         {
             var motion = CreateMotion(
                 5,
-                humanDetection01: new byte[] { 1, 0, 1, 1, 0 });
+                humanDetection: new byte[] { 1, 0, 1, 1, 0 });
 
             Assert.That(
                 KimodoFlowHmrMuscleClipImporter.TryResolvePoseFrame(
@@ -111,12 +114,58 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
+        public void MuscleImporter_UsesRawSampleWhenDetectionMaskHasNoHits()
+        {
+            var motion = CreateMotion(
+                3,
+                humanDetection: new byte[] { 0, 0, 0 });
+
+            Assert.That(
+                KimodoFlowHmrMuscleClipImporter.TryResolvePoseFrame(
+                    motion, 1, 3, out int poseFrame, out string error),
+                Is.True,
+                error);
+            Assert.That(poseFrame, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void CameraImporter_ReusesOneTimelineTrackForTheBoundCamera()
+        {
+            TimelineAsset timeline = ScriptableObject.CreateInstance<TimelineAsset>();
+            var directorObject = new GameObject("CameraTrackReuseDirector_Test");
+            var cameraObject = new GameObject("CameraTrackReuseCamera_Test");
+            try
+            {
+                PlayableDirector director = directorObject.AddComponent<PlayableDirector>();
+                director.playableAsset = timeline;
+                Animator animator = cameraObject.AddComponent<Animator>();
+
+                AnimationTrack first = KimodoFlowHmrCameraTrackImporter.GetOrCreateCameraTrack(
+                    timeline, director, animator, out string firstError);
+                AnimationTrack second = KimodoFlowHmrCameraTrackImporter.GetOrCreateCameraTrack(
+                    timeline, director, animator, out string secondError);
+
+                Assert.That(firstError, Is.Empty);
+                Assert.That(secondError, Is.Empty);
+                Assert.That(second, Is.SameAs(first));
+                Assert.That(timeline.GetOutputTracks().OfType<AnimationTrack>().Count(), Is.EqualTo(1));
+                Assert.That(director.GetGenericBinding(first), Is.SameAs(animator));
+            }
+            finally
+            {
+                Object.DestroyImmediate(directorObject);
+                Object.DestroyImmediate(cameraObject);
+                Object.DestroyImmediate(timeline);
+            }
+        }
+
+        [Test]
         public void RawMotionFlatBuffer_RoundTripsRequiredFlowHmrTracks()
         {
             var motion = CreateMotion(
                 3,
                 globalTimeSeconds: new[] { 0f, 0.04f, 0.0733333f },
-                humanDetection01: new byte[] { 1, 0, 1 });
+                humanDetection: new byte[] { 1, 0, 1 });
             byte[] bytes = KimodoRawMotionUtility.ToFlatBuffer(motion, "smplh");
 
             Assert.That(
@@ -129,13 +178,13 @@ namespace KimodoBridge.Editor.Tests
             Assert.That(parsed.FrameCount, Is.EqualTo(3));
             Assert.That(parsed.TryReadGlobalTime(1, out float time), Is.True);
             Assert.That(time, Is.EqualTo(0.04f).Within(1e-6f));
-            CollectionAssert.AreEqual(new byte[] { 1, 0, 1 }, parsed.humanDetection01);
+            CollectionAssert.AreEqual(new byte[] { 1, 0, 1 }, parsed.humanDetection);
         }
 
         private static KimodoRawMotionData CreateMotion(
             int frameCount,
             float[] globalTimeSeconds = null,
-            byte[] humanDetection01 = null)
+            byte[] humanDetection = null)
         {
             var rotations = new List<float>(frameCount * 4);
             for (int frame = 0; frame < frameCount; frame++)
@@ -145,7 +194,7 @@ namespace KimodoBridge.Editor.Tests
                 new[] { "pelvis" }, new[] { -1 },
                 new Vector3[frameCount], rotations, 0,
                 globalTimeSeconds: globalTimeSeconds,
-                humanDetection01: humanDetection01);
+                humanDetection: humanDetection);
             return motion;
         }
     }

@@ -2147,8 +2147,8 @@
         ],
           "result_notes": [
             "A completed request returns a new-format KMB with FlowHMR's 30 FPS pose samples; source_frame_count reports the original media frame count. global_time_seconds is required and supplies each sample's source-timeline time; Unity uses it for non-uniform AnimationClip key times and full source-duration playback. frame_timestamps_seconds remains diagnostic metadata.",
-            "Video KMBs require human_detection_01, which records actual detector hits per FlowHMR sample. Unity holds the nearest valid pose for samples without a hit and rejects tracks with no detector hits. generation.get reports the time-track length, detection-track length and hit count, selected track id, and detected range when available.",
-            "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera; the camera curves use the same source-timeline times."
+            "Video KMBs include human_detection, which records actual detector hits per FlowHMR sample. Unity holds the nearest valid pose for samples without a hit; when the mask has no hits, Unity preserves the raw FlowHMR sample frames for diagnostic import, reports completed_with_detection_failure, and includes the zero hit count, selected track id, and detected range when available.",
+            "For video with enable_camera=true, the KMB includes a CameraTrack and Unity reuses one FlowHMR Camera track bound to MainCamera; each imported camera segment uses the same source-timeline times."
           ],
         "scene_effects": [
           "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal."
@@ -2228,6 +2228,7 @@
               "accepted",
               "running",
               "completed",
+              "completed_with_detection_failure",
               "failed",
               "canceled"
             ]
@@ -3810,6 +3811,7 @@
               "accepted",
               "running",
               "completed",
+              "completed_with_detection_failure",
               "failed",
               "canceled"
             ]
@@ -4047,7 +4049,42 @@
               "type": "integer"
             }
           },
-          "human_detection_01_count": {
+          "flowhmr_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "recognition_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "verified",
+              "failed",
+              "not_available"
+            ]
+          },
+          "kmb_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "completed",
+              "failed"
+            ]
+          },
+          "unity_import_status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "human_detection_count": {
             "oneOf": [
               {
                 "type": "integer"
@@ -4057,7 +4094,7 @@
               }
             ]
           },
-          "human_detection_01_length": {
+          "human_detection_length": {
             "type": "integer"
           },
           "human_detection_track_id": {

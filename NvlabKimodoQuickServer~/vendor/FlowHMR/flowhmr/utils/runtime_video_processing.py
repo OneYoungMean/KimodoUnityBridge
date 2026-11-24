@@ -391,7 +391,7 @@ class VideoProcessor:
         return bbox_full[start:end + 1].astype(np.float32), np.array([start, end], dtype=np.int64)
 
     @staticmethod
-    def track_detection_01(result: TrackingResult, track_idx: int) -> np.ndarray:
+    def track_human_detection(result: TrackingResult, track_idx: int) -> np.ndarray:
         """Return detector/ByteTrack hit frames for the selected track.
 
         Interpolated bbox frames intentionally remain zero in this mask.

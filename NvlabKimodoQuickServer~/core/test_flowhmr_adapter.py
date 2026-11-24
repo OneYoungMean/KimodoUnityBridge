@@ -37,14 +37,14 @@ class FlowHmrAdapterTests(unittest.TestCase):
             payload, meta = flowhmr_npz_to_kmb(
                 path,
                 global_time_seconds=[0.0, 0.04, 0.0733333],
-                human_detection_01=np.asarray([1, 0, 1], dtype=np.uint8),
+                human_detection=np.asarray([1, 0, 1], dtype=np.uint8),
             )
 
         motion = parse_kmb1(payload)
         self.assertTrue(meta["global_time_seconds"])
-        self.assertTrue(meta["human_detection_01"])
+        self.assertTrue(meta["human_detection"])
         np.testing.assert_allclose(motion.global_time_seconds, [0.0, 0.04, 0.0733333], rtol=0, atol=1e-6)
-        np.testing.assert_array_equal(motion.human_detection_01, [1, 0, 1])
+        np.testing.assert_array_equal(motion.human_detection, [1, 0, 1])
 
     def test_optional_tracks_validate_frame_count_monotonicity_and_binary_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -58,8 +58,8 @@ class FlowHmrAdapterTests(unittest.TestCase):
             for kwargs, message in (
                 ({"global_time_seconds": [0.0, 0.04]}, "global_time_seconds"),
                 ({"global_time_seconds": [0.0, 0.04, 0.04]}, "global_time_seconds"),
-                ({"human_detection_01": [1, 0, 2]}, "human_detection_01"),
-                ({"human_detection_01": [1.0, 0.5, 0.0]}, "human_detection_01"),
+                ({"human_detection": [1, 0, 2]}, "human_detection"),
+                ({"human_detection": [1.0, 0.5, 0.0]}, "human_detection"),
             ):
                 with self.subTest(message=message, kwargs=kwargs):
                     with self.assertRaisesRegex(ValueError, message):
@@ -78,7 +78,7 @@ class FlowHmrAdapterTests(unittest.TestCase):
 
         motion = parse_kmb1(payload)
         self.assertIsNone(motion.global_time_seconds)
-        self.assertIsNone(motion.human_detection_01)
+        self.assertIsNone(motion.human_detection)
 
 
 if __name__ == "__main__":

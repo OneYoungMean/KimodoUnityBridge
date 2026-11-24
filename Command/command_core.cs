@@ -288,7 +288,8 @@ namespace KimodoUnityBridge.Command
             if (Commands.Value.TryGet(commandName, out CommandRegistration command))
             {
                 string response = command.Handler(argumentsJson);
-                if (commandName == GenerateAnimationCommand || commandName == RetargetAnimationCommand || commandName == AnimationAnalysisCommand)
+                if (commandName == GenerateAnimationCommand || commandName == RetargetAnimationCommand ||
+                    commandName == AnimationAnalysisCommand || commandName == PoseFromMediaCommand)
                 {
                     RecordHistorySafely(commandName, argumentsJson, response);
                 }
@@ -382,6 +383,7 @@ namespace KimodoUnityBridge.Command
         private static bool IsTerminalStatus(string status)
         {
             return string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "completed_with_detection_failure", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(status, "canceled", StringComparison.OrdinalIgnoreCase);
         }
@@ -535,7 +537,7 @@ namespace KimodoUnityBridge.Command
                     {
                         "Commands resolve scene references from the active scene and asset references from project assets.",
                         "Pass returned scene object references to later commands. Async submissions return request_id for progress and results through generation.get.",
-                        "Installation, generation, and Mocap analysis use accepted, running, completed, and failed states. Generation supports cancellation.",
+                        "Installation and generation use accepted, running, completed, and failed states. Mocap analysis can also finish as completed_with_detection_failure when Timeline import succeeds but human_detection has no hits.",
                         "Generation acceptance includes a request handle, preflight diagnostics, and warnings; completion includes Clip metadata and asset path. include_request_json returns the submitted payload."
                     },
                     ["shared_rules"] = BuildSharedHelpRules(),

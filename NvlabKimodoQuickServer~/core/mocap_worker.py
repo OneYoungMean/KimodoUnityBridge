@@ -18,6 +18,12 @@ from core.flowhmr_adapter import flowhmr_npz_to_kmb
 from core.flowhmr_memory import CONSERVATIVE_FLOWHMR_OPTIONS, is_cuda_oom
 
 
+def _recognition_status(human_detection: np.ndarray | None, track_id: Any) -> str:
+    detection_count = int(np.count_nonzero(human_detection)) if human_detection is not None else 0
+    selected_track_id = int(track_id) if track_id is not None else -1
+    return "verified" if detection_count > 0 and selected_track_id >= 0 else "failed"
+
+
 def _build_result(kind: str, npz_path: Path, person: str | None,
                   camera_npz_path: Path | None = None,
                   media_path: Path | None = None,
@@ -40,7 +46,10 @@ def _build_result(kind: str, npz_path: Path, person: str | None,
     timing = _resolve_source_timing(
         kind, media_path, bbox_npz_path, frame_count, fps, flowhmr_python)
     global_time_seconds = timing["frame_timestamps_seconds"]
-    human_detection_01 = timing.get("human_detection_01")
+    human_detection = timing.get("human_detection")
+    human_detection_count = int(np.count_nonzero(human_detection)) if human_detection is not None else 0
+    human_detection_track_id = timing.get("human_detection_track_id")
+    recognition_status = _recognition_status(human_detection, human_detection_track_id)
     if frame_indices:
         # Picture inference exports the middle FlowHMR sample, so both tracks
         # from the repeated-image detection pass are already reduced to one row.
@@ -49,28 +58,31 @@ def _build_result(kind: str, npz_path: Path, person: str | None,
         npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path,
         bbox_npz_path=bbox_npz_path, keypoints_npz_path=keypoints_npz_path,
         global_time_seconds=global_time_seconds,
-        human_detection_01=human_detection_01)
+        human_detection=human_detection)
     output_frame_count = 1 if frame_indices else frame_count
     kmb_meta["source_duration_seconds"] = timing["source_duration_seconds"]
     kmb_meta["source_fps"] = timing["source_fps"]
     kmb_meta["frame_timestamps_seconds"] = global_time_seconds
-    if human_detection_01 is not None:
-        kmb_meta["human_detection_01_count"] = int(np.count_nonzero(human_detection_01))
-        kmb_meta["human_detection_01_length"] = int(human_detection_01.size)
-        kmb_meta["human_detection_track_id"] = timing.get("human_detection_track_id")
+    kmb_meta["recognition_status"] = recognition_status
+    if human_detection is not None:
+        kmb_meta["human_detection_count"] = human_detection_count
+        kmb_meta["human_detection_length"] = int(human_detection.size)
+        kmb_meta["human_detection_track_id"] = human_detection_track_id
         kmb_meta["human_detection_frame_range"] = timing.get("human_detection_frame_range")
     result = {
         "status": "done", "analysis_schema_version": "flowhmr_smplh_kmb_v1",
+        "flowhmr_status": "completed", "kmb_status": "completed",
         "source_type": kind, "skeleton": "SMPL-H", "model_name": "smplh",
         "fps": fps, "source_fps": timing["source_fps"],
         "source_frame_count": timing["source_frame_count"], "frame_count": output_frame_count,
         "source_duration_seconds": timing["source_duration_seconds"],
         "frame_timestamps_seconds": global_time_seconds,
         "tracking_frame_range": timing["tracking_frame_range"],
-        "human_detection_01_count": int(np.count_nonzero(human_detection_01)) if human_detection_01 is not None else None,
-        "human_detection_01_length": int(human_detection_01.size) if human_detection_01 is not None else 0,
+        "recognition_status": recognition_status,
+        "human_detection_count": human_detection_count if human_detection is not None else None,
+        "human_detection_length": int(human_detection.size) if human_detection is not None else 0,
         "global_time_seconds_length": int(len(global_time_seconds)),
-        "human_detection_track_id": timing.get("human_detection_track_id"),
+        "human_detection_track_id": human_detection_track_id,
         "human_detection_frame_range": timing.get("human_detection_frame_range"),
         "coordinate_spaces": {"global": "SMPL-X rest-pose pelvis world, meters", "rotations": "local axis-angle radians"},
         "output_format": "kmb_attachments_v1", "byte_length": len(payload), "kmb": kmb_meta,
@@ -134,12 +146,12 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
         if bbox_npz_path is None or not bbox_npz_path.is_file():
             raise RuntimeError("FlowHMR picture timing requires its bbox detection cache.")
         with np.load(bbox_npz_path, allow_pickle=False) as bbox_data:
-            if "human_detection_01" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
+            if "human_detection" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
                 raise RuntimeError(
                     f"FlowHMR bbox cache is from the pre-track format; rerun inference to regenerate it: {bbox_npz_path}")
-            detections = np.asarray(bbox_data["human_detection_01"], dtype=np.uint8).reshape(-1)
+            detections = np.asarray(bbox_data["human_detection"], dtype=np.uint8).reshape(-1)
             if detections.size != frame_count or np.any(detections > 1):
-                raise RuntimeError(f"FlowHMR human_detection_01 does not match the picture inference cache: {bbox_npz_path}")
+                raise RuntimeError(f"FlowHMR human_detection does not match the picture inference cache: {bbox_npz_path}")
             selected_track_id = int(np.asarray(bbox_data["selected_track_id"]).reshape(-1)[0])
         selected_frame = frame_count // 2
         is_detected = bool(detections[selected_frame])
@@ -150,7 +162,7 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
             "frame_timestamps_seconds": [0.0],
             "tracking_frame_range": [0, 1],
             "sample_range": [0, 0],
-            "human_detection_01": np.asarray([int(is_detected)], dtype=np.uint8),
+            "human_detection": np.asarray([int(is_detected)], dtype=np.uint8),
             "human_detection_track_id": selected_track_id,
             "human_detection_frame_range": [0, 1] if is_detected else None,
         }
@@ -221,12 +233,12 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
     with np.load(bbox_npz_path, allow_pickle=False) as bbox_data:
         if "start_end" not in bbox_data.files:
             raise RuntimeError(f"FlowHMR bbox cache has no sample frame range: {bbox_npz_path}")
-        if "human_detection_01" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
+        if "human_detection" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
             raise RuntimeError(
                 f"FlowHMR bbox cache is from the pre-track format; rerun inference to regenerate it: {bbox_npz_path}")
         sample_range = np.asarray(bbox_data["start_end"]).reshape(-1)
         tracking_range = np.asarray(bbox_data["tracked_start_end"]).reshape(-1)
-        detection_mask = np.asarray(bbox_data["human_detection_01"], dtype=np.uint8).reshape(-1)
+        detection_mask = np.asarray(bbox_data["human_detection"], dtype=np.uint8).reshape(-1)
         selected_track_id = int(np.asarray(bbox_data["selected_track_id"]).reshape(-1)[0])
     if sample_range.size != 2 or tracking_range.size != 2:
         raise RuntimeError(f"FlowHMR bbox cache has an invalid frame range: {bbox_npz_path}")
@@ -279,7 +291,7 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
     sample_detection = None
     detection_range = None
     if np.any(detection_mask > 1):
-        raise RuntimeError(f"FlowHMR human_detection_01 must be binary: {bbox_npz_path}")
+        raise RuntimeError(f"FlowHMR human_detection must be binary: {bbox_npz_path}")
     if sample_end < detection_mask.size and sample_end - sample_start + 1 == frame_count:
         sample_detection = detection_mask[sample_start:sample_end + 1]
     elif detection_mask.size == source_frame_count:
@@ -290,7 +302,7 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
     elif detection_mask.size == frame_count:
         sample_detection = detection_mask
     else:
-        raise RuntimeError(f"FlowHMR human_detection_01 does not match its bbox/video range: {bbox_npz_path}")
+        raise RuntimeError(f"FlowHMR human_detection does not match its bbox/video range: {bbox_npz_path}")
     hits = np.flatnonzero(sample_detection)
     if hits.size:
         detection_range = [sample_start + int(hits[0]), sample_start + int(hits[-1]) + 1]
@@ -301,7 +313,7 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
         "frame_timestamps_seconds": global_times.tolist(),
         "tracking_frame_range": [tracked_start, tracked_end + 1],
         "sample_range": [sample_start, sample_end],
-        "human_detection_01": sample_detection,
+        "human_detection": sample_detection,
         "human_detection_track_id": selected_track_id,
         "human_detection_frame_range": detection_range,
     }

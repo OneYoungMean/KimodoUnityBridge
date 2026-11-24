@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
+using System.Linq;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Playables;
@@ -68,6 +69,8 @@ namespace KimodoBridge.Editor
                 error = "Could not add an Animator to Main Camera for the native camera animation track.";
                 return false;
             }
+            // Keep one reusable Timeline track while preserving one camera Clip
+            // per import, aligned with its corresponding character Clip.
             AnimationClip cameraClip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                 $"{CameraClipPrefix}{Guid.NewGuid():N}");
             cameraClip.frameRate = motion.FrameRate;
@@ -81,12 +84,21 @@ namespace KimodoBridge.Editor
                     out error))
             {
                 if (!KimodoEditorClipWritebackService.TryArchiveGeneratedAnimationClipAsset(
-                        cameraClip, out string archiveError) && string.IsNullOrEmpty(error))
+                    cameraClip, out string archiveError) && string.IsNullOrEmpty(error))
                     error = $"Camera curve write failed and the generated clip could not be archived: {archiveError}";
                 return false;
             }
 
-            AnimationTrack track = timelineAsset.CreateTrack<AnimationTrack>(null, CameraTrackName);
+            AnimationTrack track = GetOrCreateCameraTrack(timelineAsset, director, animator, out string trackError);
+            if (track == null)
+            {
+                if (!KimodoEditorClipWritebackService.TryArchiveGeneratedAnimationClipAsset(
+                    cameraClip, out string archiveError) && string.IsNullOrEmpty(trackError))
+                    trackError = $"Camera track could not be reused and the generated clip could not be archived: {archiveError}";
+                error = trackError;
+                return false;
+            }
+
             // The clip stores local curves relative to the camera's parent. An
             // explicit transform-offset track keeps Timeline from deriving a
             // scene offset from an existing Animator Controller.
@@ -116,6 +128,41 @@ namespace KimodoBridge.Editor
             AssetDatabase.SaveAssets();
             timelineClip = timeline;
             return true;
+        }
+
+        internal static AnimationTrack GetOrCreateCameraTrack(
+            TimelineAsset timelineAsset,
+            PlayableDirector director,
+            Animator animator,
+            out string error)
+        {
+            error = string.Empty;
+            if (timelineAsset == null || director == null || animator == null)
+            {
+                error = "A Timeline session, director, and Main Camera Animator are required.";
+                return null;
+            }
+            AnimationTrack[] namedTracks = timelineAsset.GetOutputTracks()
+                .OfType<AnimationTrack>()
+                .Where(track => string.Equals(track.name, CameraTrackName, StringComparison.Ordinal))
+                .ToArray();
+            AnimationTrack boundTrack = namedTracks.FirstOrDefault(track => director.GetGenericBinding(track) == animator);
+            if (boundTrack != null) return boundTrack;
+            AnimationTrack unboundTrack = namedTracks.FirstOrDefault(track => director.GetGenericBinding(track) == null);
+            if (unboundTrack != null)
+            {
+                director.SetGenericBinding(unboundTrack, animator);
+                return unboundTrack;
+            }
+            if (namedTracks.Length > 0)
+            {
+                error = $"Timeline already has a '{CameraTrackName}' track bound to another object.";
+                return null;
+            }
+            AnimationTrack created = timelineAsset.CreateTrack<AnimationTrack>(null, CameraTrackName);
+            created.trackOffset = TrackOffset.ApplyTransformOffsets;
+            director.SetGenericBinding(created, animator);
+            return created;
         }
 
         private static bool TryWriteCameraCurves(

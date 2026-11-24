@@ -132,7 +132,7 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
                           keypoints_npz_path: str | Path | None = None,
                           camera_alignment: CameraWorldAlignment | None = None,
                           global_time_seconds: list[float] | np.ndarray | None = None,
-                          human_detection_01: list[int] | np.ndarray | None = None) -> KmbMotion:
+                          human_detection: list[int] | np.ndarray | None = None) -> KmbMotion:
     """Read the official FlowHMR NPZ output and build a SMPL-H KMB motion."""
     path = Path(npz_path).expanduser().resolve(strict=True)
     with np.load(path, allow_pickle=False) as data:
@@ -178,8 +178,8 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
                 global_times.size > 1 and np.any(np.diff(global_times) <= 0)):
             raise ValueError("global_time_seconds must contain one finite, strictly increasing time per frame.")
     detections = None
-    if human_detection_01 is not None:
-        raw_detections = np.asarray(human_detection_01).reshape(-1)
+    if human_detection is not None:
+        raw_detections = np.asarray(human_detection).reshape(-1)
         if indices is not None and raw_detections.size == indices.size:
             detections = raw_detections
         elif raw_detections.size == poses.shape[0]:
@@ -187,13 +187,13 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         else:
             detections = raw_detections
         if detections.size != (indices.size if indices is not None else poses.shape[0]):
-            raise ValueError("human_detection_01 must contain one binary value per frame.")
+            raise ValueError("human_detection must contain one binary value per frame.")
         try:
             binary = np.isfinite(detections).all() and np.isin(detections, (0, 1)).all()
         except TypeError:
             binary = False
         if not binary:
-            raise ValueError("human_detection_01 must contain one binary value per frame.")
+            raise ValueError("human_detection must contain one binary value per frame.")
         detections = detections.astype(np.uint8)
     if camera_npz_path is not None:
         if camera_alignment is None:
@@ -231,7 +231,7 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         foot_contacts=contacts,
         camera_track=camera_track,
         global_time_seconds=global_times,
-        human_detection_01=detections,
+        human_detection=detections,
     )
 
 
@@ -240,7 +240,7 @@ def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = N
                        bbox_npz_path: str | Path | None = None,
                        keypoints_npz_path: str | Path | None = None,
                        global_time_seconds: list[float] | np.ndarray | None = None,
-                       human_detection_01: list[int] | np.ndarray | None = None) -> tuple[bytes, dict[str, Any]]:
+                       human_detection: list[int] | np.ndarray | None = None) -> tuple[bytes, dict[str, Any]]:
     alignment = None
     if camera_npz_path is not None:
         if bbox_npz_path is None:
@@ -256,7 +256,7 @@ def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = N
         bbox_npz_path=bbox_npz_path, keypoints_npz_path=keypoints_npz_path,
         camera_alignment=alignment,
         global_time_seconds=global_time_seconds,
-        human_detection_01=human_detection_01)
+        human_detection=human_detection)
     payload = encode_kmb1(motion)
     metadata = {
         "format": "kmb_v1",
@@ -266,7 +266,7 @@ def flowhmr_npz_to_kmb(npz_path: str | Path, frame_indices: list[int] | None = N
         "joint_count": len(motion.joint_names),
         "camera_track": motion.camera_track is not None,
         "global_time_seconds": motion.global_time_seconds is not None,
-        "human_detection_01": motion.human_detection_01 is not None,
+        "human_detection": motion.human_detection is not None,
     }
     if alignment is not None:
         metadata["camera_space"] = "smplx_pelvis_world"

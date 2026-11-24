@@ -50,7 +50,7 @@ class KmbMotion:
     foot_contacts: np.ndarray | None
     camera_track: KmbCameraTrack | None = None
     global_time_seconds: np.ndarray | None = None
-    human_detection_01: np.ndarray | None = None
+    human_detection: np.ndarray | None = None
 
     @property
     def num_frames(self) -> int:
@@ -116,12 +116,12 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
                 global_times.size > 1 and np.any(np.diff(global_times) <= 0)):
             raise error_type("KMB global_time_seconds must contain one finite, strictly increasing value per frame.")
         global_time_seconds = global_times
-    human_detection_01 = None
-    detection = np.asarray(packet.HumanDetection01AsNumpy(), dtype=np.uint8).copy()
-    if not packet.HumanDetection01IsNone():
+    human_detection = None
+    detection = np.asarray(packet.HumanDetectionAsNumpy(), dtype=np.uint8).copy()
+    if not packet.HumanDetectionIsNone():
         if detection.size != num_frames or np.any(detection > 1):
-            raise error_type("KMB human_detection_01 must contain one binary value per frame.")
-        human_detection_01 = detection
+            raise error_type("KMB human_detection must contain one binary value per frame.")
+        human_detection = detection
     if len(joint_names) != num_joints or len(joint_parents) != num_joints:
         raise error_type("KMB1 joint metadata does not match num_joints.")
     if roots.size != num_frames * 3 or quats.size != num_frames * num_joints * 4:
@@ -166,7 +166,7 @@ def parse_kmb1(payload: bytes, error_type: type[ValueError] = ValueError) -> Kmb
         foot_contacts=contacts,
         camera_track=camera_track,
         global_time_seconds=global_time_seconds,
-        human_detection_01=human_detection_01,
+        human_detection=human_detection,
     )
 
 
@@ -183,7 +183,7 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
     if not 0 <= start < end <= motion.num_frames:
         raise ValueError(f"Invalid KMB1 slice [{start},{end}) for {motion.num_frames} frames.")
     for name, values in (("global_time_seconds", motion.global_time_seconds),
-                         ("human_detection_01", motion.human_detection_01)):
+                         ("human_detection", motion.human_detection)):
         if values is not None and len(values) != motion.num_frames:
             raise ValueError(f"KMB {name} must contain one value per motion frame.")
 
@@ -191,7 +191,7 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
     quats = np.ascontiguousarray(motion.local_rot_quats[start:end], dtype=np.float32).reshape(-1)
     contacts = np.asarray(motion.foot_contacts[start:end], dtype=np.uint8).reshape(-1) if motion.foot_contacts is not None else np.empty(0, dtype=np.uint8)
     global_times = np.asarray(motion.global_time_seconds[start:end], dtype=np.float32).reshape(-1) if motion.global_time_seconds is not None else np.empty(0, dtype=np.float32)
-    raw_detection = np.asarray(motion.human_detection_01[start:end]).reshape(-1) if motion.human_detection_01 is not None else np.empty(0, dtype=np.uint8)
+    raw_detection = np.asarray(motion.human_detection[start:end]).reshape(-1) if motion.human_detection is not None else np.empty(0, dtype=np.uint8)
     detection = raw_detection.astype(np.uint8, copy=False)
     frame_count = end - start
     joint_count = len(motion.joint_names)
@@ -209,7 +209,7 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
         except TypeError:
             detection_is_binary = False
         if not detection_is_binary:
-            raise ValueError("KMB human_detection_01 must contain one binary value per frame.")
+            raise ValueError("KMB human_detection must contain one binary value per frame.")
 
     builder = flatbuffers.Builder(max(1024, int(roots.nbytes + quats.nbytes + contacts.nbytes + 512)))
     model_name = builder.CreateString(motion.model_name or "")
@@ -223,7 +223,7 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
     rotations = builder.CreateNumpyVector(quats)
     foot_contacts = builder.CreateNumpyVector(contacts) if contacts.size else None
     global_time_seconds = builder.CreateNumpyVector(global_times) if global_times.size else None
-    human_detection_01 = builder.CreateNumpyVector(detection) if detection.size else None
+    human_detection = builder.CreateNumpyVector(detection) if detection.size else None
     camera_track_offset = None
     if motion.camera_track is not None:
         camera = motion.camera_track
@@ -272,8 +272,8 @@ def encode_kmb1(motion: KmbMotion, start_frame: int = 0, end_frame_exclusive: in
         MotionPacket.AddFootContacts(builder, foot_contacts)
     if global_time_seconds is not None:
         MotionPacket.AddGlobalTimeSeconds(builder, global_time_seconds)
-    if human_detection_01 is not None:
-        MotionPacket.AddHumanDetection01(builder, human_detection_01)
+    if human_detection is not None:
+        MotionPacket.AddHumanDetection(builder, human_detection)
     if camera_track_offset is not None:
         MotionPacket.AddCameraTrack(builder, camera_track_offset)
     packet = MotionPacket.End(builder)

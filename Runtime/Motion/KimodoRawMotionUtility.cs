@@ -21,7 +21,7 @@ namespace KimodoBridge
         internal float[] cameraFovY;
         internal Vector2[] cameraLensShifts;
         internal readonly float[] globalTimeSeconds;
-        internal readonly byte[] humanDetection01;
+        internal readonly byte[] humanDetection;
 
         internal KimodoRawMotionData(
             int frameCount,
@@ -38,7 +38,7 @@ namespace KimodoBridge
             float[] cameraFovY = null,
             Vector2[] cameraLensShifts = null,
             float[] globalTimeSeconds = null,
-            byte[] humanDetection01 = null)
+            byte[] humanDetection = null)
         {
             FrameCount = frameCount;
             JointCount = jointCount;
@@ -58,8 +58,8 @@ namespace KimodoBridge
             this.globalTimeSeconds = globalTimeSeconds != null && globalTimeSeconds.Length == frameCount
                 ? globalTimeSeconds
                 : Array.Empty<float>();
-            this.humanDetection01 = humanDetection01 != null && humanDetection01.Length == frameCount
-                ? humanDetection01
+            this.humanDetection = humanDetection != null && humanDetection.Length == frameCount
+                ? humanDetection
                 : Array.Empty<byte>();
         }
 
@@ -76,8 +76,8 @@ namespace KimodoBridge
         public IReadOnlyList<string> JointNames => jointNames;
         public bool HasFootContacts => footContacts.Length >= FrameCount * KimodoFootContactTrackUtility.ChannelCount;
         public bool HasGlobalTimeTrack => globalTimeSeconds.Length == FrameCount;
-        public bool HasHumanDetectionTrack => humanDetection01.Length == FrameCount;
-        public bool HasAnyHumanDetection => HasHumanDetectionTrack && Array.IndexOf(humanDetection01, (byte)1) >= 0;
+        public bool HasHumanDetectionTrack => humanDetection.Length == FrameCount;
+        public bool HasAnyHumanDetection => HasHumanDetectionTrack && Array.IndexOf(humanDetection, (byte)1) >= 0;
         public bool HasCameraTrack => cameraPositions.Length == FrameCount && cameraRotQuats.Count >= FrameCount * 4;
         public bool HasCameraParameters => cameraFovY.Length == FrameCount && cameraLensShifts.Length == FrameCount;
 
@@ -89,7 +89,7 @@ namespace KimodoBridge
             int sample = Mathf.Clamp(sampleIndex, 0, FrameCount - 1);
             for (int frame = sample; frame >= 0; frame--)
             {
-                if (humanDetection01[frame] == 1)
+                if (humanDetection[frame] == 1)
                 {
                     validFrame = frame;
                     return true;
@@ -97,7 +97,7 @@ namespace KimodoBridge
             }
             for (int frame = sample + 1; frame < FrameCount; frame++)
             {
-                if (humanDetection01[frame] == 1)
+                if (humanDetection[frame] == 1)
                 {
                     validFrame = frame;
                     return true;
@@ -142,7 +142,7 @@ namespace KimodoBridge
             valid = false;
             if (!HasHumanDetectionTrack || frameIndex < 0 || frameIndex >= FrameCount)
                 return false;
-            valid = humanDetection01[frameIndex] == 1;
+            valid = humanDetection[frameIndex] == 1;
             return true;
         }
 
@@ -426,9 +426,9 @@ namespace KimodoBridge
             VectorOffset globalTimesOffset = globalTimes.Length > 0
                 ? MotionPacket.CreateGlobalTimeSecondsVector(builder, globalTimes)
                 : default;
-            byte[] humanDetection = motion.HasHumanDetectionTrack ? (byte[])motion.humanDetection01.Clone() : Array.Empty<byte>();
+            byte[] humanDetection = motion.HasHumanDetectionTrack ? (byte[])motion.humanDetection.Clone() : Array.Empty<byte>();
             VectorOffset humanDetectionOffset = humanDetection.Length > 0
-                ? MotionPacket.CreateHumanDetection01Vector(builder, humanDetection)
+                ? MotionPacket.CreateHumanDetectionVector(builder, humanDetection)
                 : default;
             Offset<MotionPacket> packet = MotionPacket.CreateMotionPacket(
                 builder,
@@ -443,7 +443,7 @@ namespace KimodoBridge
                 model_nameOffset: modelOffset,
                 foot_contactsOffset: contactsOffset,
                 global_time_secondsOffset: globalTimesOffset,
-                human_detection_01Offset: humanDetectionOffset);
+                human_detectionOffset: humanDetectionOffset);
             MotionPacket.FinishMotionPacketBuffer(builder, packet);
             return builder.SizedByteArray();
         }
@@ -772,12 +772,12 @@ namespace KimodoBridge
                 }
             }
 
-            byte[] humanDetection01 = packet.GetHumanDetection01Array();
-            if (packet.HasHumanDetection01)
+            byte[] humanDetection = packet.GetHumanDetectionArray();
+            if (packet.HasHumanDetection)
             {
-                if (humanDetection01 == null || humanDetection01.Length != frameCount || humanDetection01.Any(value => value > 1))
+                if (humanDetection == null || humanDetection.Length != frameCount || humanDetection.Any(value => value > 1))
                 {
-                    error = $"FlatBuffer human_detection_01 is invalid. Expected {frameCount} binary values, got {humanDetection01?.Length ?? 0}.";
+                    error = $"FlatBuffer human_detection is invalid. Expected {frameCount} binary values, got {humanDetection?.Length ?? 0}.";
                     return false;
                 }
             }
@@ -864,7 +864,7 @@ namespace KimodoBridge
                 cameraFovY,
                 cameraLensShifts,
                 globalTimeSeconds,
-                humanDetection01);
+                humanDetection);
             return true;
         }
 

@@ -20,7 +20,7 @@ table MotionPacket {
   foot_contacts:[ubyte];
   camera_track:CameraTrack;
   global_time_seconds:[float];
-  human_detection_01:[ubyte];
+  human_detection:[ubyte];
 }
 
 root_type MotionPacket;

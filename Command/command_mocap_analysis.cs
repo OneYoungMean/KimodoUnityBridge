@@ -57,6 +57,11 @@ namespace KimodoUnityBridge.Command
                         ["media_path"] = mediaPath,
                         ["character"] = target.CharacterRef,
                         ["enable_camera"] = enableCamera,
+                        ["session_id"] = session.Id.ToString("D"),
+                        ["flowhmr_status"] = "pending",
+                        ["recognition_status"] = "pending",
+                        ["kmb_status"] = "pending",
+                        ["unity_import_status"] = "pending",
                         ["started_at_utc"] = DateTime.UtcNow.ToString("O")
                     };
                     TrimTerminalTasksLocked(MocapAnalysisTasks, MaxRememberedJobs, "completed", "failed");
@@ -83,7 +88,10 @@ namespace KimodoUnityBridge.Command
             bool enableCamera,
             Camera mainCamera)
         {
-            UpdateMocapAnalysisTask(requestId, "running", "estimating", "Running FlowHMR pose estimation...");
+            UpdateMocapAnalysisTask(requestId, "running", "estimating", "Running FlowHMR pose estimation...", new JObject
+            {
+                ["flowhmr_status"] = "running"
+            });
             try
             {
                 JObject analysis = await KimodoBridgeService.Shared.AnalyzeMocapAsync(
@@ -93,7 +101,10 @@ namespace KimodoUnityBridge.Command
             }
             catch (Exception exception)
             {
-                UpdateMocapAnalysisTask(requestId, "failed", "failed", exception.Message);
+                UpdateMocapAnalysisTask(requestId, "failed", "failed", exception.Message, new JObject
+                {
+                    ["flowhmr_status"] = "failed"
+                });
             }
         }
 
@@ -125,6 +136,19 @@ namespace KimodoUnityBridge.Command
         {
             try
             {
+                if (analysis["flowhmr_status"] == null) analysis["flowhmr_status"] = "completed";
+                if (analysis["kmb_status"] == null) analysis["kmb_status"] = "completed";
+                if (analysis["recognition_status"] == null)
+                {
+                    bool hasDetectionResult = analysis["human_detection_count"] != null ||
+                        analysis["human_detection_length"] != null || analysis["human_detection_track_id"] != null;
+                    analysis["recognition_status"] = hasDetectionResult ?
+                        ((analysis.Value<int?>("human_detection_count") ?? 0) > 0 &&
+                         (analysis.Value<int?>("human_detection_track_id") ?? -1) >= 0 ? "verified" : "failed") :
+                        "not_available";
+                }
+                analysis["unity_import_status"] = "running";
+                UpdateMocapAnalysisTask(requestId, "running", "importing", "Importing KMB motion into the Timeline...", analysis);
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 if (session.Id != expectedSessionId)
                     throw new InvalidOperationException("The active Timeline changed while FlowHMR was running. KMB is available in the task result; re-run the import in the intended Timeline.");
@@ -172,10 +196,26 @@ namespace KimodoUnityBridge.Command
                     ["duration_seconds"] = animation.TimelineDurationSeconds,
                     ["avatar_source"] = "timeline_binding_animator"
                 };
-                UpdateMocapAnalysisTask(requestId, "completed", "completed", "FlowHMR motion was retargeted to the Timeline character Avatar and appended as a muscle clip.", analysis);
+                bool detectionVerified = (analysis.Value<int?>("human_detection_count") ?? 0) > 0 &&
+                    (analysis.Value<int?>("human_detection_track_id") ?? -1) >= 0;
+                string recognitionStatus = analysis.Value<string>("recognition_status");
+                bool detectionFailed = string.Equals(recognitionStatus, "failed", StringComparison.OrdinalIgnoreCase);
+                if (string.Equals(recognitionStatus, "pending", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(recognitionStatus, "not_available", StringComparison.OrdinalIgnoreCase))
+                    detectionFailed = false;
+                analysis["recognition_status"] = detectionFailed ? "failed" : detectionVerified ? "verified" : recognitionStatus;
+                analysis["unity_import_status"] = "completed";
+                string terminalStatus = detectionFailed ? "completed_with_detection_failure" : "completed";
+                string terminalMessage = detectionFailed
+                    ? "FlowHMR motion was retargeted and imported for diagnostics, but human_detection has no valid detector hits."
+                    : detectionVerified
+                    ? "FlowHMR motion was retargeted to the Timeline character Avatar and appended as a muscle clip."
+                    : "FlowHMR motion was retargeted and imported; no human_detection track was provided.";
+                UpdateMocapAnalysisTask(requestId, terminalStatus, "completed", terminalMessage, analysis);
             }
             catch (Exception exception)
             {
+                if (analysis != null) analysis["unity_import_status"] = "failed";
                 UpdateMocapAnalysisTask(requestId, "failed", "failed", exception.Message, analysis);
             }
         }
@@ -200,6 +240,8 @@ namespace KimodoUnityBridge.Command
             string message,
             JObject analysis = null)
         {
+            JObject historyResponse = null;
+            Guid historySessionId = Guid.Empty;
             lock (JobsLock)
             {
                 if (!MocapAnalysisTasks.TryGetValue(requestId, out JObject task)) return;
@@ -224,7 +266,12 @@ namespace KimodoUnityBridge.Command
                         ["message"] = message ?? "Mocap analysis failed."
                     };
                 }
+                if ((status == "completed" || status == "completed_with_detection_failure" || status == "failed" || status == "canceled") &&
+                    Guid.TryParse(task.Value<string>("session_id"), out historySessionId))
+                    historyResponse = (JObject)task.DeepClone();
             }
+            if (historyResponse != null)
+                RecordMocapAnalysisTerminalHistory(historySessionId, historyResponse);
         }
 
         private static JObject GetMocapAnalysisTask(string requestId)

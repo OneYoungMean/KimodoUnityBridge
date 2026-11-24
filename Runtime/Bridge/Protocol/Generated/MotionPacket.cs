@@ -103,10 +103,10 @@ public struct MotionPacket : IFlatbufferObject
   public bool HasGlobalTimeSeconds { get { return __p.__offset(26) != 0; } }
   public float GlobalTimeSeconds(int j) { int o = __p.__offset(26); return o != 0 ? __p.bb.GetFloat(__p.__vector(o) + j * 4) : 0.0f; }
   public float[] GetGlobalTimeSecondsArray() { return __p.__vector_as_array<float>(26); }
-  public int HumanDetection01Length { get { int o = __p.__offset(28); return o != 0 ? __p.__vector_len(o) : 0; } }
-  public bool HasHumanDetection01 { get { return __p.__offset(28) != 0; } }
-  public byte HumanDetection01(int j) { int o = __p.__offset(28); return o != 0 ? __p.bb.Get(__p.__vector(o) + j) : (byte)0; }
-  public byte[] GetHumanDetection01Array() { return __p.__vector_as_array<byte>(28); }
+  public int HumanDetectionLength { get { int o = __p.__offset(28); return o != 0 ? __p.__vector_len(o) : 0; } }
+  public bool HasHumanDetection { get { return __p.__offset(28) != 0; } }
+  public byte HumanDetection(int j) { int o = __p.__offset(28); return o != 0 ? __p.bb.Get(__p.__vector(o) + j) : (byte)0; }
+  public byte[] GetHumanDetectionArray() { return __p.__vector_as_array<byte>(28); }
 
   public static Offset<MotionPacket> CreateMotionPacket(FlatBufferBuilder builder,
       uint version = 1,
@@ -121,9 +121,9 @@ public struct MotionPacket : IFlatbufferObject
       VectorOffset foot_contactsOffset = default(VectorOffset),
       Offset<CameraTrack> camera_trackOffset = default(Offset<CameraTrack>),
       VectorOffset global_time_secondsOffset = default(VectorOffset),
-      VectorOffset human_detection_01Offset = default(VectorOffset)) {
+      VectorOffset human_detectionOffset = default(VectorOffset)) {
     builder.StartTable(13);
-    MotionPacket.AddHumanDetection01(builder, human_detection_01Offset);
+    MotionPacket.AddHumanDetection(builder, human_detectionOffset);
     MotionPacket.AddGlobalTimeSeconds(builder, global_time_secondsOffset);
     MotionPacket.AddCameraTrack(builder, camera_trackOffset);
     MotionPacket.AddFootContacts(builder, foot_contactsOffset);
@@ -174,9 +174,9 @@ public struct MotionPacket : IFlatbufferObject
   public static void AddGlobalTimeSeconds(FlatBufferBuilder builder, VectorOffset globalTimeSecondsOffset) { builder.AddOffset(11, globalTimeSecondsOffset.Value, 0); }
   public static VectorOffset CreateGlobalTimeSecondsVector(FlatBufferBuilder builder, float[] data) { builder.StartVector(4, data.Length, 4); for (int i = data.Length - 1; i >= 0; i--) builder.AddFloat(data[i]); return builder.EndVector(); }
   public static void StartGlobalTimeSecondsVector(FlatBufferBuilder builder, int numElems) { builder.StartVector(4, numElems, 4); }
-  public static void AddHumanDetection01(FlatBufferBuilder builder, VectorOffset humanDetection01Offset) { builder.AddOffset(12, humanDetection01Offset.Value, 0); }
-  public static VectorOffset CreateHumanDetection01Vector(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); for (int i = data.Length - 1; i >= 0; i--) builder.AddByte(data[i]); return builder.EndVector(); }
-  public static void StartHumanDetection01Vector(FlatBufferBuilder builder, int numElems) { builder.StartVector(1, numElems, 1); }
+  public static void AddHumanDetection(FlatBufferBuilder builder, VectorOffset humanDetectionOffset) { builder.AddOffset(12, humanDetectionOffset.Value, 0); }
+  public static VectorOffset CreateHumanDetectionVector(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); for (int i = data.Length - 1; i >= 0; i--) builder.AddByte(data[i]); return builder.EndVector(); }
+  public static void StartHumanDetectionVector(FlatBufferBuilder builder, int numElems) { builder.StartVector(1, numElems, 1); }
   public static VectorOffset CreateFootContactsVector(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); for (int i = data.Length - 1; i >= 0; i--) builder.AddByte(data[i]); return builder.EndVector(); }
   public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, byte[] data) { builder.StartVector(1, data.Length, 1); builder.Add(data); return builder.EndVector(); }
   public static VectorOffset CreateFootContactsVectorBlock(FlatBufferBuilder builder, ArraySegment<byte> data) { builder.StartVector(1, data.Count, 1); builder.Add(data); return builder.EndVector(); }
@@ -208,7 +208,7 @@ static public class MotionPacketVerify
       && verifier.VerifyVectorOfData(tablePos, 22 /*FootContacts*/, 1 /*byte*/, false)
       && verifier.VerifyField(tablePos, 24 /*CameraTrack*/, 4 /*offset*/, 4, false)
       && verifier.VerifyVectorOfData(tablePos, 26 /*GlobalTimeSeconds*/, 4 /*float*/, false)
-      && verifier.VerifyVectorOfData(tablePos, 28 /*HumanDetection01*/, 1 /*byte*/, false)
+      && verifier.VerifyVectorOfData(tablePos, 28 /*HumanDetection*/, 1 /*byte*/, false)
       && verifier.VerifyTableEnd(tablePos);
   }
 }

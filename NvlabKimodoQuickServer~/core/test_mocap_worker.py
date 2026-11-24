@@ -65,7 +65,7 @@ class MocapWorkerTests(unittest.TestCase):
         )
         result = TrackingResult(tracks=[track], total_frames=3, width=100, height=100)
         interpolated = VideoProcessor.interpolate_track(track, result.total_frames)
-        detections = VideoProcessor.track_detection_01(result, 0)
+        detections = VideoProcessor.track_human_detection(result, 0)
 
         self.assertTrue(np.all(interpolated[1] > 0))
         np.testing.assert_array_equal(detections, [1, 0, 1])
@@ -89,7 +89,7 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.tile(np.asarray([[10, 10, 30, 40]], dtype=np.float32), (542, 1)),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([45, 497], dtype=np.int64),
-                human_detection_01=detections,
+                human_detection=detections,
                 selected_track_id=np.array([12], dtype=np.int64),
             )
             with patch.dict(sys.modules, {"cv2": fake_cv2}):
@@ -103,8 +103,8 @@ class MocapWorkerTests(unittest.TestCase):
         self.assertEqual(len(timing["frame_timestamps_seconds"]), 542)
         self.assertAlmostEqual(timing["frame_timestamps_seconds"][1], 0.04, delta=1e-5)
         self.assertTrue(np.all(np.diff(timing["frame_timestamps_seconds"]) > 0))
-        self.assertEqual(len(timing["human_detection_01"]), 542)
-        self.assertEqual(timing["human_detection_01"][100], 0)
+        self.assertEqual(len(timing["human_detection"]), 542)
+        self.assertEqual(timing["human_detection"][100], 0)
         self.assertEqual(timing["human_detection_track_id"], 12)
 
     def test_source_timing_probes_with_flowhmr_python_when_quickserver_lacks_opencv(self):
@@ -118,7 +118,7 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.zeros((542, 4), dtype=np.float32),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([0, 452], dtype=np.int64),
-                human_detection_01=np.ones(542, dtype=np.uint8),
+                human_detection=np.ones(542, dtype=np.uint8),
                 selected_track_id=np.array([12], dtype=np.int64),
             )
             python = root / "flowhmr-python.exe"
@@ -150,7 +150,7 @@ class MocapWorkerTests(unittest.TestCase):
                 "source_duration_seconds": 2.0 / 30.0,
                 "frame_timestamps_seconds": [0.0, 1.0 / 30.0],
                 "tracking_frame_range": [0, 2],
-                "human_detection_01": np.asarray([1, 0], dtype=np.uint8),
+                "human_detection": np.asarray([1, 0], dtype=np.uint8),
                 "human_detection_track_id": 7,
                 "human_detection_frame_range": [0, 1],
             }
@@ -165,10 +165,39 @@ class MocapWorkerTests(unittest.TestCase):
         self.assertEqual(result["source_frame_count"], 2)
         self.assertEqual(result["frame_timestamps_seconds"], [0.0, 1.0 / 30.0])
         self.assertEqual(build_kmb.call_args.kwargs["global_time_seconds"], [0.0, 1.0 / 30.0])
-        np.testing.assert_array_equal(build_kmb.call_args.kwargs["human_detection_01"], [1, 0])
+        np.testing.assert_array_equal(build_kmb.call_args.kwargs["human_detection"], [1, 0])
         self.assertEqual(result["fps"], 30.0)
-        self.assertEqual(result["human_detection_01_count"], 1)
+        self.assertEqual(result["human_detection_count"], 1)
         self.assertEqual(result["human_detection_track_id"], 7)
+        self.assertEqual(result["recognition_status"], "verified")
+        self.assertEqual(result["flowhmr_status"], "completed")
+        self.assertEqual(result["kmb_status"], "completed")
+
+    def test_result_builder_reports_detection_failure_after_kmb_creation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            motion = root / "motion.npz"
+            np.savez(motion, poses=np.zeros((2, 1), dtype=np.float32), mocap_framerate=np.array([30.0]))
+            timing_result = {
+                "source_fps": 30.0,
+                "source_frame_count": 2,
+                "source_duration_seconds": 2.0 / 30.0,
+                "frame_timestamps_seconds": [0.0, 1.0 / 30.0],
+                "tracking_frame_range": [0, 2],
+                "human_detection": np.zeros(2, dtype=np.uint8),
+                "human_detection_track_id": -1,
+                "human_detection_frame_range": None,
+            }
+            with patch.object(mocap_worker, "_resolve_source_timing", return_value=timing_result), patch.object(
+                mocap_worker, "flowhmr_npz_to_kmb", return_value=(b"kmb", {"frame_count": 2})
+            ):
+                result, payload = mocap_worker._build_result("video", motion, None)
+
+        self.assertEqual(payload, b"kmb")
+        self.assertEqual(result["flowhmr_status"], "completed")
+        self.assertEqual(result["recognition_status"], "failed")
+        self.assertEqual(result["kmb_status"], "completed")
+        self.assertEqual(result["human_detection_count"], 0)
 
     def test_source_timing_uses_original_fps_and_preserved_tracking_range(self):
         fake_cv2 = types.SimpleNamespace(
@@ -187,7 +216,7 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.zeros((542, 4), dtype=np.float32),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([45, 497], dtype=np.int64),
-                human_detection_01=np.ones(542, dtype=np.uint8),
+                human_detection=np.ones(542, dtype=np.uint8),
                 selected_track_id=np.array([12], dtype=np.int64),
             )
             with patch.dict(sys.modules, {"cv2": fake_cv2}):
@@ -231,12 +260,12 @@ class MocapWorkerTests(unittest.TestCase):
             detections[15] = 1
             np.savez(
                 bbox,
-                human_detection_01=detections,
+                human_detection=detections,
                 selected_track_id=np.array([5], dtype=np.int64),
             )
             timing = mocap_worker._resolve_source_timing("picture", None, bbox, 30, 30.0)
 
-        np.testing.assert_array_equal(timing["human_detection_01"], [1])
+        np.testing.assert_array_equal(timing["human_detection"], [1])
         self.assertEqual(timing["human_detection_track_id"], 5)
         self.assertEqual(timing["human_detection_frame_range"], [0, 1])
 
@@ -266,12 +295,12 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.tile(np.asarray([[10, 10, 30, 40]], dtype=np.float32), (542, 1)),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([75, 77], dtype=np.int64),
-                human_detection_01=detection,
+                human_detection=detection,
                 selected_track_id=np.array([12], dtype=np.int64),
             )
             with np.load(bbox, allow_pickle=False) as bbox_data:
                 self.assertTrue(np.all(bbox_data["bbox"][76] > 0))
-                self.assertEqual(int(bbox_data["human_detection_01"][76]), 0)
+                self.assertEqual(int(bbox_data["human_detection"][76]), 0)
             with patch.dict(sys.modules, {"cv2": fake_cv2}):
                 result, payload = mocap_worker._build_result(
                     "video", motion_npz, None, media_path=media, bbox_npz_path=bbox)
@@ -282,10 +311,10 @@ class MocapWorkerTests(unittest.TestCase):
         self.assertEqual(motion.num_frames, 3)
         self.assertEqual(motion.fps, 30.0)
         self.assertEqual(len(motion.global_time_seconds), 3)
-        self.assertEqual(len(motion.human_detection_01), 3)
-        self.assertEqual(motion.human_detection_01.tolist(), [1, 0, 1])
+        self.assertEqual(len(motion.human_detection), 3)
+        self.assertEqual(motion.human_detection.tolist(), [1, 0, 1])
         self.assertGreater(len(set(np.diff(motion.global_time_seconds).round(6))), 1)
-        self.assertEqual(result["human_detection_01_count"], 2)
+        self.assertEqual(result["human_detection_count"], 2)
         self.assertEqual(result["human_detection_track_id"], 12)
 
     def test_flowhmr_child_receives_assets_root_without_dinov3_override(self):

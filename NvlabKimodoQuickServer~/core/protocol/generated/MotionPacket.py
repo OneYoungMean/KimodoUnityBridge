@@ -256,26 +256,26 @@ class MotionPacket(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
         return o == 0
 
-    def HumanDetection01(self, j):
+    def HumanDetection(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             a = self._tab.Vector(o)
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
         return 0
 
-    def HumanDetection01AsNumpy(self):
+    def HumanDetectionAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
         return 0
 
-    def HumanDetection01Length(self):
+    def HumanDetectionLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
-    def HumanDetection01IsNone(self):
+    def HumanDetectionIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         return o == 0
 
@@ -475,17 +475,17 @@ def MotionPacketStartGlobalTimeSecondsVector(builder, numElems):
 def StartGlobalTimeSecondsVector(builder, numElems):
     return MotionPacketStartGlobalTimeSecondsVector(builder, numElems)
 
-def MotionPacketAddHumanDetection01(builder, humanDetection01):
-    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(humanDetection01), 0)
+def MotionPacketAddHumanDetection(builder, humanDetection):
+    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(humanDetection), 0)
 
-def AddHumanDetection01(builder, humanDetection01):
-    MotionPacketAddHumanDetection01(builder, humanDetection01)
+def AddHumanDetection(builder, humanDetection):
+    MotionPacketAddHumanDetection(builder, humanDetection)
 
-def MotionPacketStartHumanDetection01Vector(builder, numElems):
+def MotionPacketStartHumanDetectionVector(builder, numElems):
     return builder.StartVector(1, numElems, 1)
 
-def StartHumanDetection01Vector(builder, numElems):
-    return MotionPacketStartHumanDetection01Vector(builder, numElems)
+def StartHumanDetectionVector(builder, numElems):
+    return MotionPacketStartHumanDetectionVector(builder, numElems)
 
 def MotionPacketEnd(builder):
     return builder.EndObject()

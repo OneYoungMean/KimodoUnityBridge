@@ -81,14 +81,15 @@ namespace KimodoBridge.Editor
                     return false;
                 if (!motion.HasHumanDetectionTrack)
                 {
-                    error = "FlowHMR KMB is missing the required human_detection_01 track.";
+                    error = "FlowHMR KMB is missing the required human_detection track.";
                     return false;
                 }
-                if (motion.HasHumanDetectionTrack && !motion.HasAnyHumanDetection)
-                {
-                    error = "FlowHMR human_detection_01 contains no valid detector frames.";
-                    return false;
-                }
+                // A KMB can contain valid FlowHMR motion even when the detector
+                // produced no ByteTrack hits.  The bbox stage may have used its
+                // full-image fallback in that case, so keep the motion available
+                // for inspection/import and let TryResolvePoseFrame use the raw
+                // sample index.  The detection mask remains in the KMB and is
+                // reported to callers for diagnosis.
                 int rotationJoints = KimodoRawMotionUtility.ResolveRotationJointCount(motion);
                 for (int frame = 0; frame < frames; frame++)
                 {
@@ -173,12 +174,22 @@ namespace KimodoBridge.Editor
 
             if (!motion.HasHumanDetectionTrack)
             {
-                error = "FlowHMR KMB is missing the required human_detection_01 track.";
+                error = "FlowHMR KMB is missing the required human_detection track.";
                 return false;
             }
             if (!motion.TryResolveHumanDetectionFrame(sampleFrame, out poseFrame))
             {
-                error = $"FlowHMR human_detection_01 has no valid pose near frame {sampleFrame}.";
+                // No detector hit means there is no better neighbouring sample
+                // to hold.  Preserve the FlowHMR sample itself instead of
+                // rejecting an otherwise parseable motion (for example a
+                // full-image fallback run).  A track is still required so that
+                // callers can distinguish this case from legacy KMB data.
+                if (motion.HasHumanDetectionTrack && !motion.HasAnyHumanDetection)
+                {
+                    poseFrame = sampleFrame;
+                    return true;
+                }
+                error = $"FlowHMR human_detection has no valid pose near frame {sampleFrame}.";
                 return false;
             }
             return true;

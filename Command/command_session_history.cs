@@ -127,14 +127,15 @@ namespace KimodoUnityBridge.Command
 
         internal static void RecordCommandHistory(string command, JObject input, JObject response)
         {
-            if (command != GenerateAnimationCommand && command != RetargetAnimationCommand && command != AnimationAnalysisCommand)
+            if (command != GenerateAnimationCommand && command != RetargetAnimationCommand &&
+                command != AnimationAnalysisCommand && command != PoseFromMediaCommand)
                 return;
             try
             {
                 TimelineSessionRecord session = BuildTimelineSessionView(SceneManager.GetActiveScene()) ?? GetOrCreateSession();
                 EnsureSessionHistoryHeader(session);
                 string requestId = response?.Value<string>("request_id");
-                bool accepted = command == GenerateAnimationCommand &&
+                bool accepted = (command == GenerateAnimationCommand || command == PoseFromMediaCommand) &&
                     (string.Equals(response?.Value<string>("status"), "accepted", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(response?.Value<string>("status"), "running", StringComparison.OrdinalIgnoreCase)) &&
                     !string.IsNullOrWhiteSpace(requestId);
@@ -172,6 +173,63 @@ namespace KimodoUnityBridge.Command
             catch (Exception exception)
             {
                 Debug.LogError($"[Kimodo][SessionHistory] Could not append {command} history: {exception}");
+            }
+        }
+
+        internal static void RecordMocapAnalysisTerminalHistory(Guid sessionId, JObject response)
+        {
+            if (sessionId == Guid.Empty || response == null || !IsTerminalStatus(response.Value<string>("status")))
+                return;
+            string requestId = response.Value<string>("request_id");
+            if (string.IsNullOrWhiteSpace(requestId)) return;
+            try
+            {
+                TimelineSessionRecord activeSession = BuildTimelineSessionView(SceneManager.GetActiveScene());
+                string path = GetSessionHistoryAbsolutePath(sessionId);
+                if (activeSession != null && activeSession.Id == sessionId)
+                    EnsureSessionHistoryHeader(activeSession);
+                if (!File.Exists(path)) return;
+
+                var compact = new JObject();
+                string[] fields =
+                {
+                    "request_id", "status", "stage", "message", "flowhmr_status", "recognition_status", "kmb_status", "unity_import_status", "source_type", "media_path", "character",
+                    "enable_camera", "started_at_utc", "fps", "source_fps", "source_frame_count", "frame_count",
+                    "source_duration_seconds", "global_time_seconds_length", "tracking_frame_range",
+                    "human_detection_count", "human_detection_length", "human_detection_track_id",
+                    "human_detection_frame_range", "output_format", "kmb_frame_count", "camera_track", "clip", "error"
+                };
+                foreach (string field in fields)
+                    if (response[field] != null) compact[field] = response[field].DeepClone();
+
+                lock (SessionHistoryLock)
+                {
+                    List<JObject> entries = ReadHistoryEntries(path, sessionId);
+                    if (entries.Any(entry =>
+                            string.Equals(entry.Value<string>("operation_id"), requestId, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(entry.Value<string>("event"), "operation.terminal", StringComparison.Ordinal)))
+                        return;
+                    JObject accepted = entries.LastOrDefault(entry =>
+                        string.Equals(entry.Value<string>("operation_id"), requestId, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(entry.Value<string>("event"), "operation.accepted", StringComparison.Ordinal));
+                    long operationSeq = accepted?.Value<long?>("operation_seq") ?? entries
+                        .Where(entry => entry.Value<long?>("operation_seq").HasValue)
+                        .Select(entry => entry.Value<long>("operation_seq")).DefaultIfEmpty(0L).Max() + 1L;
+                    AppendJsonLine(path, new JObject
+                    {
+                        ["event"] = "operation.terminal",
+                        ["operation_seq"] = operationSeq,
+                        ["operation_id"] = requestId,
+                        ["command"] = PoseFromMediaCommand,
+                        ["created_at_utc"] = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
+                        ["session_id"] = sessionId.ToString("D"),
+                        ["response"] = compact
+                    });
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogError($"[Kimodo][SessionHistory] Could not append {PoseFromMediaCommand} terminal history: {exception}");
             }
         }
 
