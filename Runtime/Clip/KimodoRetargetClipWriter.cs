@@ -32,12 +32,28 @@ namespace KimodoBridge
             return WriteMuscleCurves(samples, clip, out error, includeRootTransform: true, includeFootTqChannels: true);
         }
 
+        internal static bool WriteRetargetMuscleCurves(
+            IReadOnlyList<MuscleSample> samples,
+            IReadOnlyList<float> frameTimesSeconds,
+            float durationSeconds,
+            AnimationClip clip,
+            out string error)
+        {
+            if (!ValidateFrameTimes(frameTimesSeconds, samples?.Count ?? 0, durationSeconds, out error))
+                return false;
+            return WriteMuscleCurves(
+                samples, clip, out error, includeRootTransform: true, includeFootTqChannels: true,
+                frameTimesSeconds: frameTimesSeconds, durationSeconds: durationSeconds);
+        }
+
         private static bool WriteMuscleCurves(
             IReadOnlyList<MuscleSample> samples,
             AnimationClip clip,
             out string error,
             bool includeRootTransform,
-            bool includeFootTqChannels)
+            bool includeFootTqChannels,
+            IReadOnlyList<float> frameTimesSeconds = null,
+            float? durationSeconds = null)
         {
             if (!ValidateWriteInputs(samples, clip, "Muscle", out error))
             {
@@ -91,15 +107,35 @@ namespace KimodoBridge
             float frameRate = KimodoRetargetClipSamplingUtility.ResolveFrameRate(clip);
             bool hasPreviousRootRotation = false;
             Quaternion previousRootRotation = Quaternion.identity;
+            var sampleIndices = new List<int>(samples.Count + 2);
+            var sampleTimes = new List<float>(samples.Count + 2);
+            if (frameTimesSeconds != null && frameTimesSeconds[0] > 0f)
+            {
+                sampleIndices.Add(0);
+                sampleTimes.Add(0f);
+            }
             for (int frame = 0; frame < samples.Count; frame++)
             {
+                sampleIndices.Add(frame);
+                sampleTimes.Add(frameTimesSeconds != null ? frameTimesSeconds[frame] : frame / frameRate);
+            }
+            if (frameTimesSeconds != null && durationSeconds.HasValue &&
+                durationSeconds.Value > frameTimesSeconds[frameTimesSeconds.Count - 1])
+            {
+                sampleIndices.Add(samples.Count - 1);
+                sampleTimes.Add(durationSeconds.Value);
+            }
+
+            for (int keyIndex = 0; keyIndex < sampleIndices.Count; keyIndex++)
+            {
+                int frame = sampleIndices[keyIndex];
+                float time = sampleTimes[keyIndex];
                 MuscleSample sample = samples[frame];
                 if (sample == null)
                 {
                     continue;
                 }
 
-                float time = frame / frameRate;
                 HumanPose pose = KimodoMuscleSampleHumanPoseAdapter.ToHumanPose(sample);
                 if (includeRootTransform)
                 {
@@ -149,6 +185,41 @@ namespace KimodoBridge
                 }
             }
 
+            return true;
+        }
+
+        private static bool ValidateFrameTimes(
+            IReadOnlyList<float> frameTimesSeconds,
+            int sampleCount,
+            float durationSeconds,
+            out string error)
+        {
+            error = string.Empty;
+            if (frameTimesSeconds == null || frameTimesSeconds.Count != sampleCount || sampleCount == 0)
+            {
+                error = "FlowHMR frame timestamps must contain one value per motion sample.";
+                return false;
+            }
+            if (float.IsNaN(durationSeconds) || float.IsInfinity(durationSeconds) || durationSeconds <= 0f)
+            {
+                error = "FlowHMR source duration must be finite and positive.";
+                return false;
+            }
+            for (int index = 0; index < frameTimesSeconds.Count; index++)
+            {
+                float time = frameTimesSeconds[index];
+                if (float.IsNaN(time) || float.IsInfinity(time) || time < 0f ||
+                    (index > 0 && time <= frameTimesSeconds[index - 1]))
+                {
+                    error = $"FlowHMR frame timestamp {index} is invalid or not strictly increasing.";
+                    return false;
+                }
+            }
+            if (frameTimesSeconds[frameTimesSeconds.Count - 1] > durationSeconds + 1e-4f)
+            {
+                error = "FlowHMR source duration precedes its last frame timestamp.";
+                return false;
+            }
             return true;
         }
 

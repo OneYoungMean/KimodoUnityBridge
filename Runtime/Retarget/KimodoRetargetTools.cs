@@ -42,6 +42,33 @@ namespace KimodoBridge
             return true;
         }
 
+        internal static bool WriteMuscleSampleToMuscleClip(
+            IReadOnlyList<MuscleSample> samples,
+            IReadOnlyList<float> frameTimesSeconds,
+            float durationSeconds,
+            AnimationClip clip,
+            out string error)
+        {
+            error = string.Empty;
+            if (clip == null)
+            {
+                error = "Target clip is null.";
+                return false;
+            }
+            if (samples == null || samples.Count == 0)
+            {
+                error = "Muscle samples are empty.";
+                return false;
+            }
+
+            clip.ClearCurves();
+            if (!KimodoRetargetClipWriter.WriteRetargetMuscleCurves(
+                    samples, frameTimesSeconds, durationSeconds, clip, out error))
+                return false;
+            clip.EnsureQuaternionContinuity();
+            return true;
+        }
+
         internal static bool WriteBoneSampleToBoneClip(
             IReadOnlyList<BoneSample> samples,
             AnimationClip clip,

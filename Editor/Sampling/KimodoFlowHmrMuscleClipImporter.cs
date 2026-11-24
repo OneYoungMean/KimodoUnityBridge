@@ -75,21 +75,31 @@ namespace KimodoBridge.Editor
 
                 int frames = motion.FrameCount;
                 var sourceSamples = new List<MuscleSample>(frames);
+                bool hasSourceTiming = KimodoFlowHmrTiming.TryRead(
+                    analysis, frames, motion.FrameRate,
+                    out float[] frameTimes, out float durationSeconds,
+                    out int trackingStartSample, out int trackingEndSampleExclusive, out error);
+                if (!string.IsNullOrEmpty(error))
+                    return false;
                 int rotationJoints = KimodoRawMotionUtility.ResolveRotationJointCount(motion);
                 for (int frame = 0; frame < frames; frame++)
                 {
+                    int poseFrame = hasSourceTiming
+                        ? KimodoFlowHmrTiming.ClampSampleToTrackingRange(
+                            frame, trackingStartSample, trackingEndSampleExclusive, frames)
+                        : frame;
                     for (int joint = 0; joint < bodyJointCount; joint++)
                     {
-                        if (!motion.TryReadUnityLocalRotation(frame, joint, rotationJoints, out Quaternion rotation))
+                        if (!motion.TryReadUnityLocalRotation(poseFrame, joint, rotationJoints, out Quaternion rotation))
                         {
-                            error = $"SMPL-H rotation is invalid at frame {frame}, joint '{motion.jointNames[joint]}'.";
+                            error = $"SMPL-H rotation is invalid at frame {poseFrame}, joint '{motion.jointNames[joint]}'.";
                             return false;
                         }
                         joints[joint].localRotation = bindRotations[joint] * rotation;
                     }
-                    if (!motion.TryReadUnityRootPosition(frame, out Vector3 rootPosition))
+                    if (!motion.TryReadUnityRootPosition(poseFrame, out Vector3 rootPosition))
                     {
-                        error = $"SMPL-H root position is invalid at frame {frame}.";
+                        error = $"SMPL-H root position is invalid at frame {poseFrame}.";
                         return false;
                     }
                     // Match KimodoRawMotionUtility playback semantics: root translation is
@@ -120,7 +130,11 @@ namespace KimodoBridge.Editor
 
                 clip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(clipName);
                 clip.frameRate = motion.FrameRate;
-                if (!KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out error))
+                bool wroteClip = hasSourceTiming
+                    ? KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(
+                        samples, frameTimes, durationSeconds, clip, out error)
+                    : KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out error);
+                if (!wroteClip)
                 {
                     clip = null;
                     return false;

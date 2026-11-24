@@ -216,10 +216,57 @@ namespace KimodoBridge.Editor.Tests
             }
         }
 
+        [Test]
+        public void WriteMuscleClip_UsesSourceTimestampsAndKeepsFullVideoDuration()
+        {
+            var clip = new AnimationClip { frameRate = 30f };
+            try
+            {
+                var samples = new List<MuscleSample>
+                {
+                    CreateRootPositionSample(1f),
+                    CreateRootPositionSample(2f),
+                    CreateRootPositionSample(3f)
+                };
+                float[] frameTimes = { 1.5f, 1.5f + (1f / 30f), 16.566667f };
+                const float sourceDuration = 18.0817f;
+
+                Assert.That(
+                    KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(
+                        samples, frameTimes, sourceDuration, clip, out string error),
+                    Is.True,
+                    error);
+
+                AnimationCurve rootX = AnimationUtility.GetEditorCurve(
+                    clip,
+                    EditorCurveBinding.FloatCurve(string.Empty, typeof(Animator), "RootT.x"));
+                Assert.That(rootX, Is.Not.Null);
+                Assert.That(rootX.keys[0].time, Is.EqualTo(0f).Within(1e-5f));
+                Assert.That(rootX.keys[0].value, Is.EqualTo(1f).Within(1e-5f));
+                Assert.That(rootX.keys[1].time, Is.EqualTo(frameTimes[0]).Within(1e-5f));
+                Assert.That(rootX.keys[2].time, Is.EqualTo(frameTimes[1]).Within(1e-5f));
+                Assert.That(rootX.keys[rootX.length - 2].time, Is.EqualTo(frameTimes[2]).Within(1e-5f));
+                Assert.That(rootX.keys[rootX.length - 1].time, Is.EqualTo(sourceDuration).Within(1e-4f));
+                Assert.That(rootX.keys[rootX.length - 1].value, Is.EqualTo(3f).Within(1e-5f));
+                Assert.That(clip.length, Is.EqualTo(sourceDuration).Within(1e-4f));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(clip);
+            }
+        }
+
         private static MuscleSample CreateRootRotationSample(Quaternion rootRotation)
         {
             MuscleSample sample = new MuscleSample();
             sample.SetRoot(Vector3.zero, rootRotation);
+            return sample;
+        }
+
+        private static MuscleSample CreateRootPositionSample(float x)
+        {
+            MuscleSample sample = new MuscleSample();
+            sample.SetRoot(new Vector3(x, 0f, 0f), Quaternion.identity);
             return sample;
         }
 
