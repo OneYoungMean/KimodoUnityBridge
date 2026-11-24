@@ -45,6 +45,7 @@ REQUIRED_FILES = [
     "ckpts/yolox/yolox_l.pth",
     "ckpts/vggt-omega/vggt_omega_1b_512.pt",
     "ckpts/sam-3d-body-dinov3/model.ckpt",
+    "ckpts/sam-3d-body-dinov3/model_config.yaml",
     "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
     "assets/body_models/smplh/neutral/model.npz",
     "assets/body_models/smpl_neutral_J_regressor.pt",

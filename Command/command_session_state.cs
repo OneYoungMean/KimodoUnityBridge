@@ -906,18 +906,11 @@ namespace KimodoUnityBridge.Command
                     session,
                     RequiredStringValue(arguments, "target_character"),
                     addIfMissing: true);
-                Avatar sourceAvatar = ResolveRetargetAvatar(source);
-                Avatar targetAvatar = ResolveRetargetAvatar(target);
-                AnimationClip sourceClip = sourceAnimation.Clip;
-                if (!KimodoSourceClipPreparationUtility.TryResolveSourceAvatar(
-                        ref sourceClip,
-                        sourceAvatar,
-                        out Avatar sourceClipAvatar,
-                        out string sourceClipError))
+                if (!KimodoRetargetCoreUtility.IsValidHumanoid(source.Avatar) ||
+                    !KimodoRetargetCoreUtility.IsValidHumanoid(target.Avatar))
                 {
-                    throw new InvalidOperationException($"Retarget source Clip preparation failed: {sourceClipError}");
+                    throw new InvalidOperationException("Retarget requires valid humanoid source and target Avatars.");
                 }
-                sourceAvatar = sourceClipAvatar;
 
                 AnimationClip output = null;
                 try
@@ -931,14 +924,14 @@ namespace KimodoUnityBridge.Command
                     output = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(
                         assetName,
                         KimodoEditorOutputPathUtility.NormalizeOutputFolder(outputOptions?.Value<string>("folder")));
-                    KimodoEditorClipUtility.CopyClipData(sourceClip, output);
-                    AnimationClip providedHumanoidClip = sourceClip.isHumanMotion
-                        ? sourceClip
+                    KimodoEditorClipUtility.CopyClipData(sourceAnimation.Clip, output);
+                    AnimationClip providedHumanoidClip = sourceAnimation.Clip.isHumanMotion
+                        ? sourceAnimation.Clip
                         : null;
                     if (!KimodoRetargetCoreUtility.TryRetargetClip(
                             output,
-                            sourceAvatar,
-                            targetAvatar,
+                            source.Avatar,
+                            target.Avatar,
                             exportMuscleClip: false,
                             providedSourceHumanoidClip: providedHumanoidClip,
                             out AnimationClip retargeted,
@@ -969,26 +962,6 @@ namespace KimodoUnityBridge.Command
                     }
                     throw;
                 }
-        }
-
-        private static Avatar ResolveRetargetAvatar(TimelineCharacterRecord character)
-        {
-            if (KimodoRetargetCoreUtility.IsValidHumanoid(character?.Avatar))
-            {
-                return character.Avatar;
-            }
-
-            KimodoLocalAvatarUtility.AvatarResolveResult result =
-                KimodoLocalAvatarUtility.ResolveAvatarFromGameObject(character?.Root);
-            if (result.IsHumanoid && KimodoRetargetCoreUtility.IsValidHumanoid(result.Avatar))
-            {
-                return result.Avatar;
-            }
-
-            string characterName = character?.Name ?? "<unknown>";
-            string detail = string.IsNullOrWhiteSpace(result.Error) ? string.Empty : $" {result.Error}";
-            throw new InvalidOperationException(
-                $"Retarget requires a valid humanoid Avatar for character '{characterName}'.{detail}");
         }
 
         private static TimelineAnimationRecord ResolveAnimation(JObject arguments, TimelineCharacterRecord character)
@@ -1253,7 +1226,7 @@ namespace KimodoUnityBridge.Command
                     {
                         ["name"] = track.name,
                         ["type"] = track.GetType().Name,
-                        ["clip_count"] = track is AnimationTrack animationTrack ? animationTrack.GetClips().Count() : 0
+                        ["clip_count"] = track.GetClips().Count()
                     })
                     : Enumerable.Empty<JObject>())
             };

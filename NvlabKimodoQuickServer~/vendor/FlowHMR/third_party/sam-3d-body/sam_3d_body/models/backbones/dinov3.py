@@ -1,6 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 
-import os
 from pathlib import Path
 
 import torch
@@ -14,17 +13,11 @@ class Dinov3Backbone(nn.Module):
         super().__init__()
         self.name = name
         self.cfg = cfg
-
-        configured_repo = os.environ.get("KIMODO_FLOWHMR_DINOV3_REPO", "").strip()
-        if configured_repo:
-            repo = Path(configured_repo).expanduser().resolve()
-        else:
-            torch_home = Path(os.environ.get("TORCH_HOME", Path.home() / ".cache" / "torch"))
-            repo = torch_home / "hub" / "facebookresearch_dinov3_main"
+        repo = Path(__file__).resolve().parents[5] / "third_party" / "dinov3"
         if not repo.is_dir():
             raise RuntimeError(
-                "DINOv3 source is missing. KimodoBridge disabled implicit torch.hub downloads; "
-                "prepare the local DINOv3 checkout and set KIMODO_FLOWHMR_DINOV3_REPO."
+                "SAM 3D Body's configured backbone requires DINOv3, but the DINOv3 source "
+                "is not bundled with QuickServer."
             )
         self.encoder = torch.hub.load(
             str(repo), self.name, source="local", pretrained=False,

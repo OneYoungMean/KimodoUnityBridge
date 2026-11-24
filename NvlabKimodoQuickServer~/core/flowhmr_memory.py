@@ -32,7 +32,10 @@ def options_for_free_vram_gb(free_vram_gb: float) -> FlowHmrMemoryOptions:
 
 
 def device_for_free_vram_gb(free_vram_gb: float) -> str:
-    return "cuda" if float(free_vram_gb) >= 8.0 else "cpu"
+    # FlowHMR already reduces VGGT frequency and SAM chunking below 8 GB.
+    # Allow that conservative profile to try CUDA from 4 GB free; mocap_worker
+    # retries OOMs with the conservative settings and ultimately falls back to CPU.
+    return "cuda" if float(free_vram_gb) >= 4.0 else "cpu"
 
 
 def is_cuda_oom(output: str) -> bool:

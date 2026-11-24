@@ -613,7 +613,14 @@ def _setup_flowhmr_env(paths: ProjectPaths, logger: SetupLogger) -> None:
     if missing:
         raise SetupError("Bundled FlowHMR source is incomplete: " + ", ".join(missing))
     if paths.flowhmr_python.exists() and not os.environ.get("KIMODO_SETUP_FLOWHMR_FORCE"):
-        rc, _ = _run_capture([str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr; print(torch.__version__)"])
+        # FlowHMR is bundled as source rather than installed as a wheel.  Its
+        # package is importable when the probe uses the same checkout directory
+        # as the worker, so validate from that directory instead of the
+        # QuickServer root.
+        rc, _ = _run_capture(
+            [str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr; print(torch.__version__)"],
+            cwd=source,
+        )
         if rc == 0:
             logger.log(f"[INFO] FlowHMR environment already ready: {paths.flowhmr_python}")
             return
@@ -632,7 +639,10 @@ def _setup_flowhmr_env(paths: ProjectPaths, logger: SetupLogger) -> None:
     _run_logged([uv_bin, "pip", "install", "--python", str(paths.flowhmr_python),
                  "--default-index", default_index, "--no-build-isolation", "--no-deps",
                  "--editable", str(yolox_setup.parent)], logger)
-    rc, output = _run_capture([str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr, yolox; print('torch='+torch.__version__)"])
+    rc, output = _run_capture(
+        [str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr, yolox; print('torch='+torch.__version__)"],
+        cwd=source,
+    )
     if rc != 0:
         raise SetupError(f"FlowHMR environment validation failed.\n{output}")
     logger.log(f"[OK] FlowHMR environment ready: {paths.flowhmr_python}")

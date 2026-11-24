@@ -15,7 +15,8 @@ from torch import Tensor
 
 # Repo root (for locating checkpoints)
 _repo_root = osp.normpath(osp.join(osp.dirname(__file__), "..", ".."))
-_YOLOX_CKPT_PATH = osp.join(_repo_root, "ckpts", "yolox", "yolox_l.pth")
+_assets_root = osp.abspath(os.environ.get("FLOWHMR_ASSETS_ROOT", _repo_root))
+_YOLOX_CKPT_PATH = osp.join(_assets_root, "ckpts", "yolox", "yolox_l.pth")
 
 
 def find_ffmpeg() -> str:

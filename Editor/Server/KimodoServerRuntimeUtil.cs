@@ -204,14 +204,16 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            bool keepModels = packagedVersion.Major == runtimeVersion.Major;
-            bool keepVenv = keepModels && packagedVersion.Minor == runtimeVersion.Minor;
+            bool keepModels = true;
+            bool keepVenv = packagedVersion.Major == runtimeVersion.Major &&
+                            packagedVersion.Minor == runtimeVersion.Minor;
             if (keepVenv)
             {
                 MigrateLegacyVenvToRoot(resolvedRuntimeRoot);
             }
 
-            ClearRuntimeRootPreserving(resolvedRuntimeRoot, keepModels, keepVenv);
+            MigrateFlowHmrModelsToModelsRoot(resolvedRuntimeRoot);
+            ArchiveRuntimeRootPreserving(resolvedRuntimeRoot, keepModels, keepVenv, keepFlowHmrVenv: true);
             Directory.CreateDirectory(resolvedRuntimeRoot);
             CopyDirectoryRecursive(
                 templateRoot,
@@ -226,8 +228,8 @@ namespace KimodoBridge.Editor
             }
 
             string preserved = keepVenv
-                ? "models and root .venv"
-                : (keepModels ? "models" : "nothing");
+                ? "models, root .venv, and FlowHMR .flowhmr-venv"
+                : "models and FlowHMR .flowhmr-venv";
             message = $"Synchronized QuickServer {runtimeVersion} -> {packagedVersion}; preserved {preserved}.";
             return true;
         }
@@ -422,28 +424,68 @@ namespace KimodoBridge.Editor
         }
 
 
-        private static void ClearRuntimeRootPreserving(string runtimeRoot, bool keepModels, bool keepVenv)
+        private static void ArchiveRuntimeRootPreserving(
+            string runtimeRoot,
+            bool keepModels,
+            bool keepVenv,
+            bool keepFlowHmrVenv)
         {
             if (!Directory.Exists(runtimeRoot))
             {
                 return;
             }
 
+            string parent = Path.GetDirectoryName(Path.GetFullPath(runtimeRoot));
+            string archiveRoot = Path.Combine(parent ?? runtimeRoot, "archive", "quickserver-sync-" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff"));
             foreach (string file in Directory.GetFiles(runtimeRoot))
             {
-                File.Delete(file);
+                Directory.CreateDirectory(archiveRoot);
+                File.Move(file, Path.Combine(archiveRoot, Path.GetFileName(file)));
             }
 
             foreach (string dir in Directory.GetDirectories(runtimeRoot))
             {
                 string dirName = Path.GetFileName(dir);
                 if ((keepModels && string.Equals(dirName, "models", StringComparison.OrdinalIgnoreCase)) ||
-                    (keepVenv && string.Equals(dirName, ".venv", StringComparison.OrdinalIgnoreCase)))
+                    (keepVenv && string.Equals(dirName, ".venv", StringComparison.OrdinalIgnoreCase)) ||
+                    (keepFlowHmrVenv && string.Equals(dirName, ".flowhmr-venv", StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
 
-                Directory.Delete(dir, recursive: true);
+                Directory.CreateDirectory(archiveRoot);
+                Directory.Move(dir, Path.Combine(archiveRoot, dirName));
+            }
+        }
+
+        private static void MigrateFlowHmrModelsToModelsRoot(string runtimeRoot)
+        {
+            string sourceRoot = Path.Combine(runtimeRoot, "vendor", "FlowHMR");
+            string modelRoot = Path.Combine(runtimeRoot, "models", "FlowHMR");
+            string[] modelFiles =
+            {
+                "checkpoints/flowhmr_latest/flowhmr_latest.ckpt",
+                "checkpoints/flowhmr_latest/config.yml",
+                "ckpts/yolox/yolox_l.pth",
+                "ckpts/vggt-omega/vggt_omega_1b_512.pt",
+                "ckpts/sam-3d-body-dinov3/model.ckpt",
+                "ckpts/sam-3d-body-dinov3/model_config.yaml",
+                "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
+                "assets/body_models/smpl_neutral_J_regressor.pt",
+                "assets/body_models/smplh/neutral/model_skeleton.npz"
+            };
+
+            foreach (string relativePath in modelFiles)
+            {
+                string source = Path.Combine(sourceRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                string target = Path.Combine(modelRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(source) || File.Exists(target))
+                {
+                    continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(target));
+                File.Move(source, target);
             }
         }
 

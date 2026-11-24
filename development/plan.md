@@ -42,6 +42,47 @@
 - 保留 QuickServer 旧 `.venv` 检测与迁移，直到升级和回滚路径验证完成。
 - 新代码优先使用 canonical 字段和实时 schema；兼容别名不得继续扩散。
 
+## 已确认待实施：`animation.generate` 破坏性升级
+
+状态：用户已认可升级方向；本节只记录计划，尚未修改实现。此次按公开协议重置处理，不保留旧字段别名。
+
+### 新契约与语义规则
+
+- 将 `animation.generate` 改为以 UI 语义为中心的扁平参数。生成选项不再要求 `loop`、`path`、`generation`、`output` 等对象层级；重复目标仍用顶层数组表达。公开 schema 作为 CLI 适配层，不要求复制 `KimodoPlayableClip` 或后端请求的内部层级。
+- 普通生成必填角色、动作提示和时长；以 `duration_seconds` 作为公开时长单位，响应回显换算后的 60 FPS 帧数。拒绝旧的 `duration_frames` 和旧分组参数，避免同一字段接受多种并存语义。
+- Locomotion 模式明确为 `in_place` 或 `travel`。`travel` 必须且只能提供 `speed_mps` 或 `distance_m` 其中一项；两种输入都必须同时提供 `path_start_angle_degrees` 和 `path_end_angle_degrees`。缺少角度时，在提交生成请求前报错，说明无法推断轨迹。`speed_mps` 按请求动作时长推导距离；明确米与 Unity World units 的换算规则，并用规范化结果回显有效距离。`in_place` 拒绝非零速度或距离。
+- `root_path` 与 locomotion 路径参数作为两个独立轨迹来源处理；在没有定义并验证组合语义前，二者同时输入时拒绝。Heading 保持独立参数，说明其相对 Path Angle 的应用阶段和坐标语义。
+- 循环以独立开关和窗口/采样参数表达。`loop_seam` 为可多选枚举，当前约定值为 `pose`、`positionXYZ`、`RotationY`：`pose` 闭合身体姿势，不包含根变换；`positionXYZ` 闭合根的 XYZ 位置；`RotationY` 闭合根的 Y 轴旋转。seam 只允许在 Loop 开启时设置。`travel` 与 `positionXYZ` 闭合因净位移冲突时拒绝，并给出可选修正。
+- In、Out、Inside 源 Clip 及其采样选项用 `in_*`、`out_*`、`inside_*` 顶层字段表达。`generate_loop` 与 `out_source_clip` 冲突时拒绝；Inside 与 Loop 可共存。Post Apply 的默认值需与 UI 对齐，避免 CLI 与 UI 产生不同请求。
+- 硬目标用顶层 `pose_targets`、`root_targets`、`effector_targets` 数组表达。定义同帧目标的合并规则；重复目标通道若值冲突则在提交前拒绝，不由数组顺序隐式决定优先级。
+- 输出目录、名称、输出模式、分析开关和等待时长用顶层字段表达。未由现有 UI/执行路径支持的 `variants`、精确速度之外的新控制不纳入本次 schema。
+- `additionalProperties: false` 保持严格；旧 `loop`、`path`、`generation`、`output`、`constraints` 输入及 `raw_instruction` 不再由普通生成命令接受。
+
+### 原始请求回放
+
+- 新增独立命令 `genrate_raw`（按用户指定的命令名），专用于回放 `generation.get(include_request_json=true)` 返回的原始后端请求。
+- `genrate_raw` 只接收目标角色与原始请求数据，不接受普通生成字段、路径参数或目标约束；回放路径使用独立校验，不能绕过普通命令的输入边界后又混合两套参数。
+- `generation.get` 保留供诊断和回放使用的完整后端请求 JSON，并明确它是后端 payload，不是 `animation.generate` 的公共输入 schema。
+
+### 受影响接口与维护面
+
+- 同步更新实时命令定义、`kimodo.help`、`Command/help.json`、生成示例和约束手册。
+- `pose.analysis` 更新为可预览新契约中的点目标数组；不支持预览的轨迹或源 Clip 参数明确标注。`animation.analysis`、`pose.get`、`session.context` 等独立领域契约保持不变。
+- 检查 `generation.get` 的状态输出和有效参数回显，使派生距离、实际时长/帧数、循环 seam 与源 Clip 采样结果可被调用方确认。
+- 检查 `session.history` 的输入记录和包版本兼容策略：旧历史输入保持原样可读，不转换为新格式；若需要为新命令增加 schema 标识，不以 schema 变化为由破坏既有 History 读取。只有 History 事件封套改变时才调整其格式版本。
+- 同步更新中英文 `SKILL.md`、`tools/common.md`、命令参考和维护文档。QuickServer 内部协议文档区分后端 payload 与公共 CLI 输入，不对内部字段做机械改名。
+- 归档一份旧公共契约及示例快照供迁移审计；不保留活动兼容别名。若需要移出独立旧文件，先移到最近的 `archive/` 目录；不删除文件或 Unity 资产。
+
+### 实施与验收顺序
+
+1. 固定最终字段名、枚举大小写、默认值、单位换算和跨字段错误矩阵，再更新实时输入 schema。
+2. 在命令边界解析扁平参数并规范化到现有内部生成请求；检查速度派生距离、硬目标冲突和所有轨迹/Loop/In-Out 组合在排队前失败。
+3. 实现 `genrate_raw` 并调整 `generation.get` 的回显说明和回放数据契约。
+4. 同步 `pose.analysis`、帮助、打包 `help.json`、中英文工作流文档与示例；旧字段必须被 schema 明确拒绝。
+5. 更新命令 schema 合同、非法组合、目标预览、History 兼容、原始回放和 CLI/UI 请求对齐测试。运行最小相关 Unity Editor 检查及一次生成和回放 smoke test；Unity 命令行一律通过 PowerShell 执行。
+
+完成标准：普通生成只接受新契约；缺失轨迹角度、速度/距离互斥、Loop seam 和 Outside Out 等冲突均能在提交前给出字段级错误；`genrate_raw` 能重放捕获的后端请求；实时 schema、帮助、文档和测试对同一语义保持一致；既有 Session History 仍可读取。
+
 ## 暂缓 TODO：Analysis Picture 行为修复
 
 - [x] 已完成：生成后的完整分析走共享 Editor 分析服务，独立结果仍由 `animation.analysis` 提供；生成请求中无读取者的轻量 `analysis_option` 已移除，Inspector 的独立旧入口已归档。

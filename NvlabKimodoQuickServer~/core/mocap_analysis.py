@@ -84,15 +84,15 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
     extensions = VIDEO_EXTENSIONS if normalized_kind == "video" else PICTURE_EXTENSIONS
     if media.suffix.lower() not in extensions:
         raise ValueError(f"Unsupported {normalized_kind} file extension: {media.suffix or '<none>'}.")
+    if enable_camera and normalized_kind != "video":
+        raise ValueError("enable_camera is supported only for video media.")
     if media.stat().st_size > MAX_MEDIA_BYTES:
         raise ValueError(f"Media file exceeds the {MAX_MEDIA_BYTES}-byte limit.")
 
     runtime_root = Path(__file__).resolve().parents[1]
     flowhmr_root = Path(os.environ.get("KIMODO_FLOWHMR_ROOT") or runtime_root / "vendor" / "FlowHMR").expanduser().resolve()
-    from .flowhmr_assets import ensure_flowhmr_assets
-    from .flowhmr_memory import device_for_free_vram_gb, options_for_free_vram_gb
-    from .kimodo_runtime import _detect_free_vram_gb
-    checkpoint = ensure_flowhmr_assets(flowhmr_root, skeleton_only=True)
+    flowhmr_models = Path(os.environ.get("KIMODO_FLOWHMR_MODELS_ROOT") or runtime_root / "models" / "FlowHMR").expanduser().resolve()
+    checkpoint = ensure_flowhmr_assets(flowhmr_root, skeleton_only=True, model_root=flowhmr_models)
     configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
     if configured_python:
         python = Path(configured_python).expanduser().resolve(strict=True)
@@ -117,6 +117,7 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
     command = [sys.executable, str(worker), "--kind", normalized_kind,
                "--media", str(media), "--flowhmr-root", str(flowhmr_root),
                "--checkpoint", str(checkpoint), "--flowhmr-python", str(python),
+               "--assets-root", str(flowhmr_models),
                "--device", device, "--vggt-interval", str(memory_options.vggt_interval),
                "--sam-chunk-size", str(memory_options.sam_chunk_size)]
     if memory_options.static_camera and not enable_camera:
@@ -147,7 +148,11 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
 
 def error_code_for_exception(exc: Exception) -> str:
     message = str(exc).lower()
-    if "flowhmr python" in message or "flowhmr source" in message or "checkpoint is missing" in message:
+    if (
+        "flowhmr python" in message
+        or "flowhmr source" in message
+        or "checkpoint is missing" in message
+    ):
         return "mocap_not_configured"
     if isinstance(exc, FileNotFoundError):
         return "media_not_found"

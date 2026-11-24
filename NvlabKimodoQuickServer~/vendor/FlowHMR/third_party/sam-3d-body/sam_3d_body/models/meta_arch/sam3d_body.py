@@ -1031,7 +1031,7 @@ class SAM3DBody(BaseModel):
                 torch.meshgrid(torch.arange(H), torch.arange(W), indexing="xy"), dim=2
             )[None, None, :, :, :]
             .repeat(B, N, 1, 1, 1)
-            .cuda()
+            .to(batch["affine_trans"].device)
         )  # B x N x H x W x 2
         meshgrid_xy = (
             meshgrid_xy / batch["affine_trans"][:, :, None, None, [0, 1], [0, 1]]

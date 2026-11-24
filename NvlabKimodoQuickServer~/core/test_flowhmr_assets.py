@@ -1,5 +1,5 @@
-from pathlib import Path
 import os
+from pathlib import Path
 import sys
 import tempfile
 import types
@@ -19,8 +19,6 @@ class FlowHmrAssetTests(unittest.TestCase):
         (source / 'ckpts' / 'yolox').mkdir(parents=True)
         (source / 'assets' / 'body_models' / 'smplh' / 'neutral').mkdir(parents=True)
         (source / 'ckpts' / 'vggt-omega').mkdir(parents=True)
-        (source / 'ckpts' / 'sam-3d-body-dinov3' / 'assets').mkdir(parents=True)
-        (source / 'dinov3').mkdir(parents=True)
         (source / 'run_v2m_demo_generation.py').write_text('', encoding='utf-8')
         (source / 'checkpoints' / 'flowhmr_latest' / 'flowhmr_latest.ckpt').write_bytes(b'ckpt')
         (source / 'checkpoints' / 'flowhmr_latest' / 'config.yml').write_text('model: test', encoding='utf-8')
@@ -34,8 +32,7 @@ class FlowHmrAssetTests(unittest.TestCase):
     def test_complete_local_assets_do_not_download(self):
         with tempfile.TemporaryDirectory() as temp:
             source = self._complete_local_tree(Path(temp))
-            with patch.dict(os.environ, {'KIMODO_FLOWHMR_DINOV3_REPO': str(source / 'dinov3')}), \
-                    patch.object(flowhmr_assets, '_download_snapshot') as download:
+            with patch.object(flowhmr_assets, '_download_snapshot') as download:
                 result = flowhmr_assets.ensure_flowhmr_assets(source)
             self.assertEqual(result.name, 'flowhmr_latest.ckpt')
             download.assert_not_called()
@@ -45,8 +42,7 @@ class FlowHmrAssetTests(unittest.TestCase):
             source = self._complete_local_tree(Path(temp))
             for relative in flowhmr_assets.FLOWHMR_GATED_FILES:
                 (source / relative).unlink()
-            with patch.dict(os.environ, {'KIMODO_FLOWHMR_DINOV3_REPO': str(source / 'dinov3')}), \
-                    patch.object(flowhmr_assets, '_download_snapshot', side_effect=RuntimeError('mirror unavailable')):
+            with patch.object(flowhmr_assets, '_download_snapshot', side_effect=RuntimeError('mirror unavailable')):
                 with self.assertRaisesRegex(RuntimeError, 'licensed/local assets'):
                     flowhmr_assets.ensure_flowhmr_assets(source)
 
@@ -67,6 +63,37 @@ class FlowHmrAssetTests(unittest.TestCase):
             flowhmr_assets._download_snapshot('checkpoint', target, 'ms/repo', 'hf/repo')
         modelscope_download.assert_called_once_with(model_id='ms/repo', local_dir=str(target))
         hf_download.assert_not_called()
+
+    def test_modelscope_nested_checkpoint_snapshot_is_flattened(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / 'checkpoint'
+            patterns = (
+                'checkpoints/flowhmr-0.46B/flowhmr_latest/flowhmr_latest.ckpt',
+                'checkpoints/flowhmr-0.46B/flowhmr_latest/config.yml',
+            )
+
+            def download(model_id, local_dir, allow_file_pattern):
+                self.assertEqual(model_id, 'ms/flowhmr')
+                self.assertEqual(allow_file_pattern, list(patterns))
+                nested = Path(local_dir) / 'flowhmr-0.46B' / 'flowhmr_latest'
+                nested.mkdir(parents=True)
+                (nested / 'flowhmr_latest.ckpt').write_bytes(b'checkpoint')
+                (nested / 'config.yml').write_text('model: test', encoding='utf-8')
+
+            modelscope_module = types.SimpleNamespace(snapshot_download=Mock(side_effect=download))
+            hf_download = Mock()
+            with patch.dict(sys.modules, {
+                'modelscope': modelscope_module,
+                'huggingface_hub': types.SimpleNamespace(snapshot_download=hf_download),
+            }):
+                flowhmr_assets._download_snapshot(
+                    'FlowHMR checkpoint', target, 'ms/flowhmr', 'hf/flowhmr',
+                    allow_patterns=patterns, expected_files=('flowhmr_latest.ckpt', 'config.yml'),
+                )
+
+            self.assertEqual((target / 'flowhmr_latest.ckpt').read_bytes(), b'checkpoint')
+            self.assertEqual((target / 'config.yml').read_text(encoding='utf-8'), 'model: test')
+            hf_download.assert_not_called()
 
     def test_modelscope_failure_falls_back_to_huggingface(self):
         modelscope_download = Mock(side_effect=OSError('mirror down'))
@@ -97,14 +124,13 @@ class FlowHmrAssetTests(unittest.TestCase):
                 (source / relative).unlink()
             calls = []
 
-            def record_download(label, target_dir, modelscope_repo, huggingface_repo):
+            def record_download(label, target_dir, modelscope_repo, huggingface_repo, **kwargs):
                 calls.append((label, modelscope_repo, huggingface_repo))
                 raise RuntimeError('mirror unavailable')
 
             with patch.dict('os.environ', {
                 'KIMODO_FLOWHMR_VGGT_MODELSCOPE_REPOSITORY': 'mirror/vggt',
                 'KIMODO_FLOWHMR_SAM3D_MODELSCOPE_REPOSITORY': 'mirror/sam3d',
-                'KIMODO_FLOWHMR_DINOV3_REPO': str(source / 'dinov3'),
             }), patch.object(flowhmr_assets, '_download_snapshot', side_effect=record_download):
                 with self.assertRaisesRegex(RuntimeError, 'licensed/local assets'):
                     flowhmr_assets.ensure_flowhmr_assets(source)
@@ -147,10 +173,33 @@ class FlowHmrAssetTests(unittest.TestCase):
             compact = source / flowhmr_assets.SMPLH_SKELETON_MODEL
             compact.write_bytes(b'compact model')
             (source / flowhmr_assets.FLOWHMR_BUNDLED_FILES[0]).unlink()
-            with patch.dict(os.environ, {'KIMODO_FLOWHMR_DINOV3_REPO': str(source / 'dinov3')}), \
-                    patch.object(flowhmr_assets, '_download_snapshot') as download:
+            with patch.object(flowhmr_assets, '_download_snapshot') as download:
                 result = flowhmr_assets.ensure_flowhmr_assets(source, skeleton_only=True)
             self.assertEqual(result.name, 'flowhmr_latest.ckpt')
+            download.assert_not_called()
+
+    def test_model_files_are_resolved_under_models_flowhmr(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'vendor' / 'FlowHMR'
+            models = root / 'models' / 'FlowHMR'
+            source.mkdir(parents=True)
+            (source / 'run_v2m_demo_generation.py').write_text('', encoding='utf-8')
+            (source / 'assets' / 'body_models').mkdir(parents=True)
+            (source / flowhmr_assets.FLOWHMR_BUNDLED_FILES[0]).write_bytes(b'bundled')
+            for relative in (
+                'checkpoints/flowhmr_latest/flowhmr_latest.ckpt',
+                'checkpoints/flowhmr_latest/config.yml',
+                'ckpts/yolox/yolox_l.pth',
+            ) + flowhmr_assets.FLOWHMR_SKELETON_GATED_FILES:
+                target = models / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b'asset')
+            with patch.object(flowhmr_assets, '_download_snapshot') as download:
+                result = flowhmr_assets.ensure_flowhmr_assets(source, skeleton_only=True, model_root=models)
+            self.assertEqual(result, (models / 'checkpoints/flowhmr_latest/flowhmr_latest.ckpt').resolve())
+            self.assertTrue((models / flowhmr_assets.FLOWHMR_BUNDLED_FILES[0]).is_file())
+            self.assertFalse((source / 'checkpoints').exists())
             download.assert_not_called()
 
 

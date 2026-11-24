@@ -20,8 +20,11 @@ class FlowHmrMemoryTests(unittest.TestCase):
         self.assertTrue(is_cuda_oom("CUDA error: memory allocation failed"))
         self.assertFalse(is_cuda_oom("checkpoint file is missing"))
 
-    def test_low_free_vram_selects_cpu(self):
-        self.assertEqual(device_for_free_vram_gb(7.9), "cpu")
+    def test_four_gb_uses_conservative_cuda_and_lower_memory_uses_cpu(self):
+        self.assertEqual(device_for_free_vram_gb(4), "cuda")
+        self.assertEqual(device_for_free_vram_gb(4.0), "cuda")
+        self.assertEqual(device_for_free_vram_gb(3.9), "cpu")
+        self.assertEqual(device_for_free_vram_gb(7.9), "cuda")
         self.assertEqual(device_for_free_vram_gb(8), "cuda")
 
 

@@ -20,8 +20,8 @@ import torch
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, REPO_ROOT)
-
-DEFAULT_CKPT = os.path.join(REPO_ROOT, "checkpoints", "flowhmr_latest", "flowhmr_latest.ckpt")
+DEFAULT_ASSETS_ROOT = os.path.abspath(os.environ.get("FLOWHMR_ASSETS_ROOT", REPO_ROOT))
+DEFAULT_CKPT = os.path.join(DEFAULT_ASSETS_ROOT, "checkpoints", "flowhmr_latest", "flowhmr_latest.ckpt")
 DEFAULT_MODEL_CFG = os.path.join(REPO_ROOT, "configs", "base", "model_basic05B.yml")
 OUTPUT_ROOT = os.path.join(REPO_ROOT, "output")
 VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v")
@@ -29,6 +29,7 @@ REQUIRED_FILES = [
     "ckpts/yolox/yolox_l.pth",
     "ckpts/vggt-omega/vggt_omega_1b_512.pt",
     "ckpts/sam-3d-body-dinov3/model.ckpt",
+    "ckpts/sam-3d-body-dinov3/model_config.yaml",
     "ckpts/sam-3d-body-dinov3/assets/mhr_model.pt",
 ]
 J_REGRESSOR_FILE = "assets/body_models/smpl_neutral_J_regressor.pt"
@@ -51,12 +52,12 @@ def collect_videos(inputs):
     return [os.path.abspath(v) for v in videos]
 
 
-def check_files(ckpt, *, static_camera=False, skeleton_only=False):
+def check_files(ckpt, *, assets_root=DEFAULT_ASSETS_ROOT, static_camera=False, skeleton_only=False):
     required = [f for f in REQUIRED_FILES if not (static_camera and f.startswith("ckpts/vggt-omega/"))]
     if not skeleton_only:
         required.append(J_REGRESSOR_FILE)
     required.append(SKELETON_SMPLH_MODEL if skeleton_only else FULL_SMPLH_MODEL)
-    missing = [f for f in required if not os.path.exists(os.path.join(REPO_ROOT, f))]
+    missing = [os.path.join(assets_root, f) for f in required if not os.path.exists(os.path.join(assets_root, f))]
     if not os.path.exists(ckpt):
         missing.insert(0, ckpt)
     if missing:
@@ -113,6 +114,8 @@ def parse_args():
     p.add_argument("videos", nargs="+", help="video files and/or directories of videos")
     p.add_argument("--ckpt", default=DEFAULT_CKPT,
                    help="FlowHMR checkpoint (config.yml next to it)")
+    p.add_argument("--assets-root", default=DEFAULT_ASSETS_ROOT,
+                   help="Root directory for downloaded/licensed model files")
     p.add_argument("--model_cfg", default=None,
                    help="model config yaml (default: config.yml next to the ckpt)")
     p.add_argument("--device", default="cuda")
@@ -145,12 +148,16 @@ def parse_args():
 def main():
     args = parse_args()
     args.ckpt = os.path.abspath(args.ckpt)
+    args.assets_root = os.path.abspath(args.assets_root)
+    os.environ["FLOWHMR_ASSETS_ROOT"] = args.assets_root
     videos = collect_videos(args.videos)
-    check_files(args.ckpt, static_camera=args.static_camera, skeleton_only=args.skeleton_only)
+    check_files(args.ckpt, assets_root=args.assets_root,
+                static_camera=args.static_camera, skeleton_only=args.skeleton_only)
 
     smpl_model_path = None
+    j_regressor_path = os.path.join(args.assets_root, J_REGRESSOR_FILE)
     if args.skeleton_only:
-        smpl_model_path = os.path.join(REPO_ROOT, "assets/body_models/smplh/neutral/model_skeleton.npz")
+        smpl_model_path = os.path.join(args.assets_root, "assets/body_models/smplh/neutral/model_skeleton.npz")
         if not os.path.isfile(smpl_model_path):
             sys.exit("missing skeleton-only SMPL-H asset: " + smpl_model_path)
 
@@ -172,6 +179,7 @@ def main():
                                       device=args.device, validation_steps=args.steps,
                                       postprocess=args.postprocess,
                                       smpl_model_path=smpl_model_path,
+                                      j_regressor_path=j_regressor_path,
                                       skeleton_only=args.skeleton_only)
 
     results = []
