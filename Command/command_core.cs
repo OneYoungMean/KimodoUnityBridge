@@ -26,8 +26,7 @@ namespace KimodoUnityBridge.Command
         public const string AnimationAnalysisCommand = "animation.analysis";
         public const string ClipInspectCommand = "clip.inspect";
         public const string ClipSettingsSetCommand = "clip.settings.set";
-        public const string PoseFromVideoCommand = "pose.fromvideo";
-        public const string PoseFromPictureCommand = "pose.frompicture";
+        public const string PoseFromMediaCommand = "pose.frommedia";
         public const string PoseAnalysisCommand = "pose.analysis";
         public const string RetargetAnimationCommand = "animation.retarget";
         public const string PoseGetCommand = "pose.get";
@@ -197,18 +196,12 @@ namespace KimodoUnityBridge.Command
                                 ["description"] = "Humanoid joints to measure. Defaults to hips, head, hands, and feet; effector-constrained joints are included automatically."
                             }, false),
                             new PropertyDefinition("camera", SceneCameraSchema(), false))),
-                    CommandDefinition(PoseFromVideoCommand,
-                        "Estimate a video motion with FlowHMR and return it as an SMPL-H KMB1 attachment.",
+                    CommandDefinition(PoseFromMediaCommand,
+                        "Estimate a video motion or still-image pose with FlowHMR and return it as an SMPL-H KMB1 attachment.",
                         Properties(
-                            Required("video_path", "string", "Absolute path to a local video readable by QuickServer."),
+                            Required("media_path", "string", "Absolute path to a local video or PNG/JPG/JPEG image readable by QuickServer; file type is inferred from its extension."),
                             Required("character", "string", "Timeline character name or object_ref whose bound Avatar receives the muscle clip."),
-                            Optional("enable_camera", "boolean", "Estimate and import the FlowHMR dynamic camera track onto the scene Main Camera. Defaults to false."),
-                            WaitSecondsProperty(10.0, allowAboveLimit: true))),
-                    CommandDefinition(PoseFromPictureCommand,
-                        "Estimate a still-image pose with FlowHMR and return one SMPL-H KMB1 frame.",
-                        Properties(
-                            Required("image_path", "string", "Absolute path to a local PNG or JPEG readable by QuickServer."),
-                            Required("character", "string", "Timeline character name or object_ref whose bound Avatar receives the muscle clip."),
+                            Optional("enable_camera", "boolean", "For video only, estimate and import the dynamic camera track onto the scene Main Camera. Defaults to false."),
                             WaitSecondsProperty(10.0, allowAboveLimit: true))),
                     CommandDefinition(RetargetAnimationCommand,
                         "Retarget one loaded animation to another current scene context character and append the result.",
@@ -263,7 +256,7 @@ namespace KimodoUnityBridge.Command
                     CommandDefinition(GetGenerationCommand,
                         "Read progress and results for installation, generation, and Mocap analysis. Completed generation returns Clip metadata and a post-analysis path; completed Mocap analysis returns poses and coordinate metadata. include_request_json returns the submitted generation payload.",
                         Properties(
-                            Required("request_id", "string", "Request id returned by server.install, animation.generate, pose.fromvideo, or pose.frompicture."),
+                            Required("request_id", "string", "Request id returned by server.install, animation.generate, or pose.frommedia."),
                             Optional("include_request_json", "boolean", "Include the exact JSON payload sent to QuickServer; defaults to false."),
                             WaitSecondsProperty(10.0, allowAboveLimit: false))),
                     CommandDefinition(CancelGenerationCommand,
@@ -382,8 +375,7 @@ namespace KimodoUnityBridge.Command
         {
             return string.Equals(toolName, InstallServerCommand, StringComparison.Ordinal) ||
                 string.Equals(toolName, GenerateAnimationCommand, StringComparison.Ordinal) ||
-                string.Equals(toolName, PoseFromVideoCommand, StringComparison.Ordinal) ||
-                string.Equals(toolName, PoseFromPictureCommand, StringComparison.Ordinal) ||
+                string.Equals(toolName, PoseFromMediaCommand, StringComparison.Ordinal) ||
                 string.Equals(toolName, GetGenerationCommand, StringComparison.Ordinal);
         }
 
@@ -406,9 +398,13 @@ namespace KimodoUnityBridge.Command
         {
             var completion = new TaskCompletionSource<JObject>(TaskCreationOptions.RunContinuationsAsynchronously);
             double startedAt = EditorApplication.timeSinceStartup;
+            double nextPollAt = startedAt;
             EditorApplication.CallbackFunction update = null;
             update = () =>
             {
+                double now = EditorApplication.timeSinceStartup;
+                if (now < nextPollAt) return;
+                nextPollAt = now + 1.0d;
                 JObject status = null;
                 try
                 {
@@ -549,8 +545,7 @@ namespace KimodoUnityBridge.Command
                         Route("read active scene context", SessionContextCommand),
                         Route("reinstall the local server", InstallServerCommand, "then " + GetGenerationCommand),
                         Route("generate motion", GenerateAnimationCommand, "then " + GetGenerationCommand),
-                        Route("convert a video to FlowHMR SMPL-H motion", PoseFromVideoCommand, "then " + GetGenerationCommand),
-                        Route("convert a picture to one FlowHMR SMPL-H pose", PoseFromPictureCommand, "then " + GetGenerationCommand),
+                        Route("convert a video or image to FlowHMR SMPL-H motion", PoseFromMediaCommand, "then " + GetGenerationCommand),
                         Route("analyze and render motion", AnimationAnalysisCommand, "returns one composite picture and self-describing tiles"),
                         Route("capture and measure a sampled Humanoid pose", PoseAnalysisCommand, "returns a SceneView image and world-space joint measurements"),
                         Route("materialize or edit a pose", PoseGetCommand, "then pose.set"),
@@ -558,7 +553,7 @@ namespace KimodoUnityBridge.Command
                     },
                     ["handles"] = new JObject
                     {
-                        ["request_id"] = "Returned by server.install, animation.generate, pose.fromvideo, or pose.frompicture. Pass it to generation.get; generation.cancel accepts animation generation request ids.",
+                        ["request_id"] = "Returned by server.install, animation.generate, or pose.frommedia. Pass it to generation.get; generation.cancel accepts animation generation request ids.",
                         ["pictures.image_path"] = "Read the composite PNG returned by animation.analysis.",
                         ["pose"] = "A {track,index} reference returned by pose.get or a pose editing command.",
                         ["clip.asset_path"] = "A project-relative generated animation asset path returned after generation completes."

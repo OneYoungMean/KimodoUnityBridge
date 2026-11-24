@@ -178,27 +178,18 @@ namespace KimodoBridge
         internal Task<BridgeProtocolResponse> AnalyzeMocapAsync(
             string host,
             int port,
-            string kind,
             string mediaPath,
             string person,
             bool enableCamera,
             CancellationToken token)
         {
-            string normalizedKind = (kind ?? string.Empty).Trim().ToLowerInvariant();
-            if (normalizedKind != "video" && normalizedKind != "picture")
-            {
-                throw new ArgumentException("Mocap analysis kind must be video or picture.", nameof(kind));
-            }
             var request = new JObject
             {
-                ["cmd"] = normalizedKind == "video" ? "pose.fromvideo" : "pose.frompicture",
+                ["cmd"] = "pose.frommedia",
                 ["media_path"] = mediaPath ?? string.Empty
             };
-            if (normalizedKind == "video")
-            {
-                request["enable_camera"] = enableCamera;
-            }
-            if (normalizedKind == "video" && !string.IsNullOrWhiteSpace(person))
+            request["enable_camera"] = enableCamera;
+            if (!string.IsNullOrWhiteSpace(person))
             {
                 request["person"] = person;
             }

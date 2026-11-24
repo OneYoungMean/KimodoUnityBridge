@@ -260,8 +260,7 @@ namespace KimodoUnityBridge.Command.Tests
             JObject get = Tool(document, "generation.get");
             JObject cancel = Tool(document, "generation.cancel");
             JObject analyze = Tool(document, "animation.analysis");
-            JObject videoAnalysis = Tool(document, "pose.fromvideo");
-            JObject pictureAnalysis = Tool(document, "pose.frompicture");
+            JObject mediaAnalysis = Tool(document, "pose.frommedia");
             JObject retarget = Tool(document, "animation.retarget");
 
             Assert.That(generate["description"]?.Value<string>(), Does.Contain("request_id"));
@@ -275,13 +274,11 @@ namespace KimodoUnityBridge.Command.Tests
             Assert.That(analyzeClips?["items"]?["properties"]?["clip"], Is.Not.Null);
             Assert.That(analyze["description"]?.Value<string>(), Does.Contain("one scene character"));
             Assert.That(document["tools"]?.Values<JObject>().Any(item => item.Value<string>("name") == "analysis.new"), Is.False);
-            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["video_path"], Is.Not.Null);
-            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["enable_camera"]?.Value<string>("type"), Is.EqualTo("boolean"));
-            Assert.That(pictureAnalysis["inputSchema"]?["properties"]?["image_path"], Is.Not.Null);
-            AssertRequiredProperty(videoAnalysis, "character");
-            AssertRequiredProperty(pictureAnalysis, "character");
-            Assert.That(videoAnalysis["inputSchema"]?["properties"]?["person"], Is.Null);
-            Assert.That(videoAnalysis["outputSchema"]?["properties"]?["request_id"], Is.Not.Null);
+            Assert.That(mediaAnalysis["inputSchema"]?["properties"]?["media_path"], Is.Not.Null);
+            Assert.That(mediaAnalysis["inputSchema"]?["properties"]?["enable_camera"]?.Value<string>("type"), Is.EqualTo("boolean"));
+            AssertRequiredProperty(mediaAnalysis, "media_path");
+            AssertRequiredProperty(mediaAnalysis, "character");
+            Assert.That(mediaAnalysis["outputSchema"]?["properties"]?["request_id"], Is.Not.Null);
             Assert.That(get["outputSchema"]?["properties"]?["poses"], Is.Null);
             Assert.That(get["outputSchema"]?["properties"]?["kmb_payload_base64"]?.Value<string>("type"), Is.EqualTo("string"));
             Assert.That(get["outputSchema"]?["properties"]?["clip"]?.Value<string>("type"), Is.EqualTo("object"));

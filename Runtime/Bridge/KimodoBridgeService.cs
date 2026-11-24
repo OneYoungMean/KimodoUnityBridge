@@ -173,7 +173,6 @@ namespace KimodoBridge
         }
 
         internal async Task<JObject> AnalyzeMocapAsync(
-            string kind,
             string mediaPath,
             string person,
             bool enableCamera,
@@ -182,7 +181,7 @@ namespace KimodoBridge
             ThrowIfStopRequested();
             await EnsureConnectedAsync(null, token).ConfigureAwait(false);
             BridgeProtocolResponse response = await protocolClient.AnalyzeMocapAsync(
-                currentHost, currentPort, kind, mediaPath, person, enableCamera, token).ConfigureAwait(false);
+                currentHost, currentPort, mediaPath, person, enableCamera, token).ConfigureAwait(false);
             JObject header = RequireDoneResponse(response, "QuickServer returned no Mocap analysis.", "Mocap analysis failed.");
             if (string.Equals(header.Value<string>("output_format"), "kmb_attachments_v1", StringComparison.OrdinalIgnoreCase))
             {

@@ -22,10 +22,11 @@ namespace KimodoUnityBridge.Command
                     Example("Read operations 10 through 20, inclusive.", @"{'historybegin':10,'historyend':20}"),
                     Example("List all created Sessions, including empty histories.", @"{'scope':'global'}"));
                 case InstallServerCommand: return Examples("Install the local server, then poll the returned request_id.", @"{}");
-                case PoseFromVideoCommand: return Examples("Estimate FlowHMR SMPL-H motion from a video and poll for its KMB attachment.",
-                    @"{'video_path':'C:/data/mocap.mp4','character':'<character>'}");
-                case PoseFromPictureCommand: return Examples("Estimate one FlowHMR SMPL-H pose from a still image and poll for its KMB attachment.",
-                    @"{'image_path':'C:/data/pose.jpg','character':'<character>'}");
+                case PoseFromMediaCommand: return new JArray(
+                    Example("Estimate FlowHMR SMPL-H motion from a video and poll for its KMB attachment.",
+                        @"{'media_path':'C:/data/mocap.mp4','character':'<character>','enable_camera':true}"),
+                    Example("Estimate one FlowHMR SMPL-H pose from a still image and poll for its KMB attachment.",
+                        @"{'media_path':'C:/data/pose.jpg','character':'<character>'}"));
                 case AnimationAnalysisCommand: return new JArray(
                     Example("Analyze one Clip and open its returned image to inspect it.",
                         @"{'clips':[{'character':'<character>','clip':'<clip>'}],'resolution':1920,'camera':{'resolution':[1280,720]}}"),

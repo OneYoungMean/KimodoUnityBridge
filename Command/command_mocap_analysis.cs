@@ -13,13 +13,11 @@ namespace KimodoUnityBridge.Command
 {
     internal static partial class command_context
     {
-        public static string AnalyzeMocapVideo(string argumentsJson) => Execute(argumentsJson, arguments => StartMocapAnalysis(arguments, "video"));
+        public static string AnalyzeMocapMedia(string argumentsJson) => Execute(argumentsJson, StartMocapAnalysis);
 
-        public static string AnalyzeMocapPicture(string argumentsJson) => Execute(argumentsJson, arguments => StartMocapAnalysis(arguments, "picture"));
-
-        private static string StartMocapAnalysis(JObject arguments, string kind)
+        private static string StartMocapAnalysis(JObject arguments)
         {
-                string mediaPath = RequiredStringValue(arguments, kind == "video" ? "video_path" : "image_path");
+                string mediaPath = RequiredStringValue(arguments, "media_path");
                 string character = RequiredStringValue(arguments, "character");
                 TimelineSessionRecord session = RequireCurrentTimelineSession();
                 TimelineCharacterRecord target = ResolveSessionCharacterByReference(session, character, addIfMissing: true);
@@ -33,6 +31,13 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException("FlowHMR selects the tracked performer automatically; the person argument is not supported.");
                 }
                 bool enableCamera = arguments.Value<bool?>("enable_camera") ?? false;
+                string extension = System.IO.Path.GetExtension(mediaPath ?? string.Empty).ToLowerInvariant();
+                bool isVideo = new[] { ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm" }.Contains(extension);
+                bool isPicture = new[] { ".png", ".jpg", ".jpeg" }.Contains(extension);
+                if (!isVideo && !isPicture)
+                    throw new InvalidOperationException("media_path must use a supported video or image extension.");
+                if (enableCamera && !isVideo)
+                    throw new InvalidOperationException("enable_camera is supported only for video media.");
                 Camera mainCamera = null;
                 if (enableCamera)
                 {
@@ -48,7 +53,7 @@ namespace KimodoUnityBridge.Command
                         ["status"] = "accepted",
                         ["stage"] = "queued",
                         ["message"] = "Mocap analysis accepted.",
-                        ["source_type"] = kind,
+                        ["source_type"] = isVideo ? "video" : "picture",
                         ["media_path"] = mediaPath,
                         ["character"] = target.CharacterRef,
                         ["enable_camera"] = enableCamera,
@@ -59,7 +64,7 @@ namespace KimodoUnityBridge.Command
 
                 EditorApplication.delayCall += () =>
                 {
-                    _ = RunMocapAnalysisTaskAsync(requestId, kind, mediaPath, person, target.CharacterRef, session.Id, enableCamera, mainCamera);
+                    _ = RunMocapAnalysisTaskAsync(requestId, isVideo ? "video" : "picture", mediaPath, person, target.CharacterRef, session.Id, enableCamera, mainCamera);
                 };
                 return Ok(new JObject
                 {
@@ -82,7 +87,7 @@ namespace KimodoUnityBridge.Command
             try
             {
                 JObject analysis = await KimodoBridgeService.Shared.AnalyzeMocapAsync(
-                    kind, mediaPath, person, enableCamera, CancellationToken.None);
+                    mediaPath, person, enableCamera, CancellationToken.None);
                 await RunOnEditorThreadAsync(() =>
                     CompleteFlowHmrTimelineImport(requestId, analysis, characterReference, sessionId, enableCamera, mainCamera));
             }
@@ -136,9 +141,10 @@ namespace KimodoUnityBridge.Command
                     throw new InvalidOperationException(error);
                 RefreshCharacterTimelineAppendPosition(character);
                 TimelineAnimationRecord animation = AppendAnimationClip(session, character, clip, "flowhmr", analysis, clip.name);
+                double sourceDuration = analysis.Value<double?>("source_duration_seconds") ?? clip.length;
                 animation.TimelineClip.duration = Math.Max(
                     1.0 / Math.Max(1f, clip.frameRate),
-                    (analysis.Value<int?>("kmb_frame_count") ?? 1) / (double)Math.Max(1f, clip.frameRate));
+                    Math.Max(sourceDuration, clip.length));
                 character.NextStartSeconds = animation.TimelineClip.end + ClipSafeZoneSeconds;
                 if (enableCamera)
                 {
@@ -163,6 +169,7 @@ namespace KimodoUnityBridge.Command
                     ["timeline_start_seconds"] = animation.TimelineStartSeconds,
                     ["timeline_duration_seconds"] = animation.TimelineDurationSeconds,
                     ["frame_count"] = analysis.Value<int?>("kmb_frame_count") ?? 0,
+                    ["duration_seconds"] = animation.TimelineDurationSeconds,
                     ["avatar_source"] = "timeline_binding_animator"
                 };
                 UpdateMocapAnalysisTask(requestId, "completed", "completed", "FlowHMR motion was retargeted to the Timeline character Avatar and appended as a muscle clip.", analysis);

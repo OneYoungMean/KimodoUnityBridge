@@ -2135,43 +2135,37 @@
       ]
     },
     {
-      "name": "pose.fromvideo",
-      "description": "Estimate FlowHMR SMPL-H motion from a local video and return a KMB1 binary attachment.",
+      "name": "pose.frommedia",
+      "description": "Estimate a video motion or still-image pose with FlowHMR and return it as an SMPL-H KMB1 attachment.",
       "documentation": {
-        "when_to_use": "Use when a local video should be converted by FlowHMR into a SMPL-H KMB motion sequence.",
+        "when_to_use": "Use when a local video or still image should be converted by FlowHMR into SMPL-H KMB motion.",
         "behavior": [
-          "Pass an absolute video_path readable by QuickServer and a Timeline character name or object_ref. Supported formats are MP4, MOV, M4V, AVI, MKV, and WEBM; maximum file size is 2 GiB.",
-          "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
-          "FlowHMR selects the tracked performer automatically."
+          "Pass an absolute media_path readable by QuickServer and a Timeline character name or object_ref. Supported video formats are MP4, MOV, M4V, AVI, MKV, and WEBM; supported image formats are PNG, JPG, and JPEG; maximum file size is 2 GiB.",
+          "The media type is inferred from the extension. A still image produces a one-frame pose; a video produces a full motion sequence.",
+          "Set enable_camera=true for video only to run the dynamic VGGT camera path; this requires exactly one enabled scene Camera tagged MainCamera. The default false path uses the lighter static-camera route.",
+          "The command returns status=accepted and a request_id for continued progress tracking through generation.get. FlowHMR automatically selects the tracked performer."
         ],
-        "result_notes": [
-          "A completed request returns a KMB1 SMPL-H motion attachment with fps and frame_count metadata.",
-          "Unity validates the KMB, retargets it through the Timeline binding Animator Avatar, writes a Humanoid muscle clip, and appends it to the character track.",
-          "The KMB contains local WXYZ quaternions, root positions in meters, and optional foot contacts."
-        ],
+          "result_notes": [
+            "A completed request returns a KMB1 SMPL-H motion attachment, output frame rate, source_fps, source_frame_count, source_duration_seconds, frame_timestamps_seconds, and tracking_frame_range. Unity validates the KMB, retargets it through the required Timeline binding Avatar, writes a Humanoid muscle clip, and appends that clip to the character track.",
+            "For video with enable_camera=true, the KMB includes a CameraTrack and Unity creates a separate FlowHMR Camera track bound to MainCamera; both tracks use the source timestamps and full source duration."
+          ],
         "scene_effects": [
-          "The completed motion is appended to the required Timeline character track as a generated muscle clip."
+          "The target Avatar always comes from the Timeline binding Animator; the source SMPL-H conversion Avatar is internal."
         ],
         "limits": [
-          "FlowHMR requires a compatible Python environment, its checkpoint, and locally provisioned gated assets."
+          "FlowHMR code is in vendor/FlowHMR; downloadable and licensed model files are stored under models/FlowHMR. The dedicated FlowHMR Python environment remains separate from QuickServer's environment."
         ],
         "shared_rule_refs": [
           "job_lifecycle",
           "operation_scope"
         ],
         "related_commands": [
-          "pose.frompicture",
-          "generation.get",
-          "animation.retarget"
+          "generation.get"
         ]
       },
       "inputSchema": {
         "type": "object",
         "properties": {
-          "video_path": {
-            "type": "string",
-            "description": "Absolute path to a local video readable by QuickServer."
-          },
           "wait_seconds": {
             "type": "number",
             "minimum": 0,
@@ -2181,10 +2175,18 @@
           "character": {
             "type": "string",
             "description": "Timeline character name or object_ref whose bound Avatar receives the muscle clip."
+          },
+          "media_path": {
+            "type": "string",
+            "description": "Absolute path to a local video or PNG/JPG/JPEG image readable by QuickServer; file type is inferred from its extension."
+          },
+          "enable_camera": {
+            "type": "boolean",
+            "description": "For video only, estimate and import the FlowHMR dynamic camera track onto the scene Main Camera. Defaults to false."
           }
         },
         "required": [
-          "video_path",
+          "media_path",
           "character"
         ],
         "additionalProperties": false
@@ -2239,116 +2241,15 @@
         {
           "description": "Estimate FlowHMR SMPL-H motion from a video and poll for its KMB attachment.",
           "arguments": {
-            "video_path": "C:/data/mocap.mp4",
-            "character": "<character>"
-          }
-        }
-      ]
-    },
-    {
-      "name": "pose.frompicture",
-      "description": "Estimate one FlowHMR SMPL-H pose from a local still image and return one KMB1 frame.",
-      "documentation": {
-        "when_to_use": "Use when a still image should be converted by FlowHMR into a one-frame SMPL-H KMB motion.",
-        "behavior": [
-          "Pass an absolute image_path readable by QuickServer and a Timeline character name or object_ref. Supported formats are PNG, JPG, and JPEG; maximum file size is 2 GiB.",
-          "The command returns status=accepted and a request_id for continued progress tracking through generation.get.",
-          "The estimator treats the still image as a one-second clip and returns one pose sample."
-        ],
-        "result_notes": [
-          "A completed request returns a one-frame KMB1 SMPL-H motion attachment and frame metadata, then appends the retargeted Humanoid muscle clip to the required Timeline character."
-        ],
-        "scene_effects": [
-          "The completed pose is appended to the required Timeline character track as a generated muscle clip."
-        ],
-        "limits": [
-          "FlowHMR requires a compatible Python environment, its checkpoint, and locally provisioned gated assets."
-        ],
-        "shared_rule_refs": [
-          "job_lifecycle",
-          "operation_scope"
-        ],
-        "related_commands": [
-          "pose.fromvideo",
-          "generation.get",
-          "animation.retarget"
-        ]
-      },
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "image_path": {
-            "type": "string",
-            "description": "Absolute path to a local PNG or JPEG readable by QuickServer."
-          },
-          "wait_seconds": {
-            "type": "number",
-            "minimum": 0,
-            "default": 10.0,
-            "description": "Editor-side cooperative wait window in seconds. Values above 10 seconds are allowed; if the task is still running, return its request_id."
-          },
-          "character": {
-            "type": "string",
-            "description": "Timeline character name or object_ref whose bound Avatar receives the muscle clip."
+            "media_path": "C:/data/mocap.mp4",
+            "character": "<character>",
+            "enable_camera": true
           }
         },
-        "required": [
-          "image_path",
-          "character"
-        ],
-        "additionalProperties": false
-      },
-      "outputSchema": {
-        "type": "object",
-        "description": "Command responses keep domain fields at the top level. Success uses ok=true; command errors use ok=false and an error object. Async job failures are reported by status with an error object.",
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "error": {
-            "description": "Optional command error. Command errors use {code, message, details?}; asynchronous job failures include this object while the poll command itself succeeds.",
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "details": {
-                "type": "object"
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ],
-            "additionalProperties": true
-          },
-          "request_id": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "accepted",
-              "running",
-              "completed",
-              "failed",
-              "canceled"
-            ]
-          }
-        },
-        "required": [
-          "ok"
-        ],
-        "additionalProperties": true
-      },
-      "examples": [
         {
-          "description": "Estimate one SMPL-H pose from a still image, then poll for the pose array.",
+          "description": "Estimate one FlowHMR SMPL-H pose from a still image and poll for its KMB attachment.",
           "arguments": {
-            "image_path": "C:/data/pose.jpg",
+            "media_path": "C:/data/pose.jpg",
             "character": "<character>"
           }
         }
@@ -3853,7 +3754,7 @@
         "properties": {
           "request_id": {
             "type": "string",
-            "description": "Request id returned by server.install, animation.generate, pose.fromvideo, or pose.frompicture."
+            "description": "Request id returned by server.install, animation.generate, pose.frommedia."
           },
           "include_request_json": {
             "type": "boolean",
@@ -4118,11 +4019,29 @@
           "fps": {
             "type": "number"
           },
+          "source_fps": {
+            "type": "number"
+          },
           "source_frame_count": {
             "type": "integer"
           },
           "frame_count": {
             "type": "integer"
+          },
+          "source_duration_seconds": {
+            "type": "number"
+          },
+          "frame_timestamps_seconds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "tracking_frame_range": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
           },
           "joint_names": {
             "type": "array",

@@ -8,6 +8,17 @@ import subprocess
 import sys
 from typing import Any
 
+try:
+    from .flowhmr_memory import device_for_free_vram_gb
+    from .flowhmr_memory import options_for_free_vram_gb
+    from .flowhmr_assets import ensure_flowhmr_assets
+    from .kimodo_runtime import _detect_free_vram_gb
+except ImportError:  # direct test/module imports
+    from flowhmr_memory import device_for_free_vram_gb
+    from flowhmr_memory import options_for_free_vram_gb
+    from flowhmr_assets import ensure_flowhmr_assets
+    from kimodo_runtime import _detect_free_vram_gb
+
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 PICTURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 MAX_MEDIA_BYTES = 2 * 1024**3
@@ -54,8 +65,8 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
                   enable_camera: bool = False,
                   simulate_free_vram_gb: float | None = None) -> tuple[dict[str, Any], bytes]:
     normalized_kind = str(kind or "").strip().lower()
-    if normalized_kind not in {"video", "picture"}:
-        raise ValueError("Analysis kind must be 'video' or 'picture'.")
+    if normalized_kind not in {"video", "picture", "auto"}:
+        raise ValueError("Analysis kind must be 'video', 'picture', or 'auto'.")
     if person not in (None, "left", "right"):
         raise ValueError("person must be 'left' or 'right'.")
     if person is not None:
@@ -63,6 +74,13 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
     media = Path(str(media_path or "")).expanduser().resolve(strict=True)
     if not media.is_file():
         raise ValueError("media_path must point to a file.")
+    if normalized_kind == "auto":
+        if media.suffix.lower() in VIDEO_EXTENSIONS:
+            normalized_kind = "video"
+        elif media.suffix.lower() in PICTURE_EXTENSIONS:
+            normalized_kind = "picture"
+        else:
+            raise ValueError(f"Unsupported media file extension: {media.suffix or '<none>'}.")
     extensions = VIDEO_EXTENSIONS if normalized_kind == "video" else PICTURE_EXTENSIONS
     if media.suffix.lower() not in extensions:
         raise ValueError(f"Unsupported {normalized_kind} file extension: {media.suffix or '<none>'}.")
