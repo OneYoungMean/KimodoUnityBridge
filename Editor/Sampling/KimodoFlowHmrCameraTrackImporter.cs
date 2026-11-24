@@ -48,11 +48,10 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            bool hasSourceTiming = KimodoFlowHmrTiming.TryRead(
+            if (!KimodoFlowHmrTiming.TryRead(
                 motion, analysis,
                 out float[] frameTimes, out float sourceDuration,
-                out _, out _, out string timingError);
-            if (!string.IsNullOrEmpty(timingError))
+                out string timingError))
             {
                 error = timingError;
                 return false;
@@ -79,7 +78,6 @@ namespace KimodoBridge.Editor
                     camera.transform.parent,
                     frameTimes,
                     sourceDuration,
-                    hasSourceTiming,
                     out error))
             {
                 if (!KimodoEditorClipWritebackService.TryArchiveGeneratedAnimationClipAsset(
@@ -126,7 +124,6 @@ namespace KimodoBridge.Editor
             Transform parent,
             float[] frameTimes,
             float sourceDuration,
-            bool hasSourceTiming,
             out string error)
         {
             error = string.Empty;
@@ -156,9 +153,7 @@ namespace KimodoBridge.Editor
                 previousRotation = rotation;
                 hasPreviousRotation = true;
 
-                float time = hasSourceTiming
-                    ? frameTimes[frame]
-                    : frame / Mathf.Max(1f, motion.FrameRate);
+                float time = frameTimes[frame];
                 // KMB stores camera-to-world samples. AnimationClip Transform
                 // bindings are local, so convert each sample through the current
                 // parent (the Main Camera is normally a root object).
@@ -185,14 +180,14 @@ namespace KimodoBridge.Editor
 
             }
 
-            if (hasSourceTiming && frameTimes.Length > 0 && frameTimes[0] > 0f)
+            if (frameTimes.Length > 0 && frameTimes[0] > 0f)
             {
                 AddHoldKey(0f, positionX, positionY, positionZ, rotationX, rotationY, rotationZ, rotationW);
                 if (motion.HasCameraParameters)
                     AddHoldKey(0f, fov, lensShiftX, lensShiftY);
             }
 
-            float lastSampleTime = hasSourceTiming && frameTimes.Length > 0
+            float lastSampleTime = frameTimes.Length > 0
                 ? frameTimes[frameTimes.Length - 1]
                 : (motion.FrameCount - 1) / Mathf.Max(1f, motion.FrameRate);
             if (sourceDuration > lastSampleTime)

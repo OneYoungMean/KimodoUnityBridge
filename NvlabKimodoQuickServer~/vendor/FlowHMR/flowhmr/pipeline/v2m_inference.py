@@ -192,6 +192,17 @@ def _limit_track_frames(bbox_path: str, max_frames: int | None,
     print(f"  [bbox] processing frames [{start},{end}] ({end - start + 1} frames)")
 
 
+def _has_detection_track_cache(bbox_path: str) -> bool:
+    try:
+        with np.load(bbox_path, allow_pickle=False) as data:
+            if "human_detection_01" not in data.files or "selected_track_id" not in data.files:
+                return False
+            detections = np.asarray(data["human_detection_01"]).reshape(-1)
+            return detections.size > 0 and np.isin(detections, (0, 1)).all() and np.asarray(data["selected_track_id"]).size == 1
+    except Exception:
+        return False
+
+
 def forward_smpl_batch(body_model, rot6d, shapes, trans):
     B, L = trans.shape[:2]
     J = rot6d.shape[2]
@@ -970,15 +981,15 @@ class V2MInferenceEngine:
         print(f"\n  === Step 1: Bbox ===")
         _pcb(StageName.DETECTION, 0, "Starting bbox extraction")
 
-        if os.path.exists(bbox_npz_path):
+        if os.path.exists(bbox_npz_path) and _has_detection_track_cache(bbox_npz_path):
             print(f"  [bbox] skip (exists): {bbox_npz_path}")
             working_video = self.proc.transcode(video_path, backup_dir=sub_dir, force_fps=30)
             video_meta = VideoProcessor.get_video_meta(working_video)
             with np.load(bbox_npz_path, allow_pickle=False) as cached_bbox:
                 cached_boxes = cached_bbox["bbox"].astype(np.float32)
                 cached_range = cached_bbox["start_end"].astype(np.int64)
-                cached_detection = cached_bbox["human_detection_01"].astype(np.uint8) if "human_detection_01" in cached_bbox.files else None
-                cached_track_id = int(np.asarray(cached_bbox["selected_track_id"]).reshape(-1)[0]) if "selected_track_id" in cached_bbox.files else -1
+                cached_detection = cached_bbox["human_detection_01"].astype(np.uint8)
+                cached_track_id = int(np.asarray(cached_bbox["selected_track_id"]).reshape(-1)[0])
             total_frames = int(video_meta.total_frames)
             if total_frames > 0 and cached_range.size == 2 and cached_boxes.shape[0] == int(cached_range[1] - cached_range[0] + 1) and (
                     cached_boxes.shape[0] != total_frames or not np.array_equal(cached_range, [0, total_frames - 1])):
@@ -993,20 +1004,21 @@ class V2MInferenceEngine:
                     "start_end": np.array([0, total_frames - 1], dtype=np.int64),
                     "tracked_start_end": np.array([start, end], dtype=np.int64),
                 }
-                if cached_detection is not None:
-                    if cached_detection.size == total_frames:
-                        full_detection = cached_detection
-                    elif cached_detection.size == cached_boxes.shape[0]:
-                        full_detection = np.zeros(total_frames, dtype=np.uint8)
-                        full_detection[start:min(total_frames, end + 1)] = cached_detection[:max(0, min(total_frames, end + 1) - start)]
-                    else:
-                        raise ValueError("Cached human_detection_01 does not match the cached bbox frames.")
-                    cache_payload["human_detection_01"] = full_detection
-                    cache_payload["selected_track_id"] = np.array([cached_track_id], dtype=np.int64)
+                if cached_detection.size == total_frames:
+                    full_detection = cached_detection
+                elif cached_detection.size == cached_boxes.shape[0]:
+                    full_detection = np.zeros(total_frames, dtype=np.uint8)
+                    full_detection[start:min(total_frames, end + 1)] = cached_detection[:max(0, min(total_frames, end + 1) - start)]
+                else:
+                    raise ValueError("Cached human_detection_01 does not match the cached bbox frames.")
+                cache_payload["human_detection_01"] = full_detection
+                cache_payload["selected_track_id"] = np.array([cached_track_id], dtype=np.int64)
                 np.savez(bbox_npz_path, **cache_payload)
                 print(f"  [bbox] extended cached track [{start},{end}] to full video [0,{total_frames - 1}] by holding edge boxes")
             _pcb(StageName.DETECTION, 100, "Bbox cached")
         else:
+            if os.path.exists(bbox_npz_path):
+                print(f"  [bbox] rebuilding legacy or invalid cache: {bbox_npz_path}")
             working_video = self.proc.transcode(video_path, backup_dir=sub_dir, force_fps=30)
             _pcb(StageName.DETECTION, 20, "Transcoded, detecting")
 

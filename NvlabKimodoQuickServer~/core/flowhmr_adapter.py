@@ -160,24 +160,41 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
         if not np.isfinite(contacts).all():
             raise ValueError("FlowHMR foot_contacts contains non-finite values.")
         contacts = (contacts >= 0.5).astype(np.uint8)
+    indices = None
+    if frame_indices is not None:
+        indices = np.asarray(frame_indices, dtype=np.int64)
+        if indices.ndim != 1 or indices.size == 0 or np.any(indices < 0) or np.any(indices >= poses.shape[0]):
+            raise ValueError("frame_indices must be non-empty valid FlowHMR frame indices.")
     global_times = None
     if global_time_seconds is not None:
-        global_times = np.asarray(global_time_seconds, dtype=np.float32).reshape(-1)
-        if global_times.size != poses.shape[0] or not np.isfinite(global_times).all() or np.any(global_times < 0) or (
+        raw_times = np.asarray(global_time_seconds, dtype=np.float32).reshape(-1)
+        if indices is not None and raw_times.size == indices.size:
+            global_times = raw_times
+        elif raw_times.size == poses.shape[0]:
+            global_times = raw_times[indices] if indices is not None else raw_times
+        else:
+            global_times = raw_times
+        if global_times.size != (indices.size if indices is not None else poses.shape[0]) or not np.isfinite(global_times).all() or np.any(global_times < 0) or (
                 global_times.size > 1 and np.any(np.diff(global_times) <= 0)):
             raise ValueError("global_time_seconds must contain one finite, strictly increasing time per frame.")
     detections = None
     if human_detection_01 is not None:
         raw_detections = np.asarray(human_detection_01).reshape(-1)
-        if raw_detections.size != poses.shape[0]:
+        if indices is not None and raw_detections.size == indices.size:
+            detections = raw_detections
+        elif raw_detections.size == poses.shape[0]:
+            detections = raw_detections[indices] if indices is not None else raw_detections
+        else:
+            detections = raw_detections
+        if detections.size != (indices.size if indices is not None else poses.shape[0]):
             raise ValueError("human_detection_01 must contain one binary value per frame.")
         try:
-            binary = np.isfinite(raw_detections).all() and np.isin(raw_detections, (0, 1)).all()
+            binary = np.isfinite(detections).all() and np.isin(detections, (0, 1)).all()
         except TypeError:
             binary = False
         if not binary:
             raise ValueError("human_detection_01 must contain one binary value per frame.")
-        detections = raw_detections.astype(np.uint8)
+        detections = detections.astype(np.uint8)
     if camera_npz_path is not None:
         if camera_alignment is None:
             if bbox_npz_path is None:
@@ -190,9 +207,6 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
     else:
         camera_track = None
     if frame_indices is not None:
-        indices = np.asarray(frame_indices, dtype=np.int64)
-        if indices.ndim != 1 or indices.size == 0 or np.any(indices < 0) or np.any(indices >= poses.shape[0]):
-            raise ValueError("frame_indices must be non-empty valid FlowHMR frame indices.")
         poses = poses[indices]
         roots = roots[indices]
         if contacts is not None:
@@ -205,10 +219,6 @@ def flowhmr_npz_to_motion(npz_path: str | Path, frame_indices: list[int] | None 
                 camera_track.fov_y[indices] if camera_track.fov_y is not None else None,
                 camera_track.lens_shift[indices] if camera_track.lens_shift is not None else None,
             )
-        if global_times is not None:
-            global_times = global_times[indices]
-        if detections is not None:
-            detections = detections[indices]
 
     return KmbMotion(
         payload=b"",

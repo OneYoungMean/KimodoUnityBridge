@@ -75,12 +75,15 @@ namespace KimodoBridge.Editor
 
                 int frames = motion.FrameCount;
                 var sourceSamples = new List<MuscleSample>(frames);
-                bool hasSourceTiming = KimodoFlowHmrTiming.TryRead(
+                if (!KimodoFlowHmrTiming.TryRead(
                     motion, analysis,
-                    out float[] frameTimes, out float durationSeconds,
-                    out int trackingStartSample, out int trackingEndSampleExclusive, out error);
-                if (!string.IsNullOrEmpty(error))
+                    out float[] frameTimes, out float durationSeconds, out error))
                     return false;
+                if (!motion.HasHumanDetectionTrack)
+                {
+                    error = "FlowHMR KMB is missing the required human_detection_01 track.";
+                    return false;
+                }
                 if (motion.HasHumanDetectionTrack && !motion.HasAnyHumanDetection)
                 {
                     error = "FlowHMR human_detection_01 contains no valid detector frames.";
@@ -89,10 +92,7 @@ namespace KimodoBridge.Editor
                 int rotationJoints = KimodoRawMotionUtility.ResolveRotationJointCount(motion);
                 for (int frame = 0; frame < frames; frame++)
                 {
-                    if (!TryResolvePoseFrame(
-                            motion, frame, hasSourceTiming,
-                            trackingStartSample, trackingEndSampleExclusive,
-                            frames, out int poseFrame, out error))
+                    if (!TryResolvePoseFrame(motion, frame, frames, out int poseFrame, out error))
                     {
                         return false;
                     }
@@ -138,11 +138,8 @@ namespace KimodoBridge.Editor
 
                 clip = KimodoEditorClipWritebackService.CreateGeneratedAnimationClipAsset(clipName);
                 clip.frameRate = motion.FrameRate;
-                bool wroteClip = hasSourceTiming
-                    ? KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(
-                        samples, frameTimes, durationSeconds, clip, out error)
-                    : KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(samples, clip, out error);
-                if (!wroteClip)
+                if (!KimodoRetargetCoreUtility.WriteMuscleSampleToMuscleClip(
+                        samples, frameTimes, durationSeconds, clip, out error))
                 {
                     clip = null;
                     return false;
@@ -162,9 +159,6 @@ namespace KimodoBridge.Editor
         internal static bool TryResolvePoseFrame(
             KimodoRawMotionData motion,
             int sampleFrame,
-            bool hasSourceTiming,
-            int trackingStartSample,
-            int trackingEndSampleExclusive,
             int frameCount,
             out int poseFrame,
             out string error)
@@ -177,17 +171,12 @@ namespace KimodoBridge.Editor
                 return false;
             }
 
-            // human_detection_01 is aligned to the returned FlowHMR samples.
-            // Use it before legacy tracking-range mapping so VFR timestamps
-            // cannot change which pose is considered valid for this sample.
-            poseFrame = motion.HasHumanDetectionTrack
-                ? sampleFrame
-                : hasSourceTiming
-                    ? KimodoFlowHmrTiming.ClampSampleToTrackingRange(
-                        sampleFrame, trackingStartSample, trackingEndSampleExclusive, frameCount)
-                    : sampleFrame;
-            if (motion.HasHumanDetectionTrack &&
-                !motion.TryResolveHumanDetectionFrame(poseFrame, out poseFrame))
+            if (!motion.HasHumanDetectionTrack)
+            {
+                error = "FlowHMR KMB is missing the required human_detection_01 track.";
+                return false;
+            }
+            if (!motion.TryResolveHumanDetectionFrame(sampleFrame, out poseFrame))
             {
                 error = $"FlowHMR human_detection_01 has no valid pose near frame {sampleFrame}.";
                 return false;

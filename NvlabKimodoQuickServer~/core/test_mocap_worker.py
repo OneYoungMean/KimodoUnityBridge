@@ -118,6 +118,8 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.zeros((542, 4), dtype=np.float32),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([0, 452], dtype=np.int64),
+                human_detection_01=np.ones(542, dtype=np.uint8),
+                selected_track_id=np.array([12], dtype=np.int64),
             )
             python = root / "flowhmr-python.exe"
             probe = subprocess.CompletedProcess(
@@ -185,6 +187,8 @@ class MocapWorkerTests(unittest.TestCase):
                 bbox=np.zeros((542, 4), dtype=np.float32),
                 start_end=np.array([0, 541], dtype=np.int64),
                 tracked_start_end=np.array([45, 497], dtype=np.int64),
+                human_detection_01=np.ones(542, dtype=np.uint8),
+                selected_track_id=np.array([12], dtype=np.int64),
             )
             with patch.dict(sys.modules, {"cv2": fake_cv2}):
                 timing = mocap_worker._resolve_source_timing("video", media, bbox, 453, 30.0)
@@ -198,6 +202,43 @@ class MocapWorkerTests(unittest.TestCase):
         self.assertTrue(np.all(np.diff(timing["frame_timestamps_seconds"]) > 0))
         expected_last_pts = _vfr_timestamps()[np.argmin(np.abs(_vfr_timestamps() - 497 / 30.0))]
         self.assertAlmostEqual(timing["frame_timestamps_seconds"][-1], expected_last_pts, delta=1e-5)
+
+    def test_legacy_bbox_cache_is_rejected_with_regeneration_message(self):
+        fake_cv2 = types.SimpleNamespace(
+            CAP_PROP_FPS=5,
+            CAP_PROP_FRAME_COUNT=7,
+            CAP_PROP_POS_MSEC=0,
+            VideoCapture=_FakeCapture,
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            media = root / "source.mp4"
+            media.write_bytes(b"video")
+            bbox = root / "source_bbox.npz"
+            np.savez(
+                bbox,
+                bbox=np.zeros((542, 4), dtype=np.float32),
+                start_end=np.array([0, 541], dtype=np.int64),
+            )
+            with patch.dict(sys.modules, {"cv2": fake_cv2}):
+                with self.assertRaisesRegex(RuntimeError, "pre-track format"):
+                    mocap_worker._resolve_source_timing("video", media, bbox, 542, 30.0)
+
+    def test_picture_timing_uses_detector_hit_for_exported_middle_pose(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bbox = Path(temp) / "picture_bbox.npz"
+            detections = np.zeros(30, dtype=np.uint8)
+            detections[15] = 1
+            np.savez(
+                bbox,
+                human_detection_01=detections,
+                selected_track_id=np.array([5], dtype=np.int64),
+            )
+            timing = mocap_worker._resolve_source_timing("picture", None, bbox, 30, 30.0)
+
+        np.testing.assert_array_equal(timing["human_detection_01"], [1])
+        self.assertEqual(timing["human_detection_track_id"], 5)
+        self.assertEqual(timing["human_detection_frame_range"], [0, 1])
 
     def test_vfr_global_time_track_keeps_flowhmr_sample_count_and_nominal_fps(self):
         fake_cv2 = types.SimpleNamespace(

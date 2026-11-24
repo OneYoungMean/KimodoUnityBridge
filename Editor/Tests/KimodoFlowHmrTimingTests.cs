@@ -10,158 +10,61 @@ namespace KimodoBridge.Editor.Tests
     public sealed class KimodoFlowHmrTimingTests
     {
         [Test]
-        public void ClampSampleToTrackingRange_HoldsBoundarySamplesOutsideTrack()
+        public void TryRead_UsesGlobalTimeTrackAndIgnoresDiagnosticJsonTimestamps()
         {
-            Assert.That(KimodoFlowHmrTiming.ClampSampleToTrackingRange(0, 45, 498, 542), Is.EqualTo(45));
-            Assert.That(KimodoFlowHmrTiming.ClampSampleToTrackingRange(45, 45, 498, 542), Is.EqualTo(45));
-            Assert.That(KimodoFlowHmrTiming.ClampSampleToTrackingRange(200, 45, 498, 542), Is.EqualTo(200));
-            Assert.That(KimodoFlowHmrTiming.ClampSampleToTrackingRange(541, 45, 498, 542), Is.EqualTo(497));
-        }
-
-        [Test]
-        public void TryRead_MapsFullVideoSamplesToTrackedHalfOpenRange()
-        {
-            var timestamps = new JArray();
-            for (int frame = 0; frame < 542; frame++)
-                timestamps.Add(frame / 30.0);
-            var analysis = new JObject
-            {
-                ["frame_timestamps_seconds"] = timestamps,
-                ["source_duration_seconds"] = 18.0817,
-                ["tracking_frame_range"] = new JArray(45, 498)
-            };
-
-            Assert.That(
-                KimodoFlowHmrTiming.TryRead(
-                    analysis, 542, 30f,
-                    out float[] frameTimes, out float duration,
-                    out int trackingStart, out int trackingEnd, out string error),
-                Is.True,
-                error);
-            Assert.That(frameTimes, Has.Length.EqualTo(542));
-            Assert.That(duration, Is.EqualTo(18.0817f).Within(1e-4f));
-            Assert.That(trackingStart, Is.EqualTo(45));
-            Assert.That(trackingEnd, Is.EqualTo(498));
-        }
-
-        [Test]
-        public void TryRead_MapsTrackedOnlySamplesToLocalRange()
-        {
-            var timestamps = new JArray();
-            for (int frame = 45; frame < 498; frame++)
-                timestamps.Add(frame / 30.0);
-            var analysis = new JObject
-            {
-                ["frame_timestamps_seconds"] = timestamps,
-                ["source_duration_seconds"] = 18.0817,
-                ["tracking_frame_range"] = new JArray(45, 498)
-            };
-
-            Assert.That(
-                KimodoFlowHmrTiming.TryRead(
-                    analysis, 453, 30f,
-                    out _, out _,
-                    out int trackingStart, out int trackingEnd, out string error),
-                Is.True,
-                error);
-            Assert.That(trackingStart, Is.EqualTo(0));
-            Assert.That(trackingEnd, Is.EqualTo(453));
-        }
-
-        [Test]
-        public void TryRead_RejectsInvalidTrackingRange()
-        {
-            var analysis = new JObject
-            {
-                ["frame_timestamps_seconds"] = new JArray(0.0, 1.0 / 30.0),
-                ["source_duration_seconds"] = 1.0,
-                ["tracking_frame_range"] = new JArray(2, 2)
-            };
-
-            Assert.That(
-                KimodoFlowHmrTiming.TryRead(
-                    analysis, 2, 30f,
-                    out _, out _, out _, out _, out string error),
-                Is.False);
-            Assert.That(error, Does.Contain("tracking frame range"));
-        }
-
-        [Test]
-        public void TryRead_PrefersGlobalTimeTrackOverDiagnosticJsonTimestamps()
-        {
-            var motion = new KimodoRawMotionData(
-                3, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero, Vector3.zero },
-                new List<float>
-                {
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                },
-                0,
+            var motion = CreateMotion(
+                3,
                 globalTimeSeconds: new[] { 0f, 0.04f, 0.0733333f });
             var analysis = new JObject
             {
-                ["frame_timestamps_seconds"] = new JArray(0.0, 1.0 / 30.0, 2.0 / 30.0),
+                ["frame_timestamps_seconds"] = new JArray(0.0, 1.0 / 30.0),
                 ["source_duration_seconds"] = 0.2,
             };
 
             Assert.That(
                 KimodoFlowHmrTiming.TryRead(
                     motion, analysis,
-                    out float[] frameTimes, out _,
-                    out int trackingStart, out int trackingEnd, out string error),
+                    out float[] frameTimes, out float duration, out string error),
                 Is.True,
                 error);
             Assert.That(frameTimes, Has.Length.EqualTo(3));
             Assert.That(frameTimes[1], Is.EqualTo(0.04f).Within(1e-6f));
             Assert.That(frameTimes[2], Is.EqualTo(0.0733333f).Within(1e-6f));
-            Assert.That(trackingStart, Is.EqualTo(0));
-            Assert.That(trackingEnd, Is.EqualTo(3));
+            Assert.That(duration, Is.EqualTo(0.2f).Within(1e-6f));
         }
 
         [Test]
-        public void TryRead_UsesLegacyJsonTimestampsForOldKmbWithoutTrack()
+        public void TryRead_RejectsKmbWithoutGlobalTimeTrack()
         {
-            var motion = new KimodoRawMotionData(
-                2, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero },
-                new List<float> { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f },
-                0);
-            var analysis = new JObject
-            {
-                ["frame_timestamps_seconds"] = new JArray(0.0, 0.04),
-                ["source_duration_seconds"] = 0.1,
-            };
-
             Assert.That(
                 KimodoFlowHmrTiming.TryRead(
-                    motion, analysis,
-                    out float[] frameTimes, out _,
+                    CreateMotion(2), new JObject
+                    {
+                        ["frame_timestamps_seconds"] = new JArray(0.0, 0.04),
+                        ["source_duration_seconds"] = 0.1
+                    },
                     out _, out _, out string error),
-                Is.True,
-                error);
-            Assert.That(frameTimes[1], Is.EqualTo(0.04f).Within(1e-6f));
+                Is.False);
+            Assert.That(error, Does.Contain("global_time_seconds"));
+        }
+
+        [Test]
+        public void TryRead_RejectsDurationBeforeLastGlobalTime()
+        {
+            Assert.That(
+                KimodoFlowHmrTiming.TryRead(
+                    CreateMotion(2, globalTimeSeconds: new[] { 0f, 0.08f }),
+                    new JObject { ["source_duration_seconds"] = 0.07 },
+                    out _, out _, out string error),
+                Is.False);
+            Assert.That(error, Does.Contain("source duration"));
         }
 
         [Test]
         public void HumanDetectionTrack_ClampsInvalidSampleToNearestValidPose()
         {
-            var motion = new KimodoRawMotionData(
-                5, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero },
-                new List<float>
-                {
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                },
-                0,
+            var motion = CreateMotion(
+                5,
                 humanDetection01: new byte[] { 1, 0, 0, 1, 0 });
 
             Assert.That(motion.TryResolveHumanDetectionFrame(2, out int resolved), Is.True);
@@ -173,12 +76,8 @@ namespace KimodoBridge.Editor.Tests
         [Test]
         public void HumanDetectionTrack_ReportsNoPoseWhenAllFramesAreInvalid()
         {
-            var motion = new KimodoRawMotionData(
-                2, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero },
-                new List<float> { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f },
-                0,
+            var motion = CreateMotion(
+                2,
                 humanDetection01: new byte[] { 0, 0 });
 
             Assert.That(motion.HasHumanDetectionTrack, Is.True);
@@ -187,76 +86,67 @@ namespace KimodoBridge.Editor.Tests
         }
 
         [Test]
-        public void MuscleImporter_UsesDetectionMaskBeforeLegacyTrackingRange()
+        public void MuscleImporter_RejectsMissingDetectionTrack()
         {
-            var motion = new KimodoRawMotionData(
-                5, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero, Vector3.zero },
-                new List<float>
-                {
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                },
-                0,
+            Assert.That(
+                KimodoFlowHmrMuscleClipImporter.TryResolvePoseFrame(
+                    CreateMotion(2), 0, 2, out _, out string error),
+                Is.False);
+            Assert.That(error, Does.Contain("human_detection_01"));
+        }
+
+        [Test]
+        public void MuscleImporter_UsesDetectionMaskForPoseClamping()
+        {
+            var motion = CreateMotion(
+                5,
                 humanDetection01: new byte[] { 1, 0, 1, 1, 0 });
 
             Assert.That(
                 KimodoFlowHmrMuscleClipImporter.TryResolvePoseFrame(
-                    motion, 2, hasSourceTiming: true,
-                    trackingStartSample: 0, trackingEndSampleExclusive: 1,
-                    frameCount: 5,
-                    out int poseFrame, out string error),
+                    motion, 2, 5, out int poseFrame, out string error),
                 Is.True,
                 error);
             Assert.That(poseFrame, Is.EqualTo(2));
         }
 
         [Test]
-        public void RawMotionFlatBuffer_RoundTripsOptionalTracksAndKeepsLegacyKmbReadable()
+        public void RawMotionFlatBuffer_RoundTripsRequiredFlowHmrTracks()
         {
-            var trackedMotion = new KimodoRawMotionData(
-                3, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero, Vector3.zero },
-                new List<float>
-                {
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                    1f, 0f, 0f, 0f,
-                },
-                0,
+            var motion = CreateMotion(
+                3,
                 globalTimeSeconds: new[] { 0f, 0.04f, 0.0733333f },
                 humanDetection01: new byte[] { 1, 0, 1 });
-            byte[] trackedBytes = KimodoRawMotionUtility.ToFlatBuffer(trackedMotion, "smplh");
-            Assert.That(
-                KimodoRawMotionUtility.TryParseFlatBuffer(trackedBytes, out KimodoRawMotionData parsedTracked, out string error),
-                Is.True,
-                error);
-            Assert.That(parsedTracked.HasGlobalTimeTrack, Is.True);
-            Assert.That(parsedTracked.HasHumanDetectionTrack, Is.True);
-            Assert.That(parsedTracked.FrameRate, Is.EqualTo(30f));
-            Assert.That(parsedTracked.FrameCount, Is.EqualTo(3));
-            Assert.That(parsedTracked.TryReadGlobalTime(1, out float time), Is.True);
-            Assert.That(time, Is.EqualTo(0.04f).Within(1e-6f));
-            CollectionAssert.AreEqual(new byte[] { 1, 0, 1 }, parsedTracked.humanDetection01);
+            byte[] bytes = KimodoRawMotionUtility.ToFlatBuffer(motion, "smplh");
 
-            var legacyMotion = new KimodoRawMotionData(
-                2, 1, 30f,
-                new[] { "pelvis" }, new[] { -1 },
-                new[] { Vector3.zero, Vector3.zero },
-                new List<float> { 1f, 0f, 0f, 0f, 1f, 0f, 0f, 0f },
-                0);
-            byte[] legacyBytes = KimodoRawMotionUtility.ToFlatBuffer(legacyMotion, "smplh");
             Assert.That(
-                KimodoRawMotionUtility.TryParseFlatBuffer(legacyBytes, out KimodoRawMotionData parsedLegacy, out error),
+                KimodoRawMotionUtility.TryParseFlatBuffer(bytes, out KimodoRawMotionData parsed, out string error),
                 Is.True,
                 error);
-            Assert.That(parsedLegacy.HasGlobalTimeTrack, Is.False);
-            Assert.That(parsedLegacy.HasHumanDetectionTrack, Is.False);
+            Assert.That(parsed.HasGlobalTimeTrack, Is.True);
+            Assert.That(parsed.HasHumanDetectionTrack, Is.True);
+            Assert.That(parsed.FrameRate, Is.EqualTo(30f));
+            Assert.That(parsed.FrameCount, Is.EqualTo(3));
+            Assert.That(parsed.TryReadGlobalTime(1, out float time), Is.True);
+            Assert.That(time, Is.EqualTo(0.04f).Within(1e-6f));
+            CollectionAssert.AreEqual(new byte[] { 1, 0, 1 }, parsed.humanDetection01);
+        }
+
+        private static KimodoRawMotionData CreateMotion(
+            int frameCount,
+            float[] globalTimeSeconds = null,
+            byte[] humanDetection01 = null)
+        {
+            var rotations = new List<float>(frameCount * 4);
+            for (int frame = 0; frame < frameCount; frame++)
+                rotations.AddRange(new[] { 1f, 0f, 0f, 0f });
+            var motion = new KimodoRawMotionData(
+                frameCount, 1, 30f,
+                new[] { "pelvis" }, new[] { -1 },
+                new Vector3[frameCount], rotations, 0,
+                globalTimeSeconds: globalTimeSeconds,
+                humanDetection01: humanDetection01);
+            return motion;
         }
     }
 }

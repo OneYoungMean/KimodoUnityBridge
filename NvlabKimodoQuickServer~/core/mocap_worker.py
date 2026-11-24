@@ -42,11 +42,9 @@ def _build_result(kind: str, npz_path: Path, person: str | None,
     global_time_seconds = timing["frame_timestamps_seconds"]
     human_detection_01 = timing.get("human_detection_01")
     if frame_indices:
-        # Picture inference exports one representative FlowHMR sample. The
-        # picture timing helper intentionally returns a single zero timestamp;
-        # keep the optional tracks aligned with that one-frame KMB payload.
+        # Picture inference exports the middle FlowHMR sample, so both tracks
+        # from the repeated-image detection pass are already reduced to one row.
         global_time_seconds = [global_time_seconds[0]]
-        human_detection_01 = None
     payload, kmb_meta = flowhmr_npz_to_kmb(
         npz_path, frame_indices=frame_indices, camera_npz_path=camera_npz_path,
         bbox_npz_path=bbox_npz_path, keypoints_npz_path=keypoints_npz_path,
@@ -133,6 +131,18 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
     """Map each FlowHMR sample back to the original media timeline."""
     safe_fps = float(motion_fps) if np.isfinite(motion_fps) and motion_fps > 0 else 30.0
     if kind == "picture":
+        if bbox_npz_path is None or not bbox_npz_path.is_file():
+            raise RuntimeError("FlowHMR picture timing requires its bbox detection cache.")
+        with np.load(bbox_npz_path, allow_pickle=False) as bbox_data:
+            if "human_detection_01" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
+                raise RuntimeError(
+                    f"FlowHMR bbox cache is from the pre-track format; rerun inference to regenerate it: {bbox_npz_path}")
+            detections = np.asarray(bbox_data["human_detection_01"], dtype=np.uint8).reshape(-1)
+            if detections.size != frame_count or np.any(detections > 1):
+                raise RuntimeError(f"FlowHMR human_detection_01 does not match the picture inference cache: {bbox_npz_path}")
+            selected_track_id = int(np.asarray(bbox_data["selected_track_id"]).reshape(-1)[0])
+        selected_frame = frame_count // 2
+        is_detected = bool(detections[selected_frame])
         return {
             "source_fps": safe_fps,
             "source_frame_count": 1,
@@ -140,8 +150,9 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
             "frame_timestamps_seconds": [0.0],
             "tracking_frame_range": [0, 1],
             "sample_range": [0, 0],
-            "human_detection_track_id": None,
-            "human_detection_frame_range": None,
+            "human_detection_01": np.asarray([int(is_detected)], dtype=np.uint8),
+            "human_detection_track_id": selected_track_id,
+            "human_detection_frame_range": [0, 1] if is_detected else None,
         }
     if media_path is None or not media_path.is_file():
         raise RuntimeError("FlowHMR video timing requires the original media file.")
@@ -207,19 +218,16 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
     if not np.isfinite(source_fps) or source_fps <= 0 or source_frame_count <= 0:
         raise RuntimeError("Source video has invalid frame-rate or frame-count metadata.")
 
-    detection_mask = None
-    selected_track_id = None
     with np.load(bbox_npz_path, allow_pickle=False) as bbox_data:
         if "start_end" not in bbox_data.files:
             raise RuntimeError(f"FlowHMR bbox cache has no sample frame range: {bbox_npz_path}")
+        if "human_detection_01" not in bbox_data.files or "selected_track_id" not in bbox_data.files:
+            raise RuntimeError(
+                f"FlowHMR bbox cache is from the pre-track format; rerun inference to regenerate it: {bbox_npz_path}")
         sample_range = np.asarray(bbox_data["start_end"]).reshape(-1)
-        tracking_range = np.asarray(
-            bbox_data["tracked_start_end"] if "tracked_start_end" in bbox_data.files else sample_range
-        ).reshape(-1)
-        if "human_detection_01" in bbox_data.files:
-            detection_mask = np.asarray(bbox_data["human_detection_01"], dtype=np.uint8).reshape(-1)
-        if "selected_track_id" in bbox_data.files:
-            selected_track_id = int(np.asarray(bbox_data["selected_track_id"]).reshape(-1)[0])
+        tracking_range = np.asarray(bbox_data["tracked_start_end"]).reshape(-1)
+        detection_mask = np.asarray(bbox_data["human_detection_01"], dtype=np.uint8).reshape(-1)
+        selected_track_id = int(np.asarray(bbox_data["selected_track_id"]).reshape(-1)[0])
     if sample_range.size != 2 or tracking_range.size != 2:
         raise RuntimeError(f"FlowHMR bbox cache has an invalid frame range: {bbox_npz_path}")
     tracked_start, tracked_end = (int(value) for value in tracking_range)
@@ -270,23 +278,22 @@ def _resolve_source_timing(kind: str, media_path: Path | None, bbox_npz_path: Pa
         raise RuntimeError("FlowHMR sample timestamps extend beyond the source video duration.")
     sample_detection = None
     detection_range = None
-    if detection_mask is not None:
-        if np.any(detection_mask > 1):
-            raise RuntimeError(f"FlowHMR human_detection_01 must be binary: {bbox_npz_path}")
-        if sample_end < detection_mask.size and sample_end - sample_start + 1 == frame_count:
-            sample_detection = detection_mask[sample_start:sample_end + 1]
-        elif detection_mask.size == source_frame_count:
-            sample_detection = detection_mask[sample_start:sample_end + 1]
-        elif detection_mask.size == raw_sample_end - raw_sample_start + 1:
-            offset = sample_start - raw_sample_start
-            sample_detection = detection_mask[offset:offset + frame_count]
-        elif detection_mask.size == frame_count:
-            sample_detection = detection_mask
-        else:
-            raise RuntimeError(f"FlowHMR human_detection_01 does not match its bbox/video range: {bbox_npz_path}")
-        hits = np.flatnonzero(sample_detection)
-        if hits.size:
-            detection_range = [sample_start + int(hits[0]), sample_start + int(hits[-1]) + 1]
+    if np.any(detection_mask > 1):
+        raise RuntimeError(f"FlowHMR human_detection_01 must be binary: {bbox_npz_path}")
+    if sample_end < detection_mask.size and sample_end - sample_start + 1 == frame_count:
+        sample_detection = detection_mask[sample_start:sample_end + 1]
+    elif detection_mask.size == source_frame_count:
+        sample_detection = detection_mask[sample_start:sample_end + 1]
+    elif detection_mask.size == raw_sample_end - raw_sample_start + 1:
+        offset = sample_start - raw_sample_start
+        sample_detection = detection_mask[offset:offset + frame_count]
+    elif detection_mask.size == frame_count:
+        sample_detection = detection_mask
+    else:
+        raise RuntimeError(f"FlowHMR human_detection_01 does not match its bbox/video range: {bbox_npz_path}")
+    hits = np.flatnonzero(sample_detection)
+    if hits.size:
+        detection_range = [sample_start + int(hits[0]), sample_start + int(hits[-1]) + 1]
     return {
         "source_fps": source_fps,
         "source_frame_count": source_frame_count,
