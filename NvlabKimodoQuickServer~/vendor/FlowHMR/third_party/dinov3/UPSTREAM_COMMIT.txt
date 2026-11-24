@@ -1,0 +1,5 @@
+Upstream repository: https://github.com/facebookresearch/dinov3
+Commit: 6876159a11b4df116f30f667f8c9888617df0751
+
+The source tree is vendored without its .git directory. See LICENSE.md for the
+DINOv3 License terms, which must accompany redistributed DINOv3 materials.
