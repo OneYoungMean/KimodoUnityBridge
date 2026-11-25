@@ -15,6 +15,45 @@ import urllib.request
 DEFAULT_SETUP_LOG_NAME = "setup.log"
 BITSANDBYTES_REQUIRED = "0.49.2"
 
+# FlowHMR's checked-in requirements describe the original Python 3.10 / torch
+# 2.5 environment and include a web-only ``huggingface_hub<1`` constraint.  The
+# QuickServer already owns the compatible torch/numpy/scipy/HF runtime, so this
+# list contains only the raw-video inference imports that are absent from that
+# environment.  Every package is installed with ``--no-deps`` below: resolving
+# the upstream requirements would silently replace the Kimodo runtime.
+FLOWHMR_RUNTIME_PACKAGES = (
+    "opencv-python==4.11.0.86",
+    "supervision==0.25.1",
+    "loguru==0.7.3",
+    "win32-setctime==1.2.0",
+    "pycocotools==2.0.10",
+    "thop==0.1.1.post2209072238",
+    "ninja==1.11.1.4",
+    "tabulate==0.9.0",
+    "torchdiffeq==0.2.5",
+    "transforms3d==0.4.2",
+    "roma==1.5.4",
+    "yacs==0.1.8",
+    "timm==1.0.19",
+    "pytorch-lightning==2.5.2",
+    "lightning-utilities==0.15.2",
+    "defusedxml==0.7.1",
+    "braceexpand==0.1.7",
+    "termcolor==3.1.0",
+    "ftfy==6.3.1",
+    "scikit-learn==1.7.2",
+    "submitit==1.5.3",
+    "torchmetrics==1.8.2",
+)
+
+FLOWHMR_PROTECTED_PACKAGES = (
+    "torch",
+    "torchvision",
+    "numpy",
+    "scipy",
+    "huggingface_hub",
+)
+
 
 @dataclass
 class ProjectPaths:
@@ -45,8 +84,8 @@ class ProjectPaths:
 
     @property
     def flowhmr_venv_dir(self) -> Path:
-        override = os.environ.get("KIMODO_FLOWHMR_VENV", "").strip()
-        return Path(override).expanduser().resolve() if override else self.root_dir / ".flowhmr-venv"
+        """Compatibility alias: FlowHMR is hosted in QuickServer's .venv."""
+        return self.venv_dir
 
     @property
     def flowhmr_python(self) -> Path:
@@ -595,57 +634,97 @@ def _runtime_import_check(paths: ProjectPaths) -> None:
         raise SetupError(f"Runtime import check failed.\n{output}")
 
 
+def _flowhmr_protected_versions(paths: ProjectPaths) -> dict[str, str]:
+    script = (
+        "import importlib.metadata as m; "
+        "names=" + repr(FLOWHMR_PROTECTED_PACKAGES) + "; "
+        "print('\\n'.join(name+'='+m.version(name) for name in names))"
+    )
+    rc, output = _run_capture([str(paths.venv_python), "-c", script])
+    if rc != 0:
+        raise SetupError(f"Could not read protected Kimodo package versions.\n{output}")
+    versions: dict[str, str] = {}
+    for line in output.splitlines():
+        name, separator, version = line.partition("=")
+        if separator and version:
+            versions[name] = version
+    missing = [name for name in FLOWHMR_PROTECTED_PACKAGES if name not in versions]
+    if missing:
+        raise SetupError("Protected Kimodo packages are missing: " + ", ".join(missing))
+    return versions
+
+
+def _validate_flowhmr_protected_versions(paths: ProjectPaths,
+                                         before: dict[str, str]) -> None:
+    after = _flowhmr_protected_versions(paths)
+    changed = [f"{name} {before[name]} -> {after[name]}"
+               for name in FLOWHMR_PROTECTED_PACKAGES if before.get(name) != after.get(name)]
+    if changed:
+        raise SetupError(
+            "FlowHMR setup changed protected Kimodo packages: " + ", ".join(changed)
+        )
+
+
+def _flowhmr_runtime_ready(paths: ProjectPaths) -> bool:
+    source = paths.root_dir / "vendor" / "FlowHMR"
+    if not paths.venv_python.is_file() or not (source / "run_v2m_demo_generation.py").is_file():
+        return False
+    probe = (
+        "import torch, cv2, flowhmr, yolox; "
+        "from flowhmr.pipeline.v2m_inference import V2MInferenceEngine; "
+        "from flowhmr.utils.runtime_video_processing import VideoProcessor; "
+        "from flowhmr.utils.runtime_sam_features import Sam3DTokenExtractor; "
+        "from flowhmr.utils.runtime_vggt_camera import extract_vggt_camera; "
+        "print(torch.__version__)"
+    )
+    rc, _ = _run_capture([str(paths.venv_python), "-c", probe], cwd=source)
+    return rc == 0
+
+
 def _setup_flowhmr_env(paths: ProjectPaths, logger: SetupLogger) -> None:
-    """Install FlowHMR into an isolated Python 3.10 environment, never QuickServer's venv."""
+    """Install FlowHMR's raw-video runtime into QuickServer's existing .venv."""
     configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
     if configured_python:
         configured_path = Path(configured_python).expanduser().resolve()
         if not configured_path.is_file():
             raise SetupError(f"KIMODO_FLOWHMR_PYTHON does not exist: {configured_path}")
-        logger.log(f"[INFO] Using externally managed FlowHMR Python: {configured_path}")
-        return
+        if configured_path != paths.venv_python.resolve():
+            raise SetupError(
+                "KIMODO_FLOWHMR_PYTHON must point to QuickServer's .venv Python: "
+                f"{paths.venv_python}"
+            )
     source = paths.root_dir / "vendor" / "FlowHMR"
     main_script = source / "run_v2m_demo_generation.py"
-    requirements = source / "requirements.txt"
-    web_requirements = source / "tools" / "web" / "requirements.txt"
     yolox_setup = source / "third_party" / "YOLOX" / "setup.py"
-    missing = [str(path) for path in (main_script, requirements, web_requirements, yolox_setup) if not path.is_file()]
+    missing = [str(path) for path in (main_script, yolox_setup) if not path.is_file()]
     if missing:
         raise SetupError("Bundled FlowHMR source is incomplete: " + ", ".join(missing))
-    if paths.flowhmr_python.exists() and not os.environ.get("KIMODO_SETUP_FLOWHMR_FORCE"):
-        # FlowHMR is bundled as source rather than installed as a wheel.  Its
-        # package is importable when the probe uses the same checkout directory
-        # as the worker, so validate from that directory instead of the
-        # QuickServer root.
-        rc, _ = _run_capture(
-            [str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr; print(torch.__version__)"],
-            cwd=source,
-        )
-        if rc == 0:
-            logger.log(f"[INFO] FlowHMR environment already ready: {paths.flowhmr_python}")
-            return
+    if not paths.venv_python.is_file():
+        raise SetupError(f"Missing QuickServer environment Python: {paths.venv_python}")
 
     uv_bin = _find_uv_bin(paths, logger)
-    logger.log("[STEP] Creating isolated FlowHMR Python 3.10 environment (QuickServer .venv is untouched)...")
-    _run_logged([uv_bin, "python", "install", "3.10"], logger)
-    paths.flowhmr_venv_dir.parent.mkdir(parents=True, exist_ok=True)
-    _run_logged([uv_bin, "venv", str(paths.flowhmr_venv_dir), "--python", "3.10", "--allow-existing"], logger)
-    if not paths.flowhmr_python.is_file():
-        raise SetupError(f"Missing FlowHMR environment Python: {paths.flowhmr_python}")
-
+    protected_before = _flowhmr_protected_versions(paths)
+    logger.log(f"[STEP] Preparing FlowHMR runtime in QuickServer .venv: {paths.venv_python}")
     default_index = _select_uv_default_index()
-    _run_logged([uv_bin, "pip", "install", "--python", str(paths.flowhmr_python),
-                 "--default-index", default_index, "-r", str(requirements), "-r", str(web_requirements)], logger)
-    _run_logged([uv_bin, "pip", "install", "--python", str(paths.flowhmr_python),
+    _run_logged([uv_bin, "pip", "install", "--python", str(paths.venv_python),
+                 "--default-index", default_index, "--no-deps", *FLOWHMR_RUNTIME_PACKAGES], logger)
+    _run_logged([uv_bin, "pip", "install", "--python", str(paths.venv_python),
                  "--default-index", default_index, "--no-build-isolation", "--no-deps",
                  "--editable", str(yolox_setup.parent)], logger)
-    rc, output = _run_capture(
-        [str(paths.flowhmr_python), "-c", "import torch, cv2, flowhmr, yolox; print('torch='+torch.__version__)"],
-        cwd=source,
-    )
-    if rc != 0:
+    _validate_flowhmr_protected_versions(paths, protected_before)
+    if not _flowhmr_runtime_ready(paths):
+        rc, output = _run_capture(
+            [str(paths.venv_python), "-c", (
+                "import torch, cv2, flowhmr, yolox; "
+                "from flowhmr.pipeline.v2m_inference import V2MInferenceEngine; "
+                "from flowhmr.utils.runtime_video_processing import VideoProcessor; "
+                "from flowhmr.utils.runtime_sam_features import Sam3DTokenExtractor; "
+                "from flowhmr.utils.runtime_vggt_camera import extract_vggt_camera; "
+                "print('torch='+torch.__version__)"
+            )], cwd=source,
+        )
         raise SetupError(f"FlowHMR environment validation failed.\n{output}")
-    logger.log(f"[OK] FlowHMR environment ready: {paths.flowhmr_python}")
+    logger.log(f"[OK] FlowHMR runtime ready in shared environment: {paths.venv_python}")
 
 
 def _setup_buildenv(paths: ProjectPaths, setup_mode: str, logger: SetupLogger) -> None:
@@ -853,15 +932,30 @@ def run_setup_cli(root_dir: str | os.PathLike[str], options: SetupCliOptions) ->
 
     sentinel = _read_sentinel(paths.setup_sentinel)
     flowhmr_policy = os.environ.get("KIMODO_SETUP_FLOWHMR", "auto").strip().lower()
+    flowhmr_disabled = flowhmr_policy in {"0", "false", "no", "off", "skip"}
+    flowhmr_python_override = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
     flowhmr_ready = (
-        flowhmr_policy in {"0", "false", "no", "off", "skip"}
-        or bool(os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip())
-        or paths.flowhmr_python.exists()
+        flowhmr_disabled
+        or (not flowhmr_python_override and _flowhmr_runtime_ready(paths))
     )
-    if sentinel.get("setup_mode", "").lower() == requested_mode and paths.venv_python.exists() and flowhmr_ready:
+    base_setup_ready = sentinel.get("setup_mode", "").lower() == requested_mode and paths.venv_python.exists()
+    if base_setup_ready and flowhmr_ready:
         log_path = Path(options.log_path).resolve() if options.log_path else paths.default_setup_log_path
         with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
             logger.log(f"[PHASE] setup skipped reason=existing_marker mode={requested_mode}")
+        return SetupCliResult(ok=True, exit_code=0, venv_python=str(paths.venv_python))
+    if base_setup_ready:
+        log_path = Path(options.log_path).resolve() if options.log_path else paths.default_setup_log_path
+        with SetupLogger(options.output_mode or "console", log_path, append=True) as logger:
+            try:
+                _setup_flowhmr_env(paths, logger)
+            except SetupError as exc:
+                if flowhmr_policy in {"1", "true", "yes", "on", "required"}:
+                    logger.log(f"[ERROR] {exc}")
+                    return SetupCliResult(ok=False, exit_code=1, venv_python="")
+                logger.log(f"[WARN] FlowHMR setup skipped: {exc}")
+            else:
+                logger.log("[OK] FlowHMR runtime setup complete in QuickServer .venv.")
         return SetupCliResult(ok=True, exit_code=0, venv_python=str(paths.venv_python))
     if paths.setup_sentinel.exists():
         archive_path(paths.setup_sentinel, paths.recycle_dir)

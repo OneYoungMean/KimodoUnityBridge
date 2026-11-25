@@ -94,15 +94,18 @@ def analyze_media(kind: str, media_path: str, person: str | None = None,
     flowhmr_models = Path(os.environ.get("KIMODO_FLOWHMR_MODELS_ROOT") or runtime_root / "models" / "FlowHMR").expanduser().resolve()
     checkpoint = ensure_flowhmr_assets(flowhmr_root, skeleton_only=True, model_root=flowhmr_models)
     configured_python = os.environ.get("KIMODO_FLOWHMR_PYTHON", "").strip()
+    current_python = Path(sys.executable).expanduser().resolve()
     if configured_python:
         python = Path(configured_python).expanduser().resolve(strict=True)
-    else:
-        default_flowhmr_python = runtime_root / ".flowhmr-venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-        if not default_flowhmr_python.is_file():
+        if python != current_python:
             raise RuntimeError(
-                f"FlowHMR Python was not found at {default_flowhmr_python}. Run QuickServer setup or set KIMODO_FLOWHMR_PYTHON."
+                "FlowHMR must use the QuickServer service interpreter; "
+                f"KIMODO_FLOWHMR_PYTHON={python}, sys.executable={current_python}."
             )
-        python = default_flowhmr_python
+    else:
+        # QuickServer and FlowHMR intentionally share the interpreter that
+        # started this service process.
+        python = current_python
     if not python.is_file():
         raise RuntimeError("FlowHMR Python was not found. Set KIMODO_FLOWHMR_PYTHON to its environment Python executable.")
 

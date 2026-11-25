@@ -18,8 +18,40 @@ class QuickServerSetupTests(unittest.TestCase):
             paths = quickserver_setup.discover_project_paths(root)
 
             self.assertEqual(paths.venv_dir, root / ".venv")
-            self.assertEqual(paths.flowhmr_venv_dir, root / ".flowhmr-venv")
-            self.assertNotEqual(paths.flowhmr_venv_dir, paths.venv_dir)
+            self.assertEqual(paths.flowhmr_venv_dir, paths.venv_dir)
+            self.assertEqual(paths.flowhmr_python, paths.venv_python)
+
+    def test_setup_flowhmr_uses_shared_python_without_installing_upstream_requirements(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "kimodo").mkdir()
+            (root / "kimodo" / "pyproject.toml").write_text(
+                "[project]\nname='test'\nversion='0'\n", encoding="utf-8"
+            )
+            source = root / "vendor" / "FlowHMR"
+            yolox = source / "third_party" / "YOLOX"
+            yolox.mkdir(parents=True)
+            (source / "run_v2m_demo_generation.py").touch()
+            (yolox / "setup.py").touch()
+            paths = quickserver_setup.discover_project_paths(root)
+            paths.venv_python.parent.mkdir(parents=True)
+            paths.venv_python.touch()
+            logger = SimpleNamespace(log=lambda _message: None)
+            with patch.object(quickserver_setup, "_find_uv_bin", return_value="uv"), patch.object(
+                quickserver_setup, "_select_uv_default_index", return_value="https://pypi.org/simple"
+            ), patch.object(quickserver_setup, "_flowhmr_protected_versions", return_value={
+                name: "unchanged" for name in quickserver_setup.FLOWHMR_PROTECTED_PACKAGES
+            }), patch.object(quickserver_setup, "_validate_flowhmr_protected_versions"), patch.object(
+                quickserver_setup, "_flowhmr_runtime_ready", return_value=True
+            ), patch.object(quickserver_setup, "_run_logged") as run_logged:
+                quickserver_setup._setup_flowhmr_env(paths, logger)
+
+            self.assertEqual(run_logged.call_count, 2)
+            install_args = run_logged.call_args_list[0].args[0]
+            self.assertEqual(install_args[install_args.index("--python") + 1], str(paths.venv_python))
+            self.assertIn("--no-deps", install_args)
+            self.assertNotIn("-r", install_args)
+            self.assertEqual(run_logged.call_args_list[1].args[0][-2], "--editable")
 
     def test_macos_arm64_uses_checked_in_motion_correction_wheel(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -115,6 +147,26 @@ class QuickServerSetupTests(unittest.TestCase):
                     quickserver_setup._find_uv_bin(paths, logger)
 
             self.assertIn("[ERROR] No working uv executable found during setup bootstrap.", messages)
+
+    def test_flowhmr_setup_is_required_after_base_sentinel_when_runtime_imports_are_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "kimodo"
+            source.mkdir()
+            (source / "pyproject.toml").write_text("[project]\nname='test'\nversion='0'\n", encoding="utf-8")
+            paths = quickserver_setup.discover_project_paths(root)
+            paths.venv_python.parent.mkdir(parents=True)
+            paths.venv_python.touch()
+            paths.setup_sentinel.write_text("setup_mode=auto\n", encoding="utf-8")
+            options = quickserver_setup.SetupCliOptions("file", None, False, "auto", None)
+            with patch.object(quickserver_setup, "_flowhmr_runtime_ready", return_value=False), patch.object(
+                quickserver_setup, "_setup_buildenv"
+            ) as setup_buildenv, patch.object(quickserver_setup, "_setup_flowhmr_env") as setup_flowhmr:
+                result = quickserver_setup.run_setup_cli(root, options)
+
+            self.assertTrue(result.ok)
+            setup_buildenv.assert_not_called()
+            setup_flowhmr.assert_called_once()
 
 
 if __name__ == "__main__":

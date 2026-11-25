@@ -41,6 +41,7 @@ class MocapAnalysisMemoryTests(unittest.TestCase):
             image.touch()
             video.touch()
             with patch.dict(os.environ, {'KIMODO_FLOWHMR_PYTHON': str(python)}), \
+                    patch.object(mocap_analysis.sys, 'executable', str(python)), \
                     patch.object(mocap_analysis, 'ensure_flowhmr_assets', return_value=root / 'model.ckpt'), \
                     patch.object(mocap_analysis.subprocess, 'run', return_value=completed) as run:
                 for media, expected in ((image, 'picture'), (video, 'video')):
