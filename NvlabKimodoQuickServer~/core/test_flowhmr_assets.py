@@ -136,8 +136,36 @@ class FlowHmrAssetTests(unittest.TestCase):
                     flowhmr_assets.ensure_flowhmr_assets(source)
             self.assertTrue(calls)
             self.assertTrue(all(not hf_repo for _, _, hf_repo in calls))
-            self.assertIn(('ckpts/vggt-omega/vggt_omega_1b_512.pt', 'mirror/vggt', ''), calls)
+            self.assertTrue(any(repo == 'mirror/vggt' for _, repo, _ in calls))
             self.assertTrue(any(repo == 'mirror/sam3d' for _, repo, _ in calls))
+
+    def test_sam3d_assets_download_root_and_nested_files_separately(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = self._complete_local_tree(Path(temp))
+            for relative, *_ in flowhmr_assets.GATED_REPOSITORIES:
+                (source / relative).unlink()
+            calls = []
+
+            def record_download(label, target_dir, modelscope_repo, huggingface_repo, **kwargs):
+                patterns = tuple(kwargs['allow_patterns'])
+                calls.append((target_dir.name, patterns, modelscope_repo, huggingface_repo))
+                for relative in patterns:
+                    target = target_dir / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(b'downloaded asset')
+
+            with patch.object(flowhmr_assets, '_download_snapshot', side_effect=record_download):
+                flowhmr_assets.ensure_flowhmr_assets(source)
+
+            self.assertIn(
+                ('sam-3d-body-dinov3', ('model.ckpt', 'model_config.yaml'), 'facebook/sam-3d-body-dinov3', ''),
+                calls,
+            )
+            self.assertIn(
+                ('sam-3d-body-dinov3', ('assets/mhr_model.pt',), 'facebook/sam-3d-body-dinov3', ''),
+                calls,
+            )
+            self.assertTrue(all((source / relative).is_file() for relative, *_ in flowhmr_assets.GATED_REPOSITORIES))
 
     def test_smplh_skeleton_asset_is_joint_only_float32(self):
         with tempfile.TemporaryDirectory() as temp:

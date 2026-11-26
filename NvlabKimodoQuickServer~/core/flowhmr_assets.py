@@ -241,39 +241,45 @@ def ensure_flowhmr_assets(root: Path, checkpoint: str | None = None,
     # For gated HF assets, only try an explicitly configured ModelScope mirror.
     # Never use a user's HF token implicitly; failure becomes a manual-download
     # instruction below.
-    attempted_mirrors: set[tuple[str, str]] = set()
-    for relative, destination, modelscope_env, _hf_repo in GATED_REPOSITORIES:
-        target = model_root / relative
-        if target.is_file():
+    # ModelScope 1.37.1 incorrectly narrows a mixed root/nested pattern set to
+    # the nested directory (for example, ``model.ckpt`` + ``assets/mhr_model.pt``
+    # becomes a server-side ``Root=assets`` query).  Download each destination
+    # in separate root-only and nested batches so all required files are visible.
+    grouped_repositories: dict[str, list[tuple[str, str, str, str]]] = {}
+    for entry in GATED_REPOSITORIES:
+        grouped_repositories.setdefault(entry[1], []).append(entry)
+    for destination, entries in grouped_repositories.items():
+        if all((model_root / relative).is_file() for relative, *_ in entries):
             continue
+        _relative, _destination, modelscope_env, _hf_repo = entries[0]
         if modelscope_env == "KIMODO_FLOWHMR_VGGT_MODELSCOPE_REPOSITORY":
             mirror_repo = os.environ.get(modelscope_env, VGGT_MODELSCOPE_REPOSITORY).strip()
         elif modelscope_env == "KIMODO_FLOWHMR_SAM3D_MODELSCOPE_REPOSITORY":
             mirror_repo = os.environ.get(modelscope_env, SAM3D_MODELSCOPE_REPOSITORY).strip()
         else:
             mirror_repo = os.environ.get(modelscope_env, "").strip()
-        mirror_key = (mirror_repo, destination)
-        if mirror_key in attempted_mirrors:
-            continue
-        attempted_mirrors.add(mirror_key)
-        try:
-            _download_snapshot(
-                relative, model_root / destination, mirror_repo, "",
-                allow_patterns=tuple(
-                    Path(asset).relative_to(Path(destination)).as_posix()
-                    for asset, asset_destination, *_ in GATED_REPOSITORIES
-                    if asset_destination == destination
-                ),
-                expected_files=tuple(
-                    Path(asset).relative_to(Path(destination)).as_posix()
-                    for asset, asset_destination, *_ in GATED_REPOSITORIES
-                    if asset_destination == destination
-                ),
-            )
-        except RuntimeError:
-            # Keep checking the complete gated set so the final exception lists
-            # every missing file and the exact manual preparation locations.
-            pass
+        relative_entries = [
+            (Path(relative).relative_to(Path(destination)).as_posix(), relative)
+            for relative, *_ in entries
+            if not (model_root / relative).is_file()
+        ]
+        batches = (
+            ("root", tuple(item for item, _ in relative_entries if "/" not in item)),
+            ("nested", tuple(item for item, _ in relative_entries if "/" in item)),
+        )
+        for batch_name, patterns in batches:
+            if not patterns:
+                continue
+            try:
+                _download_snapshot(
+                    f"{destination} ({batch_name})", model_root / destination, mirror_repo, "",
+                    allow_patterns=patterns,
+                    expected_files=patterns,
+                )
+            except RuntimeError:
+                # Keep checking the complete gated set so the final exception lists
+                # every missing file and the exact manual preparation locations.
+                pass
 
     gated_paths = FLOWHMR_SKELETON_GATED_FILES if skeleton_only else FLOWHMR_GATED_FILES
     gated = _missing(model_root, gated_paths)
